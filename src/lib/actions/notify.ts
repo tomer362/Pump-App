@@ -66,7 +66,7 @@ export async function notifyPostAuthor(
 
 type Payload = { title: string; body: string; url?: string; tag?: string };
 
-function vapidConfigured() {
+export function vapidConfigured() {
   return Boolean(
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
       process.env.VAPID_PRIVATE_KEY &&

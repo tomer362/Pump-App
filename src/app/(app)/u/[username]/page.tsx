@@ -7,9 +7,12 @@ import { PersonRow } from "@/components/social/person-row";
 import { PostCard } from "@/components/social/post-card";
 import { AchievementGrid } from "@/components/profile/achievement-grid";
 import { requireUser } from "@/lib/session";
-import { getFollowCounts, getPersonByUsername } from "@/lib/queries/social";
+import {
+  getFollowCounts,
+  getPersonByUsername,
+  getUserFeed,
+} from "@/lib/queries/social";
 import { getAchievements, getLifetimeStats } from "@/lib/queries/stats";
-import { getFollowingFeed } from "@/lib/queries/social";
 import { db } from "@/lib/db";
 import { post, user as userTable, workout } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
@@ -49,12 +52,13 @@ export default async function PublicProfilePage(
       .limit(10),
   ]);
 
-  // Only people you follow get their sessions rendered here.
-  const feed = person.isFollowing
-    ? (await getFollowingFeed(me.id, { limit: 30 })).filter(
-        (i) => i.author.id === person.id,
-      )
-    : [];
+  // Only people you follow get their sessions rendered here. This is their
+  // own posts, not a slice of the viewer's home feed — that used to be
+  // `getFollowingFeed(me.id).filter(...)`, which is capped at the viewer's
+  // most recent posts across everyone they follow, so a viewer who follows a
+  // handful of active people could see this render empty regardless of
+  // whether the author had posted recently.
+  const feed = person.isFollowing ? await getUserFeed(person.id, me.id) : [];
 
   return (
     <div className="pb-8">

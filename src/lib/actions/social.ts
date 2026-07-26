@@ -18,7 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
 import { grantAchievements } from "./achievements";
-import { notifyFriends } from "./push";
+import { notifyFriends } from "@/lib/push-fanout";
 import { notify, notifyPostAuthor } from "./notify";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";

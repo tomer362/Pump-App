@@ -15,6 +15,7 @@
  *   node scripts/check-authz.mjs
  */
 import { chromium, devices } from "playwright";
+import { globSync, readFileSync } from "node:fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const CHROMIUM =
@@ -84,6 +85,48 @@ async function actionIdsByName(page, url) {
   return map;
 }
 
+/**
+ * Whether a given file+export is registered as a Server Action at all, per
+ * Next's own build manifest — the ground truth, not a guess.
+ *
+ * `actionIdsByName` above only finds an id if some client component actually
+ * imports that export, because that's the only case where the id gets
+ * embedded in a shipped JS chunk. But Next assigns every export of a
+ * `"use server"` file a stable id at compile time regardless of whether any
+ * client code references it — and, critically, that id is (by default, with
+ * no `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` set, which this app doesn't set) a
+ * deterministic hash of the file path and export name. Anyone with the source
+ * — which is exactly the threat model for a repo like this one — can compute
+ * it offline without ever seeing it in a bundle. Client-visibility is not the
+ * boundary; the manifest is.
+ *
+ * Verified directly: reverting the `notifyFriends` fix and reading this
+ * manifest showed an id attached to `/notifications`'s bundle (because
+ * `push.ts` is used there via `savePushSubscription`) even though no client
+ * component anywhere imports `notifyFriends` itself — and POSTing that id
+ * executed the action. `actionIdsByName` never found it on any page it scanned.
+ */
+function serverActionExists(relFilename, exportedName) {
+  // Only the dev manifest — this script targets a running `pnpm dev`, and
+  // `.next/server/...` is whatever a *production* build last wrote, which can
+  // easily be stale relative to the server actually being probed.
+  const manifestPaths = globSync(".next/dev/server/server-reference-manifest.json");
+  for (const p of manifestPaths) {
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      continue;
+    }
+    for (const meta of Object.values(raw.node ?? {})) {
+      if (meta.filename === relFilename && meta.exportedName === exportedName) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** POST an action id as this user and return the raw response body. */
 async function postAction(page, url, actionId, args) {
   return page.evaluate(
@@ -107,6 +150,21 @@ function check(label, passed, detail = "") {
   checks++;
   console.log(`  ${passed ? "ok  " : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
   if (!passed) failures.push(label);
+}
+
+/**
+ * Fail loudly and stop, rather than letting a broken fixture make every
+ * downstream check pass vacuously.
+ *
+ * If A's co-op setup silently fails, `coopId` becomes the literal string
+ * `"coop"` (the last path segment of the URL it never left), and every check
+ * built on it goes green having tested nothing: `/coop/coop` 404s like a
+ * genuine non-member probe would, an absent join code makes the "does the
+ * code leak" check vacuously true, and there is no action to probe at all.
+ * This turns that silent pass into a loud, specific failure instead.
+ */
+function requireFixture(condition, message) {
+  if (!condition) throw new Error(`fixture setup failed: ${message}`);
 }
 
 try {
@@ -138,6 +196,12 @@ try {
       .textContent({ timeout: 10000 })
       .catch(() => null)
   )?.trim();
+
+  requireFixture(
+    /^[0-9a-f-]{36}$/.test(coopId ?? ""),
+    `expected a co-op session URL, landed on "${a.page.url()}" instead`,
+  );
+  requireFixture(Boolean(joinCode), "could not read a join code off the room page");
 
   console.log("→ B probes A's resources");
 
@@ -201,17 +265,20 @@ try {
     .first()
     .getAttribute("href")
     .catch(() => null);
-  if (gymLink) {
-    const gymRes = await b.page.goto(`${BASE}${gymLink}`, {
-      waitUntil: "domcontentloaded",
-    });
-    const gymHtml = await b.page.content();
-    check(
-      "gym detail (and its join code) is not readable by a non-member",
-      gymRes.status() === 404 || !/Join code/i.test(gymHtml),
-      `status ${gymRes.status()}`,
-    );
-  }
+  // Previously: `if (gymLink) { check(...) }`. When gym creation silently
+  // failed, this whole check vanished from the summary with no trace — the
+  // final "N of N passed" count just quietly had a smaller N, and nothing in
+  // the output said a gym check was ever supposed to run.
+  requireFixture(Boolean(gymLink), "could not find a gym link on /gyms after creating one");
+  const gymRes = await b.page.goto(`${BASE}${gymLink}`, {
+    waitUntil: "domcontentloaded",
+  });
+  const gymHtml = await b.page.content();
+  check(
+    "gym detail (and its join code) is not readable by a non-member",
+    gymRes.status() === 404 || !/Join code/i.test(gymHtml),
+    `status ${gymRes.status()}`,
+  );
 
   // 5. A's in-progress workout must not be readable.
   await a.page.goto(`${BASE}/start`, { waitUntil: "networkidle" });
@@ -258,6 +325,28 @@ try {
       ran ? "action ran and returned nothing" : "INCONCLUSIVE: action did not run",
     );
   }
+
+  // 7. `notifyFriends` used to be exported from a "use server" module while
+  //    taking a caller-supplied userId and freeform payload — any signed-in
+  //    user could blast arbitrary push text to any user's entire friend list.
+  //    It never appeared in any client-shipped chunk (nothing client-side
+  //    imports it directly), so a chunk-scraping check would pass whether or
+  //    not it was fixed — verified by reverting the fix and rechecking. The
+  //    only reliable proof is Next's own build manifest: visit a route that
+  //    forces `push.ts` to compile, then check whether the manifest still
+  //    carries an id for this file+export pair at all.
+  await a.page.goto(`${BASE}/notifications`, { waitUntil: "networkidle" });
+  const stillAnAction = serverActionExists(
+    "src/lib/actions/push.ts",
+    "notifyFriends",
+  );
+  check(
+    "notifyFriends is not registered as a Server Action at all",
+    !stillAnAction,
+    stillAnAction
+      ? "found in server-reference-manifest.json — still a live POST endpoint"
+      : "absent from the manifest — moved out of \"use server\" scope",
+  );
 
   await a.ctx.close();
   await b.ctx.close();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Plus, Search, X } from "lucide-react";
 import { Badge, Card, Input } from "@/components/ui/primitives";
@@ -16,13 +16,15 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
   const [creating, setCreating] = useState(false);
   const debounce = useRef<number | undefined>(undefined);
 
+  const search = useCallback(async (q: string) => {
+    setItems(await searchExercisesAction({ query: q }));
+  }, []);
+
   useEffect(() => {
     window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(async () => {
-      setItems(await searchExercisesAction({ query }));
-    }, 200);
+    debounce.current = window.setTimeout(() => void search(query), 200);
     return () => window.clearTimeout(debounce.current);
-  }, [query]);
+  }, [query, search]);
 
   return (
     <div className="px-4">
@@ -89,6 +91,12 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
         onConfirm={() => {
           setCreating(false);
           setQuery("");
+          // Refetch directly rather than relying on the effect above: when
+          // the search box was already empty (the common case — this is the
+          // default state), setQuery("") is a same-value no-op and the
+          // [query]-keyed effect never reruns, so a newly created exercise
+          // silently didn't appear until an unrelated reload.
+          void search("");
         }}
       />
     </div>
