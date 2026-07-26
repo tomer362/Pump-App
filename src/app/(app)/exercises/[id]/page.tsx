@@ -1,0 +1,121 @@
+import { notFound } from "next/navigation";
+import { NavBar } from "@/components/ui/nav-bar";
+import { Badge, Card, EmptyState, SectionTitle } from "@/components/ui/primitives";
+import { ExerciseProgressChart } from "@/components/exercise/exercise-progress-chart";
+import { requireUser } from "@/lib/session";
+import {
+  getExercise,
+  getExerciseHistory,
+  getExerciseRecords,
+} from "@/lib/queries/exercise";
+import { formatDayLabel, formatWeight, labelize } from "@/lib/utils";
+import { Dumbbell } from "lucide-react";
+
+const KIND_LABEL: Record<string, string> = {
+  "1rm": "Est. 1RM",
+  weight: "Heaviest",
+  volume: "Best set volume",
+  reps: "Most reps",
+};
+
+export default async function ExerciseDetailPage(
+  props: PageProps<"/exercises/[id]">,
+) {
+  const { id } = await props.params;
+  const me = await requireUser();
+
+  const exercise = await getExercise(id);
+  if (!exercise) notFound();
+  // Custom exercises belong to one user.
+  if (exercise.ownerId && exercise.ownerId !== me.id) notFound();
+
+  const [history, records] = await Promise.all([
+    getExerciseHistory(me.id, id, 30),
+    getExerciseRecords(me.id, id),
+  ]);
+
+  return (
+    <div className="pb-8">
+      <NavBar
+        title={exercise.name}
+        back
+        subtitle={`${labelize(exercise.primaryMuscle)} · ${labelize(exercise.equipment)}`}
+      />
+
+      <div className="space-y-6 px-4">
+        {exercise.secondaryMuscles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {exercise.secondaryMuscles.map((m) => (
+              <Badge key={m}>{labelize(m)}</Badge>
+            ))}
+          </div>
+        )}
+
+        {records.length > 0 && (
+          <div>
+            <SectionTitle>Your records</SectionTitle>
+            <Card className="divide-hairline divide-y overflow-hidden">
+              {records.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="text-text-3 flex-1 text-[13px]">
+                    {KIND_LABEL[r.kind] ?? r.kind}
+                  </span>
+                  <span className="num text-[15px] font-bold">
+                    {r.kind === "reps"
+                      ? `${Math.round(r.value)} reps`
+                      : `${formatWeight(r.value, me.unit)} ${me.unit}`}
+                  </span>
+                </div>
+              ))}
+            </Card>
+          </div>
+        )}
+
+        {history.length === 0 ? (
+          <EmptyState
+            icon={Dumbbell}
+            title="Not logged yet"
+            body="Once you complete a few sets of this exercise, its progress chart and full log appear here."
+          />
+        ) : (
+          <>
+            <div>
+              <SectionTitle>Progress</SectionTitle>
+              <Card className="px-4 py-4">
+                <ExerciseProgressChart data={history} unit={me.unit} />
+              </Card>
+            </div>
+
+            <div>
+              <SectionTitle>Log</SectionTitle>
+              <div className="space-y-3">
+                {history.map((h) => (
+                  <Card key={h.workoutId} className="px-4 py-3">
+                    <p className="text-text-3 mb-1.5 text-[12px]">
+                      {formatDayLabel(new Date(h.date))}
+                    </p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      {h.sets.map((s, i) => (
+                        <span key={i} className="num text-[14px]">
+                          <span className="text-text-3">
+                            {s.setType === "warmup" ? "W" : i + 1}
+                          </span>{" "}
+                          <span className="font-semibold">
+                            {s.weightKg != null
+                              ? formatWeight(s.weightKg, me.unit)
+                              : "—"}
+                          </span>
+                          <span className="text-text-3">×{s.reps ?? "—"}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,207 @@
+@AGENTS.md
+
+# Pump
+
+A mobile-first PWA gym tracker with a social layer, deployed on **Vercel Hobby**.
+
+**The motive.** The core loop is logging a set between rests: one-handed, sweaty
+thumb, phone at arm's length, 60 seconds of attention. Everything else in the
+app is secondary to making that fast. The second goal is that training is
+social — you should see what your friends lifted and know when they're at the
+gym, without either becoming a feed to doomscroll.
+
+Two things are treated as requirements, not polish: **phone ergonomics** and a
+**visual identity that isn't a default AI-generated frontend**. Both have hard
+rules below.
+
+---
+
+## Feature spec
+
+Translated from the original Hebrew note; all of it is implemented.
+
+| # | Feature | Where |
+|---|---------|-------|
+| 1 | Build a routine (template) | `/routines/new`, `components/routine/routine-builder.tsx` |
+| 2 | Log a workout | `/workout/[id]`, `components/workout/workout-screen.tsx` |
+| 3 | Workout history | `/history`, `/history/[id]` |
+| 4 | Add/remove sets mid-workout | `set-row.tsx`, `addSet`/`removeSet` |
+| 5 | Custom exercises | `createCustomExercise`, exercise picker |
+| 6 | Rest timer auto-starts on set completion | `components/workout/rest-timer.tsx` |
+| 7 | Accounts | Google OAuth only (`lib/auth.ts`) |
+| 8 | Friends | `/friends`, mutual + explicit |
+| 9 | Follow people and their programs | `follow` table, `/routines` "programs you follow" |
+| 10 | Share a routine | `copyRoutine`, share sheet on `/routines/[id]` |
+| 11 | "I'm at the gym" broadcast | `gym_presence` TTL row, feed presence strip |
+| 12 | Register your gym (gym = group) | `/gyms`, join codes |
+| 13 | Achievements | `lib/actions/achievements.ts`, profile grid |
+| 14 | Interval exercises + TTS cues | `components/workout/interval-runner.tsx` |
+| 15 | Run a routine at ±% load (deload) | `workout.loadMultiplier`, `/start` percent picker |
+| 16 | Co-op session | `/coop`, `lib/actions/coop.ts` |
+| 17 | Weekly per-muscle volume | `getMuscleVolume`, `components/stats/muscle-volume-chart.tsx` |
+
+---
+
+## Platform constraints — these govern every design decision
+
+Verified against Vercel/Neon docs, 2026. **Re-read before proposing anything
+realtime, scheduled, or background.**
+
+| Constraint | Consequence |
+|---|---|
+| Serverless functions can't hold a WebSocket | **No sockets.** Co-op (#16) polls one cheap endpoint every 3 s, gated on tab visibility. Presence (#11) is a TTL row read on page load. |
+| Hobby cron: **2 jobs, once per day max** | No cleanup jobs. Expired `gym_presence` rows are filtered on read, never swept. |
+| Function timeout ~30 s | No long-running work in a request. |
+| Neon Free: 0.5 GB, 100 compute-hours/mo, **scale-to-zero** | First query after idle pays a cold start. Keep queries per request low; prefer denormalised counters over aggregates. |
+| Hobby: 1 M invocations, 100 GB bandwidth/mo | Don't add polling loops beyond the co-op one. |
+| iOS web push needs a **home-screen-installed** PWA (iOS 16.4+), ~70–85 % delivery | Push is a bonus channel. The in-app feed is always the source of truth; nothing depends on a notification arriving. |
+| Hobby is personal/non-commercial only | Not for a revenue-generating deployment. |
+
+**Denormalised-by-design:** `workout.totalVolumeKg/totalSets/totalReps/prCount`
+and `coop_participant.setsCompleted/volumeKg` are written at mutation time so
+the feed, history and co-op poll never re-aggregate over sets.
+
+---
+
+## Design system — "Volt"
+
+### Anti-goals (the tells that make an app look auto-generated)
+Inter at default tracking everywhere · purple→indigo gradients · uniform
+`rounded-2xl` cards floating on gray · emoji as iconography · centered hero +
+three feature cards · `shadow-lg` on everything.
+
+### Tokens (`src/app/globals.css`)
+```
+--color-bg          #0b0b0c   base. NOT #000 — pure black smears on OLED scroll
+--color-surface-1/2/3         elevation by tinted surface, never by shadow
+--color-hairline    #2a2a2e   1px dividers are the main structural device
+--color-text-1/2/3            f4f4f5 / a1a1aa / 6b6b73
+--color-volt        #d7ff3e   THE accent
+--color-pr          #ffd84d   personal records only
+```
+
+**The accent rule.** Volt appears *only* on state that matters: a completed
+set, a running timer, the active tab, a PR. Everything else is grayscale. That
+restraint is the identity — spending volt on decoration destroys it.
+
+**volt and pr-gold are not distinguishable to a colourblind reader**
+(ΔE 4.1 deutan, measured). Never use them as the only difference between two
+things. PR gold always ships with a trophy icon and the letters "PR".
+
+### Type
+System stack first (`-apple-system, BlinkMacSystemFont, system-ui`) so iPhones
+render genuine SF Pro and the app reads as native. **Archivo** carries display
+and numerals.
+- `.num` — tabular figures, for values that change in place (timers, live counters, table columns).
+- `.num-prop` — proportional figures, for large standalone figures. Tabular widths make "121" look loose at display sizes.
+
+### Density
+The workout screen is a **data table** — rows, hairlines, right-aligned
+numerals. Cards are reserved for the social feed and summary blocks, so they
+keep meaning.
+
+### Charts
+One measure per chart, one axis, one colour. Never shade bars by magnitude on
+nominal categories (that double-encodes length as hue). Bars: ≤24 px, 4 px
+rounded data-end, square at the baseline. Grid/axes: solid hairlines, never
+dashed. Single series → no legend. Every chart has a table view or direct
+labels, so no value is reachable only through a tooltip.
+
+---
+
+## Phone ergonomics — non-negotiable
+
+- `100dvh`/`svh` only, **never `100vh`**. Use `h-screen-d` / `min-h-screen-d`.
+- `viewport-fit=cover` is set; every bottom-docked control needs `pb-safe`/`mb-safe`.
+- Primary actions live in the **bottom third**. Tab bar, set checkmarks, timer, finish.
+- Inputs ≥16 px font-size — anything smaller triggers iOS zoom-on-focus.
+- `inputmode="decimal"|"numeric"` on every numeric field; select-all on focus.
+- `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
+- Tap targets ≥44 px (`tap` utility).
+- Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
+
+**Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
+area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
+sit above it (`CommentThread` composer, `z-50`). The active workout screen lives
+**outside** the `(app)` group so it has no tab bar at all.
+
+**Dense screens are solid, not translucent.** `glass` is for browsing chrome.
+The workout and routine-builder headers use `bg-bg` — a device that fails to
+composite `backdrop-filter` would let exercise names ghost through.
+
+---
+
+## Animation — deliberate moments only
+
+Everything routine is a 150–200 ms CSS transition. These get choreography:
+
+| Moment | Treatment |
+|---|---|
+| Set completed | Row tints volt; light haptic |
+| Rest running | Bottom bar with draining track; pulse + haptic in the last 3 s |
+| **Workout finished** | SVG checkmark draws on → stats count up staggered → confetti **only if a PR** |
+| PR mid-workout | Gold badge burst on the row, non-blocking |
+| **Friend added** | Two avatars spring in and snap together |
+| Achievement unlocked | Scale-in with a shimmer sweep |
+
+`motion` for choreography (springs, not easing curves). `canvas-confetti` is
+lazy-imported on the finish screen only. All of it degrades under
+`prefers-reduced-motion`. Haptics via the Vibration API are **Android-only** —
+iOS Safari doesn't implement it, so never make a haptic the sole feedback.
+
+---
+
+## Conventions
+
+- **Weights are always stored in kilograms.** `user.unit` is a display
+  preference; convert at the edge with `formatWeight`/`lbToKg`.
+- Estimated 1RM is **Epley** (`w × (1 + r/30)`), cached on `workout_set.estimated1rm` so PR detection is one comparison.
+- Warm-up sets are excluded from volume, records and muscle-volume counts.
+- Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
+- Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
+- **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
+- Relative timestamps use `<TimeAgo>`, never `timeAgo()` rendered on the server — server and client render at different instants and the mismatch tears the subtree.
+- Presentational primitives (`components/ui/primitives.tsx`) deliberately have **no** `"use client"`, so server components can pass them icons and render them directly.
+
+---
+
+## Commands
+
+```bash
+pnpm dev              # Next 16 (Turbopack)
+pnpm build            # production build
+pnpm typecheck        # next typegen && tsc --noEmit
+pnpm lint             # eslint (next lint was removed in v16)
+
+pnpm db:generate      # drizzle-kit generate — after editing schema.ts
+pnpm db:migrate       # apply migrations
+pnpm db:seed          # exercise library + achievements (idempotent)
+pnpm check:queries    # run every read query against the DB, catch SQL errors
+
+node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, screenshots to /tmp/pump-shots
+node scripts/smoke.mjs         # every route + two-user social/co-op flow
+node scripts/generate-icons.mjs # regenerate PWA PNGs from public/icon.svg
+```
+
+Local dev uses plain Postgres via `pg`; production uses the Neon serverless
+driver. `lib/db/index.ts` picks by hostname, so pointing `DATABASE_URL` at a
+real Neon branch works without code changes.
+
+`ALLOW_DEV_CREDENTIALS=true` opens email+password sign-in for local work before
+a Google OAuth client exists. It is gated on `NODE_ENV !== "production"` as
+well as the flag.
+
+---
+
+## Deploying
+
+1. Vercel → Storage → **Neon** integration. It sets `DATABASE_URL`.
+2. Google Cloud Console → OAuth client (Web). Authorized redirect URIs:
+   `https://<domain>/api/auth/callback/google` and
+   `http://localhost:3000/api/auth/callback/google`.
+3. Env: `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL`,
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+4. `pnpm db:migrate && pnpm db:seed` against the Neon URL.
+5. Optional: `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+   `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Without them the app just doesn't
+   offer push.

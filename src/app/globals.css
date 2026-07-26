@@ -1,0 +1,284 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   PUMP — "Volt" design system
+   Dark-first, single-accent, data-dense. Read CLAUDE.md before changing tokens.
+   ========================================================================== */
+
+@theme {
+  /* --- Surfaces. Never pure #000: it smears on OLED scroll and kills depth. */
+  --color-bg: #0b0b0c;
+  --color-surface-1: #141416;
+  --color-surface-2: #1c1c1f;
+  --color-surface-3: #26262a;
+  --color-hairline: #2a2a2e;
+  --color-hairline-strong: #3a3a40;
+
+  /* --- Text */
+  --color-text-1: #f4f4f5;
+  --color-text-2: #a1a1aa;
+  --color-text-3: #6b6b73;
+
+  /* --- Accent. Applied ONLY to state that matters: completed set, running
+     timer, active tab, PR. Everything else stays grayscale — that restraint
+     is the whole identity. */
+  --color-volt: #d7ff3e;
+  --color-volt-dim: #a8c92e;
+  --color-volt-fade: #d7ff3e1f;
+
+  /* --- The one second accent: personal records. */
+  --color-pr: #ffd84d;
+  --color-pr-fade: #ffd84d1f;
+
+  --color-danger: #ff453a;
+  --color-danger-fade: #ff453a1f;
+
+  /* --- Type. System stack first so iPhones render genuine SF Pro and the app
+     reads as native; Archivo carries display + numerals. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI",
+    Roboto, sans-serif;
+  --font-display: var(--font-archivo), var(--font-sans);
+
+  /* --- Radii: iOS-ish continuous corners, not uniform rounded-2xl everywhere */
+  --radius-field: 12px;
+  --radius-card: 16px;
+  --radius-sheet: 22px;
+
+  /* --- Motion: springs for choreographed moments, these for everything else */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============================================================================
+   Base — phone ergonomics. Most of this exists to stop mobile Safari from
+   doing something that makes the app feel like a website.
+   ========================================================================== */
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+  /* Kill the 300ms tap delay without disabling pinch-zoom on content. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text-1);
+  font-family: var(--font-sans);
+  /* Stops the whole page rubber-banding behind fixed chrome. */
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Controls are chrome, not content: never let a long-press select them. */
+button,
+[role="button"],
+label,
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* iOS zooms the viewport when a focused input is under 16px. Non-negotiable. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Numerals that change in place — timers, live counters, table columns — must
+   not jitter, so they get equal-width digits. */
+.num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Large standalone figures (summary stats, hero numbers) use proportional
+   figures instead: tabular widths make something like "121" look loose at
+   display sizes. */
+.num-prop {
+  font-family: var(--font-display);
+  font-variant-numeric: proportional-nums;
+  letter-spacing: -0.025em;
+}
+
+::selection {
+  background: var(--color-volt);
+  color: #000;
+}
+
+/* Scrollbars: present on desktop, invisible on touch. */
+@media (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-surface-3);
+    border-radius: 999px;
+    border: 3px solid var(--color-bg);
+  }
+}
+
+/* ============================================================================
+   Utilities
+   ========================================================================== */
+
+/* Safe-area helpers. Every bottom-docked control needs one of these or it
+   sits under the iPhone home indicator. */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility inset-safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Full-height that survives the iOS URL bar showing/hiding. Never use 100vh. */
+@utility h-screen-d {
+  height: 100dvh;
+}
+@utility min-h-screen-d {
+  min-height: 100dvh;
+}
+
+/* Apple-style translucent chrome. */
+@utility glass {
+  /* Opaque enough that scrolled content never reads through the bar, with the
+     blur as an enhancement rather than a requirement. */
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--color-bg);
+  }
+}
+
+/* Minimum comfortable touch target (44pt per Apple HIG). */
+@utility tap {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Hairline rules that stay 1 physical pixel on retina. */
+@utility hairline-t {
+  border-top: 1px solid var(--color-hairline);
+}
+@utility hairline-b {
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Press feedback — subtle scale, the thing that makes taps feel physical. */
+@utility press {
+  transition:
+    transform 120ms var(--ease-out-quart),
+    background-color 150ms var(--ease-out-quart),
+    opacity 150ms var(--ease-out-quart);
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+/* ============================================================================
+   Keyframes used by the choreographed moments (see CLAUDE.md animation table)
+   ========================================================================== */
+
+@keyframes volt-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes pulse-volt {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes draw-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise-in {
+  animation: rise-in 320ms var(--ease-out-quart) both;
+}
+
+.animate-pulse-volt {
+  animation: pulse-volt 900ms ease-in-out infinite;
+}
+
+/* Respect the OS setting. All choreography degrades to a plain state change. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
