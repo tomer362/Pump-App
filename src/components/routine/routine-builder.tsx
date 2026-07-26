@@ -15,6 +15,11 @@ import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Textarea, Segmented } from "@/components/ui/primitives";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
+import {
+  columnLabel,
+  setColumns,
+  type SetColumn,
+} from "@/components/workout/set-row";
 import { createRoutine, updateRoutine, type RoutineInput } from "@/lib/actions/routine";
 import type { FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
@@ -26,6 +31,8 @@ type DraftSet = {
   targetWeightKg: number | null;
   targetReps: number | null;
   targetSeconds: number | null;
+  targetDistanceM: number | null;
+  targetRpe: number | null;
 };
 
 type DraftExercise = {
@@ -45,6 +52,28 @@ type DraftExercise = {
 
 let keySeq = 0;
 const nextKey = () => `k${++keySeq}`;
+
+/** Column key → the `DraftSet` field it edits. Weight is handled separately
+    because it needs unit conversion on the way in and out. */
+const TARGET_FIELD = {
+  reps: "targetReps",
+  seconds: "targetSeconds",
+  distance: "targetDistanceM",
+} as const satisfies Record<
+  Exclude<SetColumn, "weight">,
+  keyof DraftSet
+>;
+
+/** A new set inherits the previous one's targets — programmes repeat. */
+function cloneTargets(last: DraftSet | undefined) {
+  return {
+    targetWeightKg: last?.targetWeightKg ?? null,
+    targetReps: last?.targetReps ?? null,
+    targetSeconds: last?.targetSeconds ?? null,
+    targetDistanceM: last?.targetDistanceM ?? null,
+    targetRpe: last?.targetRpe ?? null,
+  };
+}
 
 export function RoutineBuilder({
   existing,
@@ -78,6 +107,8 @@ export function RoutineBuilder({
         targetWeightKg: s.targetWeightKg,
         targetReps: s.targetReps,
         targetSeconds: s.targetSeconds,
+        targetDistanceM: s.targetDistanceM,
+        targetRpe: s.targetRpe,
       })),
     })),
   );
@@ -119,8 +150,12 @@ export function RoutineBuilder({
                 key: nextKey(),
                 setType: "normal" as SetType,
                 targetWeightKg: null,
-                targetReps: e.trackingType === "time" ? null : 8,
-                targetSeconds: e.trackingType === "time" ? 30 : null,
+                targetReps: setColumns(e.trackingType).includes("reps") ? 8 : null,
+                targetSeconds: setColumns(e.trackingType).includes("seconds")
+                  ? 30
+                  : null,
+                targetDistanceM: null,
+                targetRpe: null,
               },
             ],
           })),
@@ -170,6 +205,8 @@ export function RoutineBuilder({
           targetWeightKg: s.targetWeightKg,
           targetReps: s.targetReps,
           targetSeconds: s.targetSeconds,
+          targetDistanceM: s.targetDistanceM,
+          targetRpe: s.targetRpe,
         })),
       })),
     };
@@ -266,12 +303,7 @@ export function RoutineBuilder({
                   {
                     key: nextKey(),
                     setType: "normal",
-                    targetWeightKg:
-                      item.sets[item.sets.length - 1]?.targetWeightKg ?? null,
-                    targetReps:
-                      item.sets[item.sets.length - 1]?.targetReps ?? null,
-                    targetSeconds:
-                      item.sets[item.sets.length - 1]?.targetSeconds ?? null,
+                    ...cloneTargets(item.sets[item.sets.length - 1]),
                   },
                 ],
               })
@@ -336,10 +368,8 @@ function ExerciseCard({
   onRemoveSet: (setKey: string) => void;
 }) {
   const controls = useDragControls();
-  const showWeight =
-    item.trackingType === "weight_reps" || item.trackingType === "weight_time";
-  const showReps =
-    item.trackingType === "weight_reps" || item.trackingType === "reps";
+  const columns = setColumns(item.trackingType);
+  const template = `28px ${columns.map(() => "1fr").join(" ")} 36px`;
 
   return (
     <Reorder.Item
@@ -368,6 +398,9 @@ function ExerciseCard({
           <p className="truncate text-[15px] font-semibold">{item.name}</p>
           <p className="text-text-3 text-[12px]">
             {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
+            {item.sets[0]?.targetRpe != null && (
+              <span className="num"> · RPE {item.sets[0].targetRpe}</span>
+            )}
           </p>
         </div>
         {item.intervalWorkSeconds != null && (
@@ -380,13 +413,14 @@ function ExerciseCard({
 
       <div
         className="text-text-3 grid gap-1.5 px-3 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase"
-        style={{
-          gridTemplateColumns: `28px ${showWeight ? "1fr" : ""} 1fr 36px`,
-        }}
+        style={{ gridTemplateColumns: template }}
       >
         <span className="text-center">Set</span>
-        {showWeight && <span className="text-center">{unit}</span>}
-        <span className="text-center">{showReps ? "Reps" : "Secs"}</span>
+        {columns.map((column) => (
+          <span key={column} className="text-center">
+            {columnLabel(column, unit)}
+          </span>
+        ))}
         <span />
       </div>
 
@@ -395,9 +429,7 @@ function ExerciseCard({
           <div
             key={s.key}
             className="grid items-center gap-1.5 px-3 py-1.5"
-            style={{
-              gridTemplateColumns: `28px ${showWeight ? "1fr" : ""} 1fr 36px`,
-            }}
+            style={{ gridTemplateColumns: template }}
           >
             <button
               onClick={() =>
@@ -426,51 +458,53 @@ function ExerciseCard({
                     : "F"}
             </button>
 
-            {showWeight && (
-              <TargetInput
-                value={
-                  s.targetWeightKg == null
-                    ? ""
-                    : String(
-                        Math.round(
-                          (unit === "kg"
-                            ? s.targetWeightKg
-                            : kgToLb(s.targetWeightKg)) * 100,
-                        ) / 100,
-                      )
-                }
-                placeholder="—"
-                onCommit={(raw) => {
-                  const n = raw === "" ? null : Number(raw);
-                  onPatchSet(s.key, {
-                    targetWeightKg:
-                      n == null || !Number.isFinite(n)
-                        ? null
-                        : unit === "kg"
-                          ? n
-                          : lbToKg(n),
-                  });
-                }}
-              />
+            {columns.map((column) =>
+              column === "weight" ? (
+                <TargetInput
+                  key={column}
+                  value={
+                    s.targetWeightKg == null
+                      ? ""
+                      : String(
+                          Math.round(
+                            (unit === "kg"
+                              ? s.targetWeightKg
+                              : kgToLb(s.targetWeightKg)) * 100,
+                          ) / 100,
+                        )
+                  }
+                  placeholder="—"
+                  onCommit={(raw) => {
+                    const n = raw === "" ? null : Number(raw);
+                    onPatchSet(s.key, {
+                      targetWeightKg:
+                        n == null || !Number.isFinite(n)
+                          ? null
+                          : unit === "kg"
+                            ? n
+                            : lbToKg(n),
+                    });
+                  }}
+                />
+              ) : (
+                <TargetInput
+                  key={column}
+                  value={
+                    s[TARGET_FIELD[column]] == null
+                      ? ""
+                      : String(s[TARGET_FIELD[column]])
+                  }
+                  placeholder="—"
+                  onCommit={(raw) => {
+                    const n = raw === "" ? null : Math.round(Number(raw));
+                    onPatchSet(s.key, {
+                      [TARGET_FIELD[column]]:
+                        n == null || !Number.isFinite(n) ? null : n,
+                    });
+                  }}
+                />
+              ),
             )}
-
-            <TargetInput
-              value={
-                showReps
-                  ? s.targetReps == null
-                    ? ""
-                    : String(s.targetReps)
-                  : s.targetSeconds == null
-                    ? ""
-                    : String(s.targetSeconds)
-              }
-              placeholder="—"
-              onCommit={(raw) => {
-                const n = raw === "" ? null : Math.round(Number(raw));
-                const val = n == null || !Number.isFinite(n) ? null : n;
-                onPatchSet(s.key, showReps ? { targetReps: val } : { targetSeconds: val });
-              }}
-            />
 
             <button
               onClick={() => onRemoveSet(s.key)}
@@ -534,6 +568,11 @@ function ExerciseSettings({
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const intervalOn = item.intervalWorkSeconds != null;
+  // Shown as selected only when every set carries the same prescription.
+  const first = item.sets[0]?.targetRpe ?? null;
+  const targetRpe = item.sets.every((s) => (s.targetRpe ?? null) === first)
+    ? first
+    : null;
 
   return (
     <div className="space-y-6 px-4 pb-5">
@@ -575,6 +614,34 @@ function ExerciseSettings({
               )}
             >
               {g ?? "None"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label>Target effort (RPE)</Label>
+        <p className="text-text-3 mb-2 text-[12px] leading-snug">
+          Prescribed for every set — &ldquo;3×8 @ 8&rdquo;. 10 is a set you
+          couldn&apos;t have added a rep to.
+        </p>
+        <div className="grid grid-cols-5 gap-1.5">
+          {[null, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((v) => (
+            <button
+              key={v ?? "none"}
+              onClick={() =>
+                onPatch({
+                  sets: item.sets.map((s) => ({ ...s, targetRpe: v })),
+                })
+              }
+              className={cn(
+                "press num rounded-field h-10 border text-[13px] font-semibold",
+                targetRpe === v
+                  ? "border-volt bg-volt-fade text-volt"
+                  : "border-hairline bg-surface-2 text-text-2",
+              )}
+            >
+              {v ?? "—"}
             </button>
           ))}
         </div>

@@ -118,7 +118,18 @@ export default async function WorkoutDetailPage(
                 )}
 
                 <Card className="divide-hairline divide-y overflow-hidden">
-                  {e.sets.map((s, i) => (
+                  {e.sets.map((s, i) => {
+                    // Only the measures this exercise actually records — a
+                    // plank has no weight, a barbell row has no distance.
+                    const parts = [
+                      s.weightKg != null &&
+                        `${formatWeight(s.weightKg, me.unit)} ${me.unit}`,
+                      s.reps != null && `${s.reps} reps`,
+                      s.distanceM != null && `${s.distanceM} m`,
+                      s.seconds != null && `${s.seconds}s`,
+                    ].filter((v): v is string => Boolean(v));
+
+                    return (
                     <div
                       key={s.id}
                       className="flex items-center gap-3 px-3 py-2 text-[13px]"
@@ -132,23 +143,17 @@ export default async function WorkoutDetailPage(
                               ? "D"
                               : "F"}
                       </span>
-                      <span className="num text-text-1 font-semibold">
-                        {s.weightKg != null
-                          ? `${formatWeight(s.weightKg, me.unit)} ${me.unit}`
-                          : "—"}
-                      </span>
-                      {s.reps != null && (
-                        <>
-                          <span className="text-text-3">×</span>
-                          <span className="num text-text-1 font-semibold">
-                            {s.reps}
+                      {parts.length === 0 ? (
+                        <span className="num text-text-3 font-semibold">—</span>
+                      ) : (
+                        parts.map((part, j) => (
+                          <span key={j} className="contents">
+                            {j > 0 && <span className="text-text-3">×</span>}
+                            <span className="num text-text-1 font-semibold">
+                              {part}
+                            </span>
                           </span>
-                        </>
-                      )}
-                      {s.seconds != null && (
-                        <span className="num text-text-1 font-semibold">
-                          {s.seconds}s
-                        </span>
+                        ))
                       )}
                       {s.rpe != null && (
                         <span className="num text-text-3 ml-auto text-[12px]">
@@ -156,7 +161,8 @@ export default async function WorkoutDetailPage(
                         </span>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </Card>
               </div>
             );

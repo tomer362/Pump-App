@@ -365,7 +365,7 @@ export async function saveWorkoutAsRoutine(
         targetReps: s.reps,
         targetSeconds: s.seconds,
         targetDistanceM: s.distanceM,
-        targetRpe: null,
+        targetRpe: s.rpe,
       }));
     });
 

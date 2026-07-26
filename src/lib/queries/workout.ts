@@ -86,7 +86,14 @@ export type WorkoutExerciseRow = {
   trackingType: string;
   sets: WorkoutSetRow[];
   /** The same exercise's sets from the previous session — the "Previous" column. */
-  previous: { weightKg: number | null; reps: number | null; seconds: number | null }[];
+  previous: PreviousSet[];
+};
+
+export type PreviousSet = {
+  weightKg: number | null;
+  reps: number | null;
+  seconds: number | null;
+  distanceM: number | null;
 };
 
 export type FullWorkout = {
@@ -211,11 +218,8 @@ export async function getPreviousSets(
   userId: string,
   excludeWorkoutId: string | null,
   exerciseIds: string[],
-): Promise<Map<string, { weightKg: number | null; reps: number | null; seconds: number | null }[]>> {
-  const out = new Map<
-    string,
-    { weightKg: number | null; reps: number | null; seconds: number | null }[]
-  >();
+): Promise<Map<string, PreviousSet[]>> {
+  const out = new Map<string, PreviousSet[]>();
   if (!exerciseIds.length) return out;
 
   // Rank each exercise's past sets by how recent their workout was, then keep
@@ -225,6 +229,7 @@ export async function getPreviousSets(
     weight_kg: number | null;
     reps: number | null;
     seconds: number | null;
+    distance_m: number | null;
     position: number;
   }>(sql`
     WITH ranked AS (
@@ -233,6 +238,7 @@ export async function getPreviousSets(
         ws.weight_kg,
         ws.reps,
         ws.seconds,
+        ws.distance_m,
         ws.position,
         DENSE_RANK() OVER (
           PARTITION BY we.exercise_id ORDER BY w.started_at DESC
@@ -249,14 +255,19 @@ export async function getPreviousSets(
         )})
         ${excludeWorkoutId ? sql`AND w.id <> ${excludeWorkoutId}` : sql``}
     )
-    SELECT exercise_id, weight_kg, reps, seconds, position
+    SELECT exercise_id, weight_kg, reps, seconds, distance_m, position
     FROM ranked WHERE rk = 1
     ORDER BY exercise_id, position
   `);
 
   for (const r of rows.rows) {
     const list = out.get(r.exercise_id) ?? [];
-    list.push({ weightKg: r.weight_kg, reps: r.reps, seconds: r.seconds });
+    list.push({
+      weightKg: r.weight_kg,
+      reps: r.reps,
+      seconds: r.seconds,
+      distanceM: r.distance_m,
+    });
     out.set(r.exercise_id, list);
   }
   return out;

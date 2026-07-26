@@ -207,7 +207,9 @@ export async function startWorkoutFromRoutine(
             reps: rs.targetReps,
             seconds: rs.targetSeconds,
             distanceM: rs.targetDistanceM,
-            rpe: null,
+            // The prescribed effort, pre-filled like every other target so an
+            // unchanged set is one tap. Editable per set on the row.
+            rpe: rs.targetRpe,
             completedAt: null,
           },
         ];

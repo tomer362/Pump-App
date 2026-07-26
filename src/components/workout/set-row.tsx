@@ -19,6 +19,47 @@ export type SetDraft = {
   isPr?: boolean;
 };
 
+/**
+ * Which value columns an exercise's tracking type puts on the row. Kept here
+ * so the header in `workout-screen` and the rows themselves can't drift apart
+ * — the columns have to line up for this to read as a table.
+ */
+export type SetColumn = "weight" | "reps" | "seconds" | "distance";
+
+export function setColumns(trackingType: string): SetColumn[] {
+  switch (trackingType) {
+    case "reps":
+      return ["reps"];
+    case "time":
+      return ["seconds"];
+    case "distance_time":
+      return ["distance", "seconds"];
+    case "weight_time":
+      return ["weight", "seconds"];
+    default:
+      return ["weight", "reps"];
+  }
+}
+
+export function setGridTemplate(columns: SetColumn[]) {
+  return `28px minmax(46px, 0.9fr) ${columns
+    .map(() => "minmax(56px, 1fr)")
+    .join(" ")} 44px`;
+}
+
+export function columnLabel(column: SetColumn, unit: "kg" | "lb") {
+  switch (column) {
+    case "weight":
+      return unit;
+    case "reps":
+      return "Reps";
+    case "seconds":
+      return "Secs";
+    case "distance":
+      return "Metres";
+  }
+}
+
 const TYPE_LABEL: Record<SetType, string> = {
   normal: "",
   warmup: "W",
@@ -49,7 +90,12 @@ export function SetRow({
   index: number;
   unit: "kg" | "lb";
   trackingType: string;
-  previous: { weightKg: number | null; reps: number | null; seconds: number | null } | null;
+  previous: {
+    weightKg: number | null;
+    reps: number | null;
+    seconds: number | null;
+    distanceM?: number | null;
+  } | null;
   onPatch: (patch: Partial<SetDraft>) => void;
   onToggleComplete: () => void;
   onDelete: () => void;
@@ -59,25 +105,7 @@ export function SetRow({
   // The bin fades in as the row is dragged left, so the gesture is discoverable.
   const binOpacity = useTransform(x, [-90, -30, 0], [1, 0.5, 0]);
 
-  const showWeight = trackingType === "weight_reps" || trackingType === "weight_time";
-  const showReps = trackingType === "weight_reps" || trackingType === "reps";
-  const showTime =
-    trackingType === "time" ||
-    trackingType === "distance_time" ||
-    trackingType === "weight_time";
-  const showDistance = trackingType === "distance_time";
-
-  const prevLabel = previous
-    ? trackingType === "time" || trackingType === "distance_time"
-      ? previous.seconds != null
-        ? `${previous.seconds}s`
-        : "—"
-      : previous.weightKg != null && previous.reps != null
-        ? `${formatWeight(previous.weightKg, unit)}×${previous.reps}`
-        : previous.reps != null
-          ? `${previous.reps} reps`
-          : "—"
-    : "—";
+  const columns = setColumns(trackingType);
 
   return (
     <div className="relative">
@@ -109,34 +137,44 @@ export function SetRow({
           set.completed ? "bg-volt-fade" : "bg-bg",
         )}
       >
-        {/* Columns: set · previous · [weight] · [reps/time] · check. Built as an
-            inline grid template so columns line up across rows regardless of
-            which inputs the exercise's tracking type shows. */}
+        {/* Columns: set · previous · values… · check. Built as an inline grid
+            template so columns line up across rows regardless of which inputs
+            the exercise's tracking type shows. */}
         <div
           className="grid w-full items-center gap-1.5"
-          style={{
-            gridTemplateColumns: `28px minmax(52px, 1fr) ${
-              showWeight ? "minmax(58px, 1fr)" : ""
-            } ${showReps || showTime || showDistance ? "minmax(58px, 1fr)" : ""} 44px`,
-          }}
+          style={{ gridTemplateColumns: setGridTemplate(columns) }}
         >
-          {/* Set number / type tag */}
+          {/* Set number / type tag. Also the way into per-set options — RPE
+              lives there rather than in a column, because it's an occasional
+              annotation and a sixth column would crush the row on a phone. */}
           <button
             onClick={() => {
               haptic.light();
               onOpenTypeMenu();
             }}
             className={cn(
-              "press num h-9 rounded-lg text-[14px] font-bold",
+              "press h-9 rounded-lg leading-none",
               set.setType === "normal"
                 ? set.completed
                   ? "text-black/70"
                   : "text-text-2"
                 : TYPE_COLOR[set.setType],
             )}
-            aria-label="Change set type"
+            aria-label={`Set ${index} options`}
           >
-            {set.setType === "normal" ? index : TYPE_LABEL[set.setType]}
+            <span className="num block text-[14px] font-bold">
+              {set.setType === "normal" ? index : TYPE_LABEL[set.setType]}
+            </span>
+            {set.rpe != null && (
+              <span
+                className={cn(
+                  "num mt-0.5 block text-[9px] font-bold",
+                  set.completed ? "text-black/45" : "text-text-3",
+                )}
+              >
+                @{set.rpe}
+              </span>
+            )}
           </button>
 
           {/* Previous — tap to copy into the inputs */}
@@ -148,6 +186,7 @@ export function SetRow({
                 weightKg: previous.weightKg ?? set.weightKg,
                 reps: previous.reps ?? set.reps,
                 seconds: previous.seconds ?? set.seconds,
+                distanceM: previous.distanceM ?? set.distanceM,
               });
             }}
             disabled={!previous}
@@ -157,65 +196,19 @@ export function SetRow({
               previous && "press active:text-volt",
             )}
           >
-            {prevLabel}
+            {previousLabel(previous, columns, unit)}
           </button>
 
-          {showWeight && (
-            <NumberCell
-              value={
-                set.weightKg == null
-                  ? ""
-                  : String(
-                      Math.round(
-                        (unit === "kg" ? set.weightKg : kgToLb(set.weightKg)) * 100,
-                      ) / 100,
-                    )
-              }
-              placeholder={
-                previous?.weightKg != null
-                  ? formatWeight(previous.weightKg, unit)
-                  : "0"
-              }
-              completed={set.completed}
-              onCommit={(raw) => {
-                const n = raw === "" ? null : Number(raw);
-                if (n != null && !Number.isFinite(n)) return;
-                onPatch({
-                  weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n),
-                });
-              }}
+          {columns.map((column) => (
+            <ValueCell
+              key={column}
+              column={column}
+              set={set}
+              previous={previous}
+              unit={unit}
+              onPatch={onPatch}
             />
-          )}
-
-          {showReps && (
-            <NumberCell
-              value={set.reps == null ? "" : String(set.reps)}
-              placeholder={previous?.reps != null ? String(previous.reps) : "0"}
-              completed={set.completed}
-              integer
-              onCommit={(raw) => {
-                const n = raw === "" ? null : Math.round(Number(raw));
-                if (n != null && !Number.isFinite(n)) return;
-                onPatch({ reps: n });
-              }}
-            />
-          )}
-
-          {!showReps && showTime && (
-            <NumberCell
-              value={set.seconds == null ? "" : String(set.seconds)}
-              placeholder={
-                previous?.seconds != null ? String(previous.seconds) : "0"
-              }
-              completed={set.completed}
-              integer
-              onCommit={(raw) => {
-                const n = raw === "" ? null : Math.round(Number(raw));
-                if (n != null && !Number.isFinite(n)) return;
-                onPatch({ seconds: n });
-              }}
-            />
-          )}
+          ))}
 
           {/* Complete */}
           <button
@@ -237,6 +230,102 @@ export function SetRow({
         </div>
       </motion.div>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+type Previous = {
+  weightKg: number | null;
+  reps: number | null;
+  seconds: number | null;
+  distanceM?: number | null;
+} | null;
+
+/** The last session's value for this set, in whatever the exercise measures. */
+function previousLabel(
+  previous: Previous,
+  columns: SetColumn[],
+  unit: "kg" | "lb",
+) {
+  if (!previous) return "—";
+
+  const parts = columns
+    .map((column) => {
+      switch (column) {
+        case "weight":
+          return previous.weightKg != null
+            ? formatWeight(previous.weightKg, unit)
+            : null;
+        case "reps":
+          return previous.reps != null ? String(previous.reps) : null;
+        case "seconds":
+          return previous.seconds != null ? `${previous.seconds}s` : null;
+        case "distance":
+          return previous.distanceM != null ? `${previous.distanceM}m` : null;
+      }
+    })
+    .filter((p): p is string => p != null);
+
+  return parts.length ? parts.join("×") : "—";
+}
+
+function ValueCell({
+  column,
+  set,
+  previous,
+  unit,
+  onPatch,
+}: {
+  column: SetColumn;
+  set: SetDraft;
+  previous: Previous;
+  unit: "kg" | "lb";
+  onPatch: (patch: Partial<SetDraft>) => void;
+}) {
+  if (column === "weight") {
+    return (
+      <NumberCell
+        value={
+          set.weightKg == null
+            ? ""
+            : String(
+                Math.round(
+                  (unit === "kg" ? set.weightKg : kgToLb(set.weightKg)) * 100,
+                ) / 100,
+              )
+        }
+        placeholder={
+          previous?.weightKg != null ? formatWeight(previous.weightKg, unit) : "0"
+        }
+        completed={set.completed}
+        onCommit={(raw) => {
+          const n = raw === "" ? null : Number(raw);
+          if (n != null && !Number.isFinite(n)) return;
+          onPatch({
+            weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n),
+          });
+        }}
+      />
+    );
+  }
+
+  const field = column === "reps" ? "reps" : column === "seconds" ? "seconds" : "distanceM";
+  const current = set[field];
+  const prior = previous?.[field] ?? null;
+
+  return (
+    <NumberCell
+      value={current == null ? "" : String(current)}
+      placeholder={prior != null ? String(prior) : "0"}
+      completed={set.completed}
+      integer
+      onCommit={(raw) => {
+        const n = raw === "" ? null : Math.round(Number(raw));
+        if (n != null && !Number.isFinite(n)) return;
+        onPatch({ [field]: n } as Partial<SetDraft>);
+      }}
+    />
   );
 }
 

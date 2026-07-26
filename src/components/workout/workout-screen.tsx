@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  Check,
   ChevronLeft,
   Clock,
   Ellipsis,
+  Gauge,
   Plus,
   Timer,
   Trash2,
@@ -18,7 +20,13 @@ import {
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Badge, Textarea } from "@/components/ui/primitives";
-import { SetRow, type SetDraft } from "./set-row";
+import {
+  SetRow,
+  columnLabel,
+  setColumns,
+  setGridTemplate,
+  type SetDraft,
+} from "./set-row";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { ExercisePicker } from "./exercise-picker";
 import { PlateCalculator } from "./plate-calculator";
@@ -155,15 +163,28 @@ export function WorkoutScreen({
         ),
       );
 
+      // In a superset the rest comes after the last exercise in the group, not
+      // between its members — going straight to the partner is the point.
+      const partnerPending =
+        block.supersetGroup != null &&
+        blocks.some(
+          (b) =>
+            b.id !== block.id &&
+            b.supersetGroup === block.supersetGroup &&
+            b.sets.some((s) => s.setType !== "warmup" && !s.completed),
+        );
+
       // Completing a working set starts the rest clock — Strong's key behaviour.
       if (next && set.setType !== "warmup") {
         const restSeconds = block.restSeconds ?? defaultRestSeconds;
-        timer.start(restSeconds);
+        if (!partnerPending) {
+          timer.start(restSeconds);
 
-        // In a co-op session, publish the rest so the others see you're between
-        // sets rather than idle.
-        if (workout.coopSessionId) {
-          void setCoopResting(workout.coopSessionId, restSeconds);
+          // In a co-op session, publish the rest so the others see you're
+          // between sets rather than idle.
+          if (workout.coopSessionId) {
+            void setCoopResting(workout.coopSessionId, restSeconds);
+          }
         }
 
         const est =
@@ -187,7 +208,7 @@ export function WorkoutScreen({
         await updateSet(set.id, { completed: next });
       });
     },
-    [defaultRestSeconds, timer, workout.coopSessionId],
+    [blocks, defaultRestSeconds, timer, workout.coopSessionId],
   );
 
   const appendSet = useCallback(async (block: Block) => {
@@ -350,7 +371,44 @@ export function WorkoutScreen({
     });
   }, []);
 
+  const setSuperset = useCallback(
+    (blockId: string, supersetGroup: string | null) => {
+      setBlocks((prev) =>
+        prev.map((b) => (b.id === blockId ? { ...b, supersetGroup } : b)),
+      );
+      startTransition(async () => {
+        await updateWorkoutExerciseSettings(blockId, { supersetGroup });
+      });
+    },
+    [],
+  );
+
+  const setInterval = useCallback(
+    (blockId: string, work: number | null, rest: number | null) => {
+      setBlocks((prev) =>
+        prev.map((b) =>
+          b.id === blockId
+            ? { ...b, intervalWorkSeconds: work, intervalRestSeconds: rest }
+            : b,
+        ),
+      );
+      startTransition(async () => {
+        await updateWorkoutExerciseSettings(blockId, {
+          intervalWorkSeconds: work,
+          intervalRestSeconds: rest,
+        });
+      });
+    },
+    [],
+  );
+
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
+  const optionsSet =
+    (typeMenuFor &&
+      blocks
+        .find((b) => b.id === typeMenuFor.blockId)
+        ?.sets.find((s) => s.id === typeMenuFor.setId)) ||
+    null;
   const anyCompleted = totals.sets > 0;
 
   /* ---------------------------------------------------------------------- */
@@ -482,6 +540,8 @@ export function WorkoutScreen({
             defaultRestSeconds={defaultRestSeconds}
             onSetRest={(s) => setRest(menuBlock.id, s)}
             onSetNotes={(n) => setBlockNotes(menuBlock.id, n)}
+            onSetSuperset={(g) => setSuperset(menuBlock.id, g)}
+            onSetInterval={(w, r) => setInterval(menuBlock.id, w, r)}
             onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
@@ -490,33 +550,22 @@ export function WorkoutScreen({
       <Sheet
         open={typeMenuFor != null}
         onClose={() => setTypeMenuFor(null)}
-        title="Set type"
+        title="Set options"
       >
-        <div className="px-4 pb-4">
-          {(
-            [
-              ["normal", "Normal", "Counts toward volume and records"],
-              ["warmup", "Warm-up", "Excluded from volume and records"],
-              ["drop", "Drop set", "Performed straight after the previous set"],
-              ["failure", "To failure", "Taken to muscular failure"],
-            ] as [SetType, string, string][]
-          ).map(([value, label, desc]) => (
-            <button
-              key={value}
-              onClick={() => {
-                if (!typeMenuFor) return;
-                patchSet(typeMenuFor.blockId, typeMenuFor.setId, {
-                  setType: value,
-                });
-                setTypeMenuFor(null);
-              }}
-              className="press hairline-b flex w-full flex-col items-start py-3 text-left last:border-b-0"
-            >
-              <span className="text-[15px] font-medium">{label}</span>
-              <span className="text-text-3 text-[13px]">{desc}</span>
-            </button>
-          ))}
-        </div>
+        {optionsSet && (
+          <SetOptions
+            set={optionsSet}
+            onSetType={(setType) => {
+              if (!typeMenuFor) return;
+              patchSet(typeMenuFor.blockId, typeMenuFor.setId, { setType });
+              setTypeMenuFor(null);
+            }}
+            onSetRpe={(rpe) => {
+              if (!typeMenuFor) return;
+              patchSet(typeMenuFor.blockId, typeMenuFor.setId, { rpe });
+            }}
+          />
+        )}
       </Sheet>
 
       <Sheet
@@ -613,14 +662,8 @@ function ExerciseBlock({
   onAddSet: () => void;
   onOpenTypeMenu: (setId: string) => void;
 }) {
-  const showWeight =
-    block.trackingType === "weight_reps" || block.trackingType === "weight_time";
-  const showReps =
-    block.trackingType === "weight_reps" || block.trackingType === "reps";
-  const showTime =
-    block.trackingType === "time" ||
-    block.trackingType === "distance_time" ||
-    block.trackingType === "weight_time";
+  const columns = setColumns(block.trackingType);
+  const showWeight = columns.includes("weight");
 
   const isInterval =
     block.intervalWorkSeconds != null && block.intervalWorkSeconds > 0;
@@ -685,20 +728,15 @@ function ExerciseBlock({
       {/* Column headers — this is a data table, not a card list. */}
       <div
         className="text-text-3 grid items-center gap-1.5 px-3 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase"
-        style={{
-          gridTemplateColumns: `28px minmax(52px, 1fr) ${
-            showWeight ? "minmax(58px, 1fr)" : ""
-          } ${showReps || showTime ? "minmax(58px, 1fr)" : ""} 44px`,
-        }}
+        style={{ gridTemplateColumns: setGridTemplate(columns) }}
       >
         <span className="text-center">Set</span>
         <span className="text-center">Previous</span>
-        {showWeight && <span className="text-center">{unit}</span>}
-        {showReps ? (
-          <span className="text-center">Reps</span>
-        ) : showTime ? (
-          <span className="text-center">Secs</span>
-        ) : null}
+        {columns.map((column) => (
+          <span key={column} className="text-center">
+            {columnLabel(column, unit)}
+          </span>
+        ))}
         <span />
       </div>
 
@@ -756,28 +794,111 @@ function PrBurst() {
 
 /* -------------------------------------------------------------------------- */
 
+const SET_TYPES: [SetType, string, string][] = [
+  ["normal", "Normal", "Counts toward volume and records"],
+  ["warmup", "Warm-up", "Excluded from volume and records"],
+  ["drop", "Drop set", "Performed straight after the previous set"],
+  ["failure", "To failure", "Taken to muscular failure"],
+];
+
+/** RPE is logged on the half point from 6 up — below that nobody bothers. */
+const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+
+function SetOptions({
+  set,
+  onSetType,
+  onSetRpe,
+}: {
+  set: SetDraft;
+  onSetType: (type: SetType) => void;
+  onSetRpe: (rpe: number | null) => void;
+}) {
+  return (
+    <div className="px-4 pb-5">
+      {SET_TYPES.map(([value, label, desc]) => (
+        <button
+          key={value}
+          onClick={() => onSetType(value)}
+          className="press hairline-b flex w-full items-center gap-3 py-3 text-left"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium">{label}</span>
+            <span className="text-text-3 block text-[13px]">{desc}</span>
+          </span>
+          {set.setType === value && (
+            <Check className="text-volt size-[18px] shrink-0" strokeWidth={2.8} />
+          )}
+        </button>
+      ))}
+
+      <div className="pt-5">
+        <SheetLabel>
+          <Gauge className="size-3.5" />
+          Effort (RPE)
+        </SheetLabel>
+        <div className="grid grid-cols-5 gap-1.5">
+          <button
+            onClick={() => onSetRpe(null)}
+            className={cn(
+              "press rounded-field h-10 border text-[13px] font-semibold",
+              set.rpe == null
+                ? "border-volt bg-volt-fade text-volt"
+                : "border-hairline bg-surface-2 text-text-2",
+            )}
+          >
+            —
+          </button>
+          {RPE_VALUES.map((v) => (
+            <button
+              key={v}
+              onClick={() => onSetRpe(v)}
+              className={cn(
+                "press num rounded-field h-10 border text-[13px] font-semibold",
+                set.rpe === v
+                  ? "border-volt bg-volt-fade text-volt"
+                  : "border-hairline bg-surface-2 text-text-2",
+              )}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+        <p className="text-text-3 mt-2 text-[12px] leading-snug">
+          How hard the set felt. 10 is a set you couldn&apos;t have added a rep
+          to; 8 leaves two in the tank.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
 function ExerciseOptions({
   block,
   defaultRestSeconds,
   onSetRest,
   onSetNotes,
+  onSetSuperset,
+  onSetInterval,
   onRemove,
 }: {
   block: Block;
   defaultRestSeconds: number;
   onSetRest: (seconds: number | null) => void;
   onSetNotes: (notes: string | null) => void;
+  onSetSuperset: (group: string | null) => void;
+  onSetInterval: (work: number | null, rest: number | null) => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
   const rest = block.restSeconds ?? defaultRestSeconds;
+  const intervalOn = block.intervalWorkSeconds != null;
 
   return (
     <div className="space-y-6 px-4 pb-5">
       <div>
-        <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-          Rest timer
-        </p>
+        <SheetLabel>Rest timer</SheetLabel>
         <div className="flex gap-2">
           {[0, 60, 90, 120, 180, 240].map((s) => (
             <button
@@ -797,10 +918,76 @@ function ExerciseOptions({
       </div>
 
       <div>
-        <p className="text-text-3 mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
+        <SheetLabel>
+          <Link2 className="size-3.5" />
+          Superset group
+        </SheetLabel>
+        <p className="text-text-3 mb-2 text-[12px] leading-snug">
+          Exercises sharing a letter are performed back to back — no rest timer
+          between them.
+        </p>
+        <div className="flex gap-2">
+          {[null, "A", "B", "C", "D"].map((g) => (
+            <button
+              key={g ?? "none"}
+              onClick={() => onSetSuperset(g)}
+              className={cn(
+                "press rounded-field h-10 flex-1 border text-[13px] font-semibold",
+                block.supersetGroup === g
+                  ? "border-volt bg-volt-fade text-volt"
+                  : "border-hairline bg-surface-2 text-text-2",
+              )}
+            >
+              {g ?? "None"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <SheetLabel>
+          <Timer className="size-3.5" />
+          Interval mode
+        </SheetLabel>
+        <p className="text-text-3 mb-2 text-[12px] leading-snug">
+          Replaces manual logging with a work/rest countdown and spoken cues.
+        </p>
+        <div className="flex gap-2">
+          {[
+            { label: "Off", work: null, restSec: null },
+            { label: "30/30", work: 30, restSec: 30 },
+            { label: "40/20", work: 40, restSec: 20 },
+            { label: "20/10", work: 20, restSec: 10 },
+            { label: "60/60", work: 60, restSec: 60 },
+          ].map((preset) => {
+            const on =
+              preset.work == null
+                ? !intervalOn
+                : block.intervalWorkSeconds === preset.work &&
+                  block.intervalRestSeconds === preset.restSec;
+            return (
+              <button
+                key={preset.label}
+                onClick={() => onSetInterval(preset.work, preset.restSec)}
+                className={cn(
+                  "press num rounded-field h-10 flex-1 border text-[13px] font-semibold",
+                  on
+                    ? "border-volt bg-volt-fade text-volt"
+                    : "border-hairline bg-surface-2 text-text-2",
+                )}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <SheetLabel>
           <StickyNote className="size-3.5" />
           Note
-        </p>
+        </SheetLabel>
         <Textarea
           rows={3}
           value={notes}
@@ -810,18 +997,19 @@ function ExerciseOptions({
         />
       </div>
 
-      {block.supersetGroup && (
-        <p className="text-text-3 flex items-center gap-1.5 text-[13px]">
-          <Link2 className="size-4" />
-          Superset group {block.supersetGroup}
-        </p>
-      )}
-
       <Button block variant="danger" onClick={onRemove}>
         <Trash2 className="size-4" />
         Remove exercise
       </Button>
     </div>
+  );
+}
+
+function SheetLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-text-3 mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
+      {children}
+    </p>
   );
 }
 

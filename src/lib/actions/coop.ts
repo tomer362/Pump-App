@@ -253,6 +253,7 @@ async function createLinkedWorkout(
         reps: rs.targetReps,
         seconds: rs.targetSeconds,
         distanceM: rs.targetDistanceM,
+        rpe: rs.targetRpe,
       },
     ];
   });
