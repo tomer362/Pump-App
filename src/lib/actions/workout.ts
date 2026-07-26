@@ -19,6 +19,7 @@ import {
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
 import { isBlobUrl } from "@/lib/blob";
+import { recalculatePersonalRecords } from "@/lib/records";
 import { estimate1RM } from "@/lib/utils";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
@@ -869,88 +870,6 @@ export async function finishWorkout(
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/**
- * Rebuild this user's records for the given exercises from the sets that still
- * exist.
- *
- * `personal_record` keeps exactly one row per (user, exercise, kind), so the
- * previous best is overwritten as records improve — there is nothing to fall
- * back to. Deleting the workout that set a record therefore has to recompute
- * from history, or the user simply loses the record with no replacement.
- */
-export async function recalculatePersonalRecords(
-  tx: Tx,
-  userId: string,
-  exerciseIds: string[],
-) {
-  if (!exerciseIds.length) return;
-
-  const ids = sql.join(
-    exerciseIds.map((id) => sql`${id}::uuid`),
-    sql`, `,
-  );
-
-  await tx.execute(sql`
-    DELETE FROM personal_record
-    WHERE user_id = ${userId} AND exercise_id IN (${ids})
-  `);
-
-  // One statement: gather every surviving qualifying set, then take the best
-  // per (exercise, kind) with DISTINCT ON.
-  await tx.execute(sql`
-    WITH candidate AS (
-      SELECT
-        we.exercise_id,
-        ws.id                                              AS set_id,
-        w.id                                               AS workout_id,
-        ws.weight_kg,
-        ws.reps,
-        COALESCE(ws.estimated_1rm, 0)                      AS e1rm,
-        COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0)   AS volume,
-        w.ended_at
-      FROM workout_set ws
-      JOIN workout_exercise we ON we.id = ws.workout_exercise_id
-      JOIN workout w           ON w.id = we.workout_id
-      WHERE w.user_id = ${userId}
-        AND w.ended_at IS NOT NULL
-        AND ws.completed_at IS NOT NULL
-        AND ws.set_type <> 'warmup'
-        AND we.exercise_id IN (${ids})
-    ),
-    best AS (
-      SELECT DISTINCT ON (exercise_id) exercise_id, '1rm' AS kind, e1rm AS value,
-             weight_kg, reps, set_id, workout_id, ended_at
-      FROM candidate WHERE e1rm > 0 ORDER BY exercise_id, e1rm DESC
-      UNION ALL
-      SELECT DISTINCT ON (exercise_id) exercise_id, 'weight', weight_kg,
-             weight_kg, reps, set_id, workout_id, ended_at
-      FROM candidate WHERE COALESCE(weight_kg, 0) > 0 ORDER BY exercise_id, weight_kg DESC
-      UNION ALL
-      SELECT DISTINCT ON (exercise_id) exercise_id, 'volume', volume,
-             weight_kg, reps, set_id, workout_id, ended_at
-      FROM candidate WHERE volume > 0 ORDER BY exercise_id, volume DESC
-      UNION ALL
-      SELECT DISTINCT ON (exercise_id) exercise_id, 'reps', reps,
-             weight_kg, reps, set_id, workout_id, ended_at
-      FROM candidate WHERE COALESCE(reps, 0) > 0 ORDER BY exercise_id, reps DESC
-    )
-    INSERT INTO personal_record
-      (user_id, exercise_id, kind, value, weight_kg, reps, workout_set_id, workout_id, achieved_at)
-    SELECT ${userId}, exercise_id, kind, value, weight_kg, reps, set_id, workout_id,
-           COALESCE(ended_at, NOW())
-    FROM best
-  `);
-
-  // prCount on other workouts counted records that may no longer exist.
-  await tx.execute(sql`
-    UPDATE workout w SET pr_count = (
-      SELECT COUNT(*)::int FROM personal_record pr
-      WHERE pr.user_id = ${userId} AND pr.workout_id = w.id AND pr.kind = '1rm'
-    )
-    WHERE w.user_id = ${userId} AND w.ended_at IS NOT NULL
-  `);
-}
 
 /** Exercises touched by a workout — needed before it's deleted. */
 async function exerciseIdsInWorkout(tx: Tx, workoutId: string) {

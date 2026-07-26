@@ -1,6 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { streaks } from "@/lib/streaks";
 
 export type MuscleVolume = {
   muscle: string;
@@ -162,47 +163,6 @@ export async function getLifetimeStats(userId: string): Promise<LifetimeStats> {
     currentStreak: current,
     longestStreak: longest,
   };
-}
-
-/** Descending list of training days → current and best consecutive-day runs. */
-function streaks(daysDesc: Date[]): { current: number; longest: number } {
-  if (!daysDesc.length) return { current: 0, longest: 0 };
-  const DAY = 86_400_000;
-
-  let longest = 1;
-  let run = 1;
-  for (let i = 1; i < daysDesc.length; i++) {
-    const gap = Math.round(
-      (daysDesc[i - 1].getTime() - daysDesc[i].getTime()) / DAY,
-    );
-    if (gap === 1) {
-      run++;
-      longest = Math.max(longest, run);
-    } else if (gap > 1) {
-      run = 1;
-    }
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const gapFromToday = Math.round(
-    (today.getTime() - daysDesc[0].getTime()) / DAY,
-  );
-
-  let current = 0;
-  // A rest day today shouldn't zero the streak until tomorrow.
-  if (gapFromToday <= 1) {
-    current = 1;
-    for (let i = 1; i < daysDesc.length; i++) {
-      const gap = Math.round(
-        (daysDesc[i - 1].getTime() - daysDesc[i].getTime()) / DAY,
-      );
-      if (gap === 1) current++;
-      else break;
-    }
-  }
-
-  return { current, longest };
 }
 
 export type AchievementRow = {

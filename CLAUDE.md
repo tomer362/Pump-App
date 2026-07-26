@@ -160,8 +160,12 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
 - **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
-- Relative timestamps use `<TimeAgo>`, never `timeAgo()` rendered on the server — server and client render at different instants and the mismatch tears the subtree.
+- **`DISTINCT ON` inside a `UNION`** needs each branch parenthesised — an unbracketed `ORDER BY` binds to the whole union and it's a syntax error (`lib/records.ts`).
+- **Anything time-relative is a client component with `suppressHydrationWarning`** — `<TimeAgo>`, `<Elapsed>`. Server and client render at different instants, and a text mismatch makes React discard the subtree: on `ActiveWorkoutPill` that remounts the one component whose job is to persist. Same rule for client-only storage: the rest timer seeds from `sessionStorage` through `useSyncExternalStore` (server snapshot `null`), never a `useState` initialiser.
+- **Every export of a `"use server"` module is a public POST endpoint.** Authorisation belongs *in the action*, not only in the page that renders it — and a helper taking a `userId` doesn't belong in one at all (`lib/records.ts` is separate for exactly this reason). `node scripts/check-authz.mjs` is the regression test.
 - Presentational primitives (`components/ui/primitives.tsx`) deliberately have **no** `"use client"`, so server components can pass them icons and render them directly.
+- Photo upload goes **browser → Blob directly** via a token from `/api/blob/upload`; the client downscales to 1280 px first. Stored URLs are validated with `isBlobUrl` before they're written. No `BLOB_READ_WRITE_TOKEN` → the control simply isn't offered, same as push.
+- The feed and history paginate on a **keyset cursor**, never `OFFSET` — new rows push onto the front of both.
 
 ---
 
@@ -172,6 +176,7 @@ pnpm dev              # Next 16 (Turbopack)
 pnpm build            # production build
 pnpm typecheck        # next typegen && tsc --noEmit
 pnpm lint             # eslint (next lint was removed in v16)
+pnpm test             # vitest — records, counters, rate limiter, pure helpers
 
 pnpm db:generate      # drizzle-kit generate — after editing schema.ts
 pnpm db:migrate       # apply migrations
@@ -179,9 +184,17 @@ pnpm db:seed          # exercise library + achievements (idempotent)
 pnpm check:queries    # run every read query against the DB, catch SQL errors
 
 node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, screenshots to /tmp/pump-shots
-node scripts/smoke.mjs         # every route + two-user social/co-op flow
+node scripts/smoke.mjs         # every route + two-user social/co-op flow + mid-workout paths
+node scripts/check-authz.mjs   # sign in as B, call actions against A's ids, assert refusal
 node scripts/generate-icons.mjs # regenerate PWA PNGs from public/icon.svg
 ```
+
+`pnpm test` runs against the **real** database (`.env.local`), not a mock: the
+things it covers — a record surviving the deletion of the workout that set it,
+a counter agreeing with its rows under concurrency, a limiter that a burst
+can't slip through — are all properties of the SQL. Each test creates a
+throwaway user and cascades it away afterwards. `check-authz` needs `pnpm dev`
+running.
 
 Local dev uses plain Postgres via `pg`; production uses the Neon serverless
 driver. `lib/db/index.ts` picks by hostname, so pointing `DATABASE_URL` at a
@@ -205,3 +218,5 @@ well as the flag.
 5. Optional: `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Without them the app just doesn't
    offer push.
+6. Optional: Vercel → Storage → **Blob**. It sets `BLOB_READ_WRITE_TOKEN`, and
+   avatars and workout photos appear. Without it neither control is offered.
