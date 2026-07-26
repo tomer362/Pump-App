@@ -212,6 +212,8 @@ export type AchievementRow = {
   icon: string;
   tier: number;
   unlockedAt: Date | null;
+  /** Null while the unlock hasn't been looked at yet — drives the "new" dot. */
+  seenAt: Date | null;
 };
 
 export async function getAchievements(
@@ -224,8 +226,9 @@ export async function getAchievements(
     icon: string;
     tier: number;
     unlocked_at: Date | null;
+    seen_at: Date | null;
   }>(sql`
-    SELECT a.key, a.title, a.description, a.icon, a.tier, ua.unlocked_at
+    SELECT a.key, a.title, a.description, a.icon, a.tier, ua.unlocked_at, ua.seen_at
     FROM achievement a
     LEFT JOIN user_achievement ua
       ON ua.achievement_key = a.key AND ua.user_id = ${userId}
@@ -239,5 +242,6 @@ export async function getAchievements(
     icon: r.icon,
     tier: r.tier,
     unlockedAt: r.unlocked_at,
+    seenAt: r.seen_at,
   }));
 }

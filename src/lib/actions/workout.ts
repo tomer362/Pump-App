@@ -388,22 +388,24 @@ export async function reorderWorkoutExercises(
 ): Promise<ActionResult> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  if (!orderedIds.length) return { ok: true };
 
-  await db.transaction(async (tx) => {
-    for (let i = 0; i < orderedIds.length; i++) {
-      await tx
-        .update(workoutExercise)
-        .set({ position: i })
-        .where(
-          and(
-            eq(workoutExercise.id, orderedIds[i]),
-            eq(workoutExercise.workoutId, workoutId),
-          ),
-        );
-    }
-  });
+  // One CASE update rather than a round trip per exercise: this runs on the
+  // mid-workout hot path, where a 12-exercise session was 12 sequential
+  // statements inside a transaction.
+  await db.execute(sql`
+    UPDATE ${workoutExercise}
+    SET position = v.position
+    FROM (VALUES ${sql.join(
+      orderedIds.map((id, i) => sql`(${id}::uuid, ${i}::int)`),
+      sql`, `,
+    )}) AS v(id, position)
+    WHERE ${workoutExercise.id} = v.id
+      AND ${workoutExercise.workoutId} = ${workoutId}::uuid
+  `);
 
-  revalidatePath(`/workout/${workoutId}`);
+  // No revalidate: the screen reorders locally, and refreshing this route
+  // would re-render the workout page around client state it can't see.
   return { ok: true };
 }
 

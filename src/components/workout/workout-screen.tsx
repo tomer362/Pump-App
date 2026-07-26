@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronLeft,
   Clock,
@@ -32,7 +34,7 @@ import { ExercisePicker } from "./exercise-picker";
 import { PlateCalculator } from "./plate-calculator";
 import { IntervalRunner } from "./interval-runner";
 import { FinishSheet } from "./finish-sheet";
-import { useElapsed } from "@/hooks/use-elapsed";
+import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import {
   addSet,
@@ -40,6 +42,7 @@ import {
   discardWorkout,
   removeSet,
   removeWorkoutExercise,
+  reorderWorkoutExercises,
   updateSet,
   updateWorkoutExerciseSettings,
   updateWorkoutMeta,
@@ -84,7 +87,6 @@ export function WorkoutScreen({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const elapsed = useElapsed(workout.startedAt);
   const keyboardInset = useKeyboardInset();
   // Scoped to this workout so a stale timer from another session is ignored.
   const timer = useRestTimer(workout.id);
@@ -374,6 +376,33 @@ export function WorkoutScreen({
     });
   }, []);
 
+  /**
+   * Move an exercise up or down. Buttons rather than a drag handle: the set
+   * rows already own the horizontal drag (swipe to delete), the screen is
+   * full of focusable inputs, and a 44px tap target is the thing that works
+   * one-handed with a phone at arm's length.
+   */
+  const moveBlock = useCallback(
+    (blockId: string, delta: -1 | 1) => {
+      const from = blocks.findIndex((b) => b.id === blockId);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= blocks.length) return;
+
+      const next = [...blocks];
+      [next[from], next[to]] = [next[to], next[from]];
+      haptic.light();
+      setMenuFor(null);
+      setBlocks(next);
+      startTransition(async () => {
+        await reorderWorkoutExercises(
+          workout.id,
+          next.map((b) => b.id),
+        );
+      });
+    },
+    [blocks, workout.id],
+  );
+
   const setSuperset = useCallback(
     (blockId: string, supersetGroup: string | null) => {
       setBlocks((prev) =>
@@ -439,9 +468,10 @@ export function WorkoutScreen({
 
           <div className="min-w-0 flex-1 text-center">
             <div className="truncate text-[15px] font-semibold">{name}</div>
-            <div className="num text-volt text-[12px] leading-tight font-bold">
-              {formatDuration(elapsed)}
-            </div>
+            <Elapsed
+              start={workout.startedAt}
+              className="num text-volt block text-[12px] leading-tight font-bold"
+            />
           </div>
 
           <Button
@@ -545,6 +575,9 @@ export function WorkoutScreen({
             onSetNotes={(n) => setBlockNotes(menuBlock.id, n)}
             onSetSuperset={(g) => setSuperset(menuBlock.id, g)}
             onSetInterval={(w, r) => setInterval(menuBlock.id, w, r)}
+            onMove={(delta) => moveBlock(menuBlock.id, delta)}
+            canMoveUp={blocks[0]?.id !== menuBlock.id}
+            canMoveDown={blocks[blocks.length - 1]?.id !== menuBlock.id}
             onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
@@ -885,6 +918,9 @@ function ExerciseOptions({
   onSetNotes,
   onSetSuperset,
   onSetInterval,
+  onMove,
+  canMoveUp,
+  canMoveDown,
   onRemove,
 }: {
   block: Block;
@@ -893,6 +929,9 @@ function ExerciseOptions({
   onSetNotes: (notes: string | null) => void;
   onSetSuperset: (group: string | null) => void;
   onSetInterval: (work: number | null, rest: number | null) => void;
+  onMove: (delta: -1 | 1) => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
@@ -918,6 +957,25 @@ function ExerciseOptions({
               {s === 0 ? "Off" : s < 60 ? `${s}s` : `${s / 60}m`}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div>
+        <SheetLabel>Order</SheetLabel>
+        <div className="flex gap-2">
+          <Button block variant="solid" disabled={!canMoveUp} onClick={() => onMove(-1)}>
+            <ArrowUp className="size-4" strokeWidth={2.4} />
+            Move up
+          </Button>
+          <Button
+            block
+            variant="solid"
+            disabled={!canMoveDown}
+            onClick={() => onMove(1)}
+          >
+            <ArrowDown className="size-4" strokeWidth={2.4} />
+            Move down
+          </Button>
         </div>
       </div>
 

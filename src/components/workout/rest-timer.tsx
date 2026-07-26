@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Minus, Plus, X } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
@@ -13,9 +19,30 @@ export type RestTimerState = {
 
 const STORAGE_KEY = "pump.rest-timer";
 
-/** Survives a refresh mid-rest, which is otherwise the most jarring data loss. */
-function loadPersisted(workoutId: string | undefined): RestTimerState {
-  if (typeof window === "undefined" || !workoutId) return null;
+/* -------------------------------------------------------------------------- */
+/* The running timer as an external store.                                     */
+/*                                                                             */
+/* It has to survive a reload mid-rest — losing a countdown to a stray refresh */
+/* is the most jarring failure this screen has — which means seeding it from   */
+/* sessionStorage. Doing that in a `useState` initialiser makes the first      */
+/* client render disagree with the server HTML, and React responds by throwing */
+/* away the subtree: the bar you were restoring is the thing that gets         */
+/* remounted. An external store gets this right by construction — the server   */
+/* snapshot is null, matching the HTML, and React re-reads the client snapshot */
+/* immediately after subscribing.                                              */
+/* -------------------------------------------------------------------------- */
+
+let current: RestTimerState = null;
+let currentWorkoutId: string | null = null;
+let loaded = false;
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const l of listeners) l();
+}
+
+function readStorage(workoutId: string | undefined): RestTimerState {
+  if (!workoutId) return null;
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -24,7 +51,7 @@ function loadPersisted(workoutId: string | undefined): RestTimerState {
       totalSeconds: number;
       workoutId: string;
     };
-    // Only restore this workout's timer, and only if it hasn't already run out.
+    // Only this workout's timer, and only if it hasn't already run out.
     if (saved.workoutId !== workoutId) return null;
     if (saved.endsAt <= Date.now()) return null;
     return { endsAt: saved.endsAt, totalSeconds: saved.totalSeconds };
@@ -33,17 +60,57 @@ function loadPersisted(workoutId: string | undefined): RestTimerState {
   }
 }
 
+function writeStorage(state: RestTimerState, workoutId: string | null) {
+  try {
+    if (state && workoutId) {
+      window.sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...state, workoutId }),
+      );
+    } else {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {
+    /* Private mode can refuse writes; the timer still works in-session. */
+  }
+}
+
+function setTimerState(next: RestTimerState) {
+  current = next;
+  writeStorage(current, currentWorkoutId);
+  emit();
+}
+
 /**
  * Rest timer state. Everything is derived from an absolute end timestamp so a
- * throttled background tab, a lock screen, or a browser tab switch can't make
- * the timer drift — the single most common failure of web-based trackers. The
- * same timestamp is mirrored to sessionStorage, so a reload mid-rest resumes
- * rather than silently dropping the countdown.
+ * throttled background tab, a lock screen, or a tab switch can't make the
+ * timer drift — the single most common failure of web-based trackers.
  */
 export function useRestTimer(workoutId?: string) {
-  const [state, setState] = useState<RestTimerState>(() =>
-    loadPersisted(workoutId),
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      // First subscription happens after mount, so the restore lands in the
+      // post-hydration re-read rather than during render.
+      if (!loaded) {
+        loaded = true;
+        currentWorkoutId = workoutId ?? null;
+        current = readStorage(workoutId);
+      }
+      listeners.add(onChange);
+      return () => {
+        listeners.delete(onChange);
+      };
+    },
+    [workoutId],
   );
+
+  const state = useSyncExternalStore(
+    subscribe,
+    () => current,
+    // The server has no sessionStorage — and no timer can be running there.
+    () => null,
+  );
+
   const [ticked, setTicked] = useState(0);
   const firedRef = useRef(false);
 
@@ -51,56 +118,51 @@ export function useRestTimer(workoutId?: string) {
   // so resetting via setState in an effect would only cause a second render.
   const remaining = state ? ticked : 0;
 
-  // Mirror to sessionStorage so a reload picks the countdown back up.
-  useEffect(() => {
-    if (typeof window === "undefined" || !workoutId) return;
-    try {
-      if (state) {
-        window.sessionStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ ...state, workoutId }),
-        );
-      } else {
-        window.sessionStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      /* Private mode can refuse writes; the timer still works in-session. */
-    }
-  }, [state, workoutId]);
+  const start = useCallback(
+    (seconds: number) => {
+      if (seconds <= 0) return;
+      firedRef.current = false;
+      currentWorkoutId = workoutId ?? null;
+      setTimerState({
+        endsAt: Date.now() + seconds * 1000,
+        totalSeconds: seconds,
+      });
+    },
+    [workoutId],
+  );
 
-  const start = useCallback((seconds: number) => {
-    if (seconds <= 0) return;
-    firedRef.current = false;
-    setState({ endsAt: Date.now() + seconds * 1000, totalSeconds: seconds });
-  }, []);
-
-  const stop = useCallback(() => setState(null), []);
+  const stop = useCallback(() => setTimerState(null), []);
 
   /** Shift the end time by `delta` seconds, never below "now". */
   const adjust = useCallback((delta: number) => {
-    setState((s) => {
-      if (!s) return s;
-      const now = Date.now();
-      // Clamp against the present, not against epoch zero — clamping the
-      // absolute timestamp to 0 would jump the timer back to 1970.
-      const endsAt = Math.max(now, s.endsAt + delta * 1000);
-      // Keep the denominator consistent with the new duration so the draining
-      // track stays proportional.
-      const totalSeconds = Math.max(
-        1,
-        Math.ceil((endsAt - now) / 1000),
-        s.totalSeconds + delta,
-      );
-      return { endsAt, totalSeconds };
-    });
+    if (!current) return;
+    const now = Date.now();
+    // Clamp against the present, not against epoch zero — clamping the
+    // absolute timestamp to 0 would jump the timer back to 1970.
+    const endsAt = Math.max(now, current.endsAt + delta * 1000);
+    // Keep the denominator consistent with the new duration so the draining
+    // track stays proportional.
+    const totalSeconds = Math.max(
+      1,
+      Math.ceil((endsAt - now) / 1000),
+      current.totalSeconds + delta,
+    );
+    setTimerState({ endsAt, totalSeconds });
   }, []);
 
   /** Restart at an exact duration — what the presets want. */
-  const setDuration = useCallback((seconds: number) => {
-    if (seconds <= 0) return;
-    firedRef.current = false;
-    setState({ endsAt: Date.now() + seconds * 1000, totalSeconds: seconds });
-  }, []);
+  const setDuration = useCallback(
+    (seconds: number) => {
+      if (seconds <= 0) return;
+      firedRef.current = false;
+      currentWorkoutId = workoutId ?? null;
+      setTimerState({
+        endsAt: Date.now() + seconds * 1000,
+        totalSeconds: seconds,
+      });
+    },
+    [workoutId],
+  );
 
   useEffect(() => {
     if (!state) return;
@@ -127,7 +189,7 @@ export function useRestTimer(workoutId?: string) {
   // Clear a couple of seconds after it hits zero, so the "0:00" is seen.
   useEffect(() => {
     if (state && remaining === 0) {
-      const id = window.setTimeout(() => setState(null), 2500);
+      const id = window.setTimeout(() => setTimerState(null), 2500);
       return () => window.clearTimeout(id);
     }
   }, [state, remaining]);

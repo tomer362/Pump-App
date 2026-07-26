@@ -388,6 +388,7 @@ const customExerciseSchema = z.object({
   trackingType: z
     .enum(["weight_reps", "reps", "time", "distance_time", "weight_time"])
     .default("weight_reps"),
+  instructions: z.string().trim().max(1000).nullable().optional(),
 });
 
 export async function createCustomExercise(input: {
@@ -395,6 +396,7 @@ export async function createCustomExercise(input: {
   primaryMuscle: string;
   equipment: string;
   trackingType?: string;
+  instructions?: string | null;
 }): Promise<ActionResult<{ exerciseId: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
@@ -423,6 +425,7 @@ export async function createCustomExercise(input: {
       primaryMuscle: parsed.data.primaryMuscle as never,
       equipment: parsed.data.equipment as never,
       trackingType: parsed.data.trackingType as never,
+      instructions: parsed.data.instructions ?? null,
       ownerId: me.id,
     })
     .returning({ id: exercise.id });

@@ -3,12 +3,13 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, UserPlus, UserCheck, Clock } from "lucide-react";
+import { Check, UserPlus, UserCheck, UserMinus, Clock } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import {
   acceptFriendRequest,
   declineFriendRequest,
+  removeFriend,
   sendFriendRequest,
   toggleFollow,
 } from "@/lib/actions/social";
@@ -27,6 +28,8 @@ export function PersonRow({
   const [, startTransition] = useTransition();
   // Drives the two-avatars-snap-together confirmation.
   const [justAdded, setJustAdded] = useState(false);
+  // Second-tap confirmation for the destructive actions.
+  const [confirming, setConfirming] = useState(false);
 
   function celebrate() {
     haptic.success();
@@ -56,15 +59,65 @@ export function PersonRow({
 
       <div className="flex shrink-0 items-center gap-1.5">
         {status === "friends" ? (
-          <span className="text-volt flex items-center gap-1 text-[12px] font-semibold">
-            <UserCheck className="size-4" strokeWidth={2.4} />
-            Friends
-          </span>
+          // Two taps to unfriend, with no modal: the second tap confirms and
+          // the state reverts on its own if it was a mis-tap.
+          <button
+            onClick={() => {
+              if (!confirming) {
+                haptic.light();
+                setConfirming(true);
+                window.setTimeout(() => setConfirming(false), 3000);
+                return;
+              }
+              setConfirming(false);
+              setStatus("none");
+              haptic.medium();
+              startTransition(async () => {
+                await removeFriend(person.id);
+              });
+            }}
+            className={cn(
+              "press flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
+              confirming ? "bg-danger-fade text-danger" : "text-volt",
+            )}
+          >
+            {confirming ? (
+              <>
+                <UserMinus className="size-3.5" strokeWidth={2.4} />
+                Remove?
+              </>
+            ) : (
+              <>
+                <UserCheck className="size-4" strokeWidth={2.4} />
+                Friends
+              </>
+            )}
+          </button>
         ) : status === "pending_out" ? (
-          <span className="text-text-3 flex items-center gap-1 text-[12px] font-semibold">
+          // Cancelling deletes the request row, which is what removeFriend
+          // does — there is no separate "withdraw" state to model.
+          <button
+            onClick={() => {
+              if (!confirming) {
+                haptic.light();
+                setConfirming(true);
+                window.setTimeout(() => setConfirming(false), 3000);
+                return;
+              }
+              setConfirming(false);
+              setStatus("none");
+              startTransition(async () => {
+                await removeFriend(person.id);
+              });
+            }}
+            className={cn(
+              "press flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
+              confirming ? "bg-danger-fade text-danger" : "text-text-3",
+            )}
+          >
             <Clock className="size-3.5" strokeWidth={2.4} />
-            Requested
-          </span>
+            {confirming ? "Cancel it?" : "Requested"}
+          </button>
         ) : status === "pending_in" ? (
           <>
             <Button

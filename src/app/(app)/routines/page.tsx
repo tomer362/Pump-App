@@ -13,6 +13,18 @@ export default async function RoutinesPage() {
     getFollowedRoutines(me.id),
   ]);
 
+  // Grouped by folder, unfiled last: a folder is something you deliberately
+  // named, so it outranks the routines you never filed.
+  const byFolder = new Map<string | null, typeof mine>();
+  for (const r of mine) {
+    const list = byFolder.get(r.folder) ?? [];
+    list.push(r);
+    byFolder.set(r.folder, list);
+  }
+  const folders = [...byFolder.entries()].sort(([a], [b]) =>
+    a === b ? 0 : a === null ? 1 : b === null ? -1 : a.localeCompare(b),
+  );
+
   return (
     <div>
       <NavBar
@@ -44,30 +56,44 @@ export default async function RoutinesPage() {
             }
           />
         ) : (
-          <div className="space-y-2">
-            {mine.map((r) => (
-              <Link key={r.id} href={`/routines/${r.id}`}>
-                <div className="press border-hairline bg-surface-1 rounded-card border px-4 py-3.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="truncate text-[16px] font-semibold">{r.name}</p>
-                    {!r.isPublic && (
-                      <span className="text-text-3 shrink-0 text-[11px]">
-                        Private
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-text-3 num mt-0.5 text-[12px]">
-                    {r.exerciseCount} exercise{r.exerciseCount === 1 ? "" : "s"} ·{" "}
-                    {r.setCount} sets
-                  </p>
-                  {r.preview.length > 0 && (
-                    <p className="text-text-3 mt-1.5 truncate text-[13px]">
-                      {r.preview.join(" · ")}
-                      {r.exerciseCount > r.preview.length && " …"}
-                    </p>
-                  )}
+          <div className="space-y-6">
+            {folders.map(([folder, list]) => (
+              <div key={folder ?? "__none"}>
+                {/* Only heading a group when there is more than one — a single
+                    "Routines" label above every routine is pure chrome. */}
+                {folders.length > 1 && (
+                  <SectionTitle>{folder ?? "Unfiled"}</SectionTitle>
+                )}
+                <div className="space-y-2">
+                  {list.map((r) => (
+                    <Link key={r.id} href={`/routines/${r.id}`}>
+                      <div className="press border-hairline bg-surface-1 rounded-card border px-4 py-3.5">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="truncate text-[16px] font-semibold">
+                            {r.name}
+                          </p>
+                          {!r.isPublic && (
+                            <span className="text-text-3 shrink-0 text-[11px]">
+                              Private
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-text-3 num mt-0.5 text-[12px]">
+                          {r.exerciseCount} exercise
+                          {r.exerciseCount === 1 ? "" : "s"} · {r.setCount} sets
+                          {r.sourceAuthor && <> · from @{r.sourceAuthor}</>}
+                        </p>
+                        {r.preview.length > 0 && (
+                          <p className="text-text-3 mt-1.5 truncate text-[13px]">
+                            {r.preview.join(" · ")}
+                            {r.exerciseCount > r.preview.length && " …"}
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                  ))}
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}

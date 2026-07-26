@@ -37,6 +37,24 @@ export default async function RoutineDetailPage(
       />
 
       <div className="px-4">
+        {/* Provenance: a copied routine credits whoever wrote it, which is
+            what makes sharing one feel like sharing rather than taking. */}
+        {routine.sourceAuthor && (
+          <p className="text-text-3 mb-3 text-[13px]">
+            Copied from{" "}
+            <Link
+              href={`/u/${routine.sourceAuthor}`}
+              className="text-volt font-medium"
+            >
+              @{routine.sourceAuthor}
+            </Link>
+          </p>
+        )}
+
+        {routine.folder && (
+          <Badge className="mb-3">{routine.folder}</Badge>
+        )}
+
         {routine.notes && (
           <p className="text-text-2 mb-4 text-[14px] leading-relaxed">
             {routine.notes}

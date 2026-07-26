@@ -87,6 +87,7 @@ export function RoutineBuilder({
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
+  const [folder, setFolder] = useState(existing?.folder ?? "");
   const [isPublic, setIsPublic] = useState(existing?.isPublic ?? true);
   const [items, setItems] = useState<DraftExercise[]>(() =>
     (existing?.exercises ?? []).map((e) => ({
@@ -192,6 +193,7 @@ export function RoutineBuilder({
     const payload: RoutineInput = {
       name,
       notes: notes.trim() || null,
+      folder: folder.trim() || null,
       isPublic,
       exercises: items.map((it) => ({
         exerciseId: it.exerciseId,
@@ -268,6 +270,12 @@ export function RoutineBuilder({
           placeholder="Notes (optional)"
           rows={2}
           maxLength={1000}
+        />
+        <Input
+          value={folder}
+          onChange={(e) => setFolder(e.target.value)}
+          placeholder="Folder — e.g. PPL, Off-season"
+          maxLength={40}
         />
         <Segmented
           value={isPublic ? "public" : "private"}

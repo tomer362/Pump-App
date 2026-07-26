@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   exercise,
@@ -302,14 +302,6 @@ export async function getWorkoutHistory(
     .limit(limit);
 }
 
-export async function getWorkoutCount(userId: string) {
-  const [row] = await db
-    .select({ n: sql<number>`COUNT(*)::int` })
-    .from(workout)
-    .where(and(eq(workout.userId, userId), isNotNull(workout.endedAt)));
-  return row?.n ?? 0;
-}
-
 /** Records for the profile and exercise-detail screens. */
 export async function getPersonalRecords(
   userId: string,
@@ -340,17 +332,3 @@ export async function getPersonalRecords(
 }
 
 /** Dates of finished workouts in a window — drives the streak + calendar. */
-export async function getWorkoutDays(userId: string, since: Date) {
-  const rows = await db
-    .select({ startedAt: workout.startedAt })
-    .from(workout)
-    .where(
-      and(
-        eq(workout.userId, userId),
-        isNotNull(workout.endedAt),
-        gte(workout.startedAt, since),
-      ),
-    )
-    .orderBy(desc(workout.startedAt));
-  return rows.map((r) => r.startedAt);
-}

@@ -4,8 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronRight } from "lucide-react";
-import { useElapsed } from "@/hooks/use-elapsed";
-import { formatDuration } from "@/lib/utils";
+import { Elapsed } from "@/components/ui/elapsed";
 import type { ActiveWorkoutSummary } from "@/lib/queries/workout";
 
 /**
@@ -18,7 +17,6 @@ export function ActiveWorkoutPill({
   workout: ActiveWorkoutSummary;
 }) {
   const pathname = usePathname();
-  const elapsed = useElapsed(new Date(workout.startedAt));
 
   // Redundant while you're already looking at the workout.
   const onWorkoutScreen = pathname.startsWith("/workout/");
@@ -49,9 +47,10 @@ export function ActiveWorkoutPill({
                 {workout.completedSets} set{workout.completedSets === 1 ? "" : "s"} logged
               </span>
             </span>
-            <span className="num text-[17px] font-bold">
-              {formatDuration(elapsed)}
-            </span>
+            <Elapsed
+              start={workout.startedAt}
+              className="num text-[17px] font-bold"
+            />
             <ChevronRight className="size-4 shrink-0 opacity-60" strokeWidth={2.5} />
           </Link>
         </motion.div>

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gt, ilike, ne, or, sql, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, ne, or, sql, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   follow,
@@ -331,6 +331,28 @@ export async function getPendingFriendRequests(
   return rows.map(toPerson);
 }
 
+/**
+ * Requests you've sent that haven't been answered. Without this the requester
+ * has no record of having asked and no way to withdraw — the only trace is a
+ * "Requested" chip on whatever screen they happened to send it from.
+ */
+export async function getSentFriendRequests(
+  userId: string,
+): Promise<PersonCard[]> {
+  const rows = await db
+    .select(personSelection(userId))
+    .from(user)
+    .innerJoin(friendRequest, eq(friendRequest.addresseeId, user.id))
+    .where(
+      and(
+        eq(friendRequest.requesterId, userId),
+        eq(friendRequest.status, "pending"),
+      ),
+    )
+    .limit(100);
+  return rows.map(toPerson);
+}
+
 export async function getFollowCounts(userId: string) {
   const [row] = await db
     .select({
@@ -496,17 +518,4 @@ export async function getGymDetail(
     .limit(200);
 
   return { ...g, members };
-}
-
-export async function getUsersByIds(ids: string[]) {
-  if (!ids.length) return [];
-  return db
-    .select({
-      id: user.id,
-      name: user.name,
-      username: user.username,
-      image: user.image,
-    })
-    .from(user)
-    .where(inArray(user.id, ids));
 }

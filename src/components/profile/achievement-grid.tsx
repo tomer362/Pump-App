@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { Lock } from "lucide-react";
 import { AchievementIcon } from "@/components/achievement-icon";
 import { Sheet } from "@/components/ui/sheet";
+import { markAchievementsSeen } from "@/lib/actions/achievement-actions";
 import type { AchievementRow } from "@/lib/queries/stats";
 import { cn, haptic } from "@/lib/utils";
 
@@ -14,7 +15,23 @@ export function AchievementGrid({
   achievements: AchievementRow[];
 }) {
   const [selected, setSelected] = useState<AchievementRow | null>(null);
+  const [, startTransition] = useTransition();
   const unlocked = achievements.filter((a) => a.unlockedAt).length;
+  const hasUnseen = achievements.some(
+    (a) => a.unlockedAt != null && a.seenAt == null,
+  );
+
+  // Seeing the grid is the acknowledgement. Deferred a beat so the marker is
+  // actually visible on arrival rather than clearing before first paint.
+  useEffect(() => {
+    if (!hasUnseen) return;
+    const id = window.setTimeout(() => {
+      startTransition(async () => {
+        await markAchievementsSeen();
+      });
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [hasUnseen]);
 
   return (
     <>
@@ -26,6 +43,7 @@ export function AchievementGrid({
         <div className="grid grid-cols-4 gap-2.5">
           {achievements.map((a, i) => {
             const isUnlocked = a.unlockedAt != null;
+            const isNew = isUnlocked && a.seenAt == null;
             return (
               <motion.button
                 key={a.key}
@@ -40,12 +58,18 @@ export function AchievementGrid({
               >
                 <span
                   className={cn(
-                    "grid aspect-square w-full place-items-center rounded-[14px] border transition-colors",
+                    "relative grid aspect-square w-full place-items-center rounded-[14px] border transition-colors",
                     isUnlocked
                       ? "border-volt/40 bg-volt-fade text-volt"
                       : "border-hairline bg-surface-2 text-text-3/50",
                   )}
                 >
+                  {isNew && (
+                    <span
+                      aria-label="New"
+                      className="bg-volt ring-bg absolute -top-1 -right-1 size-2.5 rounded-full ring-2"
+                    />
+                  )}
                   {isUnlocked ? (
                     <AchievementIcon name={a.icon} className="size-6" />
                   ) : (

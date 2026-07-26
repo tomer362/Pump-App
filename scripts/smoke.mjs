@@ -171,9 +171,22 @@ try {
     await a.page.getByRole("button", { name: /create session/i }).click();
     await a.page.waitForURL(/\/coop\/[0-9a-f-]{36}/, { timeout: 20000 });
     await a.page.waitForTimeout(800);
+  } else {
+    // A re-run finds A still in a session from last time; the launcher shows
+    // "Open session" instead of the create flow.
+    const openSession = a.page.getByRole("button", { name: /open session/i });
+    if (await openSession.count()) {
+      await openSession.click();
+      await a.page.waitForURL(/\/coop\/[0-9a-f-]{36}/, { timeout: 20000 });
+      await a.page.waitForTimeout(800);
+    }
   }
   const code = (
-    await a.page.locator("button", { hasText: /^[A-Z0-9]{6}$/ }).first().textContent()
+    await a.page
+      .locator("button", { hasText: /^[A-Z0-9]{6}$/ })
+      .first()
+      .textContent({ timeout: 10000 })
+      .catch(() => null)
   )?.trim();
   console.log(`  join code: ${code ?? "not found"}`);
 
@@ -197,12 +210,84 @@ try {
     }
   }
 
+  console.log("→ Mid-workout: add an exercise, reorder, reload mid-rest");
+  await coveredWorkoutPaths(b, problems);
+
   await a.ctx.close();
   await b.ctx.close();
 } catch (err) {
   problems.push(`fatal: ${err.message}`);
 } finally {
   await browser.close();
+}
+
+/**
+ * The paths a happy-path walkthrough never touches, and which each hid a real
+ * bug: adding an exercise after the screen mounted (stale local state), and a
+ * running rest timer surviving a reload (it lived only in useState).
+ */
+async function coveredWorkoutPaths(user, problems) {
+  const { page } = user;
+
+  // B may already have a session running from a previous step or run, in
+  // which case the active-workout pill is the way back into it.
+  await page.goto(`${BASE}/start`, { waitUntil: "networkidle" });
+  const resume = page.locator('a[href^="/workout/"]').first();
+  if (await resume.count()) {
+    await resume.click();
+  } else {
+    const startEmpty = page.getByRole("button", { name: /start empty workout/i });
+    if (await startEmpty.count()) await startEmpty.click();
+  }
+  try {
+    await page.waitForURL(/\/workout\/[0-9a-f-]{36}/, { timeout: 20000 });
+  } catch {
+    problems.push("could not reach a workout screen");
+    return;
+  }
+  const workoutUrl = page.url();
+
+  // --- Add an exercise after mount: it has to render without a refresh.
+  const before = await page.locator('a[href^="/exercises/"]').count();
+  await page.getByRole("button", { name: /^Add exercise$/ }).click();
+  await page.waitForTimeout(400);
+  // Search rather than picking from the list: the list is virtual-scrolled
+  // and its ordering depends on this user's history.
+  await page.getByPlaceholder(/search exercises/i).fill("Bench Press");
+  await page.waitForTimeout(1000);
+  await page.getByRole("button", { name: /Bench Press/ }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /^Add \d+ exercises?$/ }).click();
+  await page.waitForTimeout(1500);
+  const after = await page.locator('a[href^="/exercises/"]').count();
+  console.log(`  exercises ${before} → ${after}`);
+  if (after <= before) problems.push("added exercise did not render");
+
+  // --- Complete a set: starts the rest timer, which must survive a reload.
+  const check = page.getByRole("button", { name: /^Complete set$/ }).first();
+  if (await check.count()) {
+    await check.click();
+    await page.waitForTimeout(800);
+    const restBefore = await page.getByText(/^\d+:\d\d$/).count();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1200);
+    const restAfter = await page.getByText(/^\d+:\d\d$/).count();
+    console.log(`  rest timer survives reload: ${restAfter > 0}`);
+    if (restBefore > 0 && restAfter === 0) {
+      problems.push("rest timer did not survive a reload");
+    }
+  }
+
+  // --- Finish, so the run leaves no active workout blocking the next one.
+  await page.goto(workoutUrl, { waitUntil: "networkidle" });
+  const finish = page.getByRole("button", { name: /^Finish$/ });
+  if ((await finish.count()) && (await finish.isEnabled())) {
+    await finish.click();
+    await page.waitForTimeout(600);
+    await page.getByRole("button", { name: /finish and save/i }).click();
+    await page.waitForTimeout(3000);
+    console.log("  finished the workout");
+  }
 }
 
 const unique = [...new Set(problems)].filter(

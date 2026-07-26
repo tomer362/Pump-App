@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   exercise,
@@ -23,6 +23,8 @@ export type RoutineListItem = {
   ownerUsername: string | null;
   ownerId: string;
   updatedAt: Date;
+  /** Handle of whoever wrote the routine this was copied from, if anyone. */
+  sourceAuthor: string | null;
 };
 
 export async function getRoutines(userId: string): Promise<RoutineListItem[]> {
@@ -55,6 +57,15 @@ export async function getRoutines(userId: string): Promise<RoutineListItem[]> {
           ORDER BY re3.position LIMIT 4
         ) t
       )`,
+      // Null for an original, and for a copy of your own routine — crediting
+      // yourself is noise.
+      sourceAuthor: sql<string | null>`(
+        SELECT COALESCE(su.username, su.name)
+        FROM ${routine} sr
+        JOIN ${user} su ON su.id = sr.user_id
+        WHERE sr.id = ${routine.sourceRoutineId}
+          AND sr.user_id <> ${routine.userId}
+      )`,
     })
     .from(routine)
     .innerJoin(user, eq(user.id, routine.userId))
@@ -74,6 +85,7 @@ export type FullRoutine = {
   ownerName: string;
   ownerUsername: string | null;
   sourceRoutineId: string | null;
+  sourceAuthor: string | null;
   exercises: {
     id: string;
     exerciseId: string;
@@ -108,6 +120,13 @@ export async function getFullRoutine(
       routine,
       ownerName: user.name,
       ownerUsername: user.username,
+      sourceAuthor: sql<string | null>`(
+        SELECT COALESCE(su.username, su.name)
+        FROM ${routine} sr
+        JOIN ${user} su ON su.id = sr.user_id
+        WHERE sr.id = ${routine.sourceRoutineId}
+          AND sr.user_id <> ${routine.userId}
+      )`,
     })
     .from(routine)
     .innerJoin(user, eq(user.id, routine.userId))
@@ -168,6 +187,7 @@ export async function getFullRoutine(
     folder: r.routine.folder,
     isPublic: r.routine.isPublic,
     sourceRoutineId: r.routine.sourceRoutineId,
+    sourceAuthor: r.sourceAuthor,
     ownerName: r.ownerName,
     ownerUsername: r.ownerUsername,
     exercises: res.map((x) => ({ ...x, sets: byRe.get(x.id) ?? [] })),
@@ -200,19 +220,4 @@ export async function getFollowedRoutines(userId: string, limit = 30) {
     )
     .orderBy(desc(routine.updatedAt))
     .limit(limit);
-}
-
-/** Can this user see this routine? Owner always; others only when public. */
-export async function canViewRoutine(routineId: string, userId: string) {
-  const [r] = await db
-    .select({ userId: routine.userId, isPublic: routine.isPublic })
-    .from(routine)
-    .where(
-      and(
-        eq(routine.id, routineId),
-        or(eq(routine.userId, userId), eq(routine.isPublic, true)),
-      ),
-    )
-    .limit(1);
-  return r ?? null;
 }

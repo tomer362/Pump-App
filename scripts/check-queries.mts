@@ -25,9 +25,7 @@ const uid = anyUser.id;
 const cases: [string, () => Promise<unknown>][] = [
   ["workout.getActiveWorkoutSummary", () => workoutQ.getActiveWorkoutSummary(uid)],
   ["workout.getWorkoutHistory", () => workoutQ.getWorkoutHistory(uid)],
-  ["workout.getWorkoutCount", () => workoutQ.getWorkoutCount(uid)],
   ["workout.getPersonalRecords", () => workoutQ.getPersonalRecords(uid)],
-  ["workout.getWorkoutDays", () => workoutQ.getWorkoutDays(uid, new Date(0))],
   ["workout.getPreviousSets", () => workoutQ.getPreviousSets(uid, null, [])],
   ["exercise.searchExercises", () => exerciseQ.searchExercises(uid, { query: "bench" })],
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [])],
@@ -38,6 +36,7 @@ const cases: [string, () => Promise<unknown>][] = [
   ["social.searchPeople", () => socialQ.searchPeople(uid, "a")],
   ["social.getFriends", () => socialQ.getFriends(uid)],
   ["social.getPendingFriendRequests", () => socialQ.getPendingFriendRequests(uid)],
+  ["social.getSentFriendRequests", () => socialQ.getSentFriendRequests(uid)],
   ["social.getFollowCounts", () => socialQ.getFollowCounts(uid)],
   ["social.getFriendsAtGym", () => socialQ.getFriendsAtGym(uid)],
   ["social.getMyPresence", () => socialQ.getMyPresence(uid)],

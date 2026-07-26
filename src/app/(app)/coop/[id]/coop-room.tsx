@@ -12,7 +12,7 @@ import {
   leaveCoopSession,
   type CoopSnapshot,
 } from "@/lib/actions/coop";
-import { useElapsed } from "@/hooks/use-elapsed";
+import { Elapsed } from "@/components/ui/elapsed";
 import { cn, formatDuration, formatVolume, haptic } from "@/lib/utils";
 
 const POLL_MS = 3000;
@@ -200,12 +200,8 @@ function ParticipantCard({
   unit: "kg" | "lb";
 }) {
   const finished = p.endedAt != null;
-  // Freeze the clock once they're done — otherwise a finished lifter appears
-  // to still be training, with a timer that ticks forever.
-  const elapsed = useElapsed(
-    p.startedAt ?? new Date(),
-    p.startedAt != null && !finished,
-  );
+  // A finished lifter shows their final duration, not a clock that ticks
+  // forever — <Elapsed> is only mounted while they're still training.
   const finalSeconds =
     finished && p.startedAt
       ? Math.max(
@@ -239,8 +235,17 @@ function ParticipantCard({
         <p className="text-text-3 num text-[12px]">
           {p.setsCompleted} set{p.setsCompleted === 1 ? "" : "s"} ·{" "}
           {formatVolume(p.volumeKg, unit)} {unit}
-          {p.startedAt &&
-            ` · ${formatDuration(finished ? finalSeconds : elapsed)}`}
+          {p.startedAt && (
+            <>
+              {" · "}
+              {finished ? (
+                formatDuration(finalSeconds)
+              ) : (
+                // Ticks against wall-clock, so it has to survive hydration.
+                <Elapsed start={p.startedAt} />
+              )}
+            </>
+          )}
         </p>
       </div>
 

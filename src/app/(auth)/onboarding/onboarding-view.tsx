@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { Check, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Segmented } from "@/components/ui/primitives";
 import { Wordmark } from "@/components/wordmark";
-import { completeOnboarding } from "@/lib/actions/user";
+import { checkUsernameAvailable, completeOnboarding } from "@/lib/actions/user";
 import { cn } from "@/lib/utils";
 
 const REST_PRESETS = [60, 90, 120, 180, 240];
@@ -26,6 +26,49 @@ export function OnboardingView({
   const [unit, setUnit] = useState<"kg" | "lb">("kg");
   const [rest, setRest] = useState(120);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Live availability rather than failing on submit. The verdict is stored
+   * against the handle it was asked about, so a slow response for an old
+   * value can never overwrite a newer one — and "checking" is derived from
+   * the absence of a verdict for what's currently typed, rather than being
+   * a second piece of state to keep in sync.
+   */
+  const [verdict, setVerdict] = useState<{
+    handle: string;
+    available: boolean;
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (username.length < 3) return;
+    let cancelled = false;
+    const id = window.setTimeout(async () => {
+      const res = await checkUsernameAvailable(username);
+      if (cancelled) return;
+      setVerdict(
+        res.ok
+          ? { handle: username, available: res.data?.available ?? false }
+          : { handle: username, available: false, error: res.error },
+      );
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [username]);
+
+  const current = verdict?.handle === username ? verdict : null;
+  const handleStatus =
+    username.length < 3
+      ? "idle"
+      : !current
+        ? "checking"
+        : current.error
+          ? "invalid"
+          : current.available
+            ? "free"
+            : "taken";
 
   function submit() {
     setError(null);
@@ -89,7 +132,31 @@ export function OnboardingView({
                 spellCheck={false}
                 maxLength={20}
               />
+              {handleStatus === "checking" && (
+                <Loader2 className="text-text-3 absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin" />
+              )}
+              {handleStatus === "free" && (
+                <Check
+                  aria-label="Available"
+                  className="text-volt absolute top-1/2 right-3 size-4 -translate-y-1/2"
+                  strokeWidth={3}
+                />
+              )}
+              {(handleStatus === "taken" || handleStatus === "invalid") && (
+                <AlertCircle
+                  aria-label="Unavailable"
+                  className="text-danger absolute top-1/2 right-3 size-4 -translate-y-1/2"
+                />
+              )}
             </div>
+            {handleStatus === "taken" && (
+              <p className="text-danger mt-1.5 text-[12px]">
+                @{username} is taken — try another.
+              </p>
+            )}
+            {handleStatus === "invalid" && (
+              <p className="text-danger mt-1.5 text-[12px]">{current?.error}</p>
+            )}
           </Field>
 
           <Field label="Weight unit">
@@ -133,7 +200,13 @@ export function OnboardingView({
           size="lg"
           block
           onClick={submit}
-          disabled={pending || name.trim().length === 0 || username.length < 3}
+          disabled={
+            pending ||
+            name.trim().length === 0 ||
+            username.length < 3 ||
+            handleStatus === "taken" ||
+            handleStatus === "invalid"
+          }
         >
           {pending ? (
             <Loader2 className="size-4 animate-spin" />

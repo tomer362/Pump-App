@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge, Input } from "@/components/ui/primitives";
+import { Badge, Input, Textarea } from "@/components/ui/primitives";
 import { searchExercisesAction } from "@/lib/actions/exercise-search";
 import { createCustomExercise } from "@/lib/actions/routine";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
@@ -294,6 +294,7 @@ function CreateExerciseForm({
   const [muscle, setMuscle] = useState<string>("chest");
   const [equipment, setEquipment] = useState<string>("barbell");
   const [tracking, setTracking] = useState<string>("weight_reps");
+  const [instructions, setInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -305,6 +306,7 @@ function CreateExerciseForm({
       primaryMuscle: muscle,
       equipment,
       trackingType: tracking,
+      instructions: instructions.trim() || null,
     });
     setSaving(false);
     if (res.ok && res.data) onCreated(res.data.exerciseId);
@@ -353,6 +355,17 @@ function CreateExerciseForm({
             { value: "distance_time", label: "Distance & time" },
             { value: "weight_time", label: "Weight & time" },
           ]}
+        />
+      </div>
+
+      <div>
+        <Label>How to do it (optional)</Label>
+        <Textarea
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder="Setup, cues, range of motion — whatever you'd forget in six weeks."
+          maxLength={1000}
         />
       </div>
 

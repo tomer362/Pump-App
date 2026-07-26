@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Badge, Card, EmptyState, SectionTitle } from "@/components/ui/primitives";
 import { ExerciseProgressChart } from "@/components/exercise/exercise-progress-chart";
+import { DeleteExercise } from "./delete-exercise";
 import { requireUser } from "@/lib/session";
 import {
   getExercise,
@@ -48,6 +49,17 @@ export default async function ExerciseDetailPage(
             {exercise.secondaryMuscles.map((m) => (
               <Badge key={m}>{labelize(m)}</Badge>
             ))}
+          </div>
+        )}
+
+        {exercise.instructions && (
+          <div>
+            <SectionTitle>How to do it</SectionTitle>
+            <Card className="px-4 py-3.5">
+              <p className="text-text-2 text-[14px] leading-relaxed whitespace-pre-line">
+                {exercise.instructions}
+              </p>
+            </Card>
           </div>
         )}
 
@@ -114,6 +126,10 @@ export default async function ExerciseDetailPage(
               </div>
             </div>
           </>
+        )}
+
+        {exercise.ownerId === me.id && (
+          <DeleteExercise exerciseId={exercise.id} name={exercise.name} />
         )}
       </div>
     </div>
