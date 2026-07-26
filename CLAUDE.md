@@ -212,8 +212,14 @@ well as the flag.
 2. Google Cloud Console → OAuth client (Web). Authorized redirect URIs:
    `https://<domain>/api/auth/callback/google` and
    `http://localhost:3000/api/auth/callback/google`.
-3. Env: `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL`,
-   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+3. Env — all four are **required**, set for every environment the build runs in:
+   `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` (the
+   canonical public origin, no trailing slash), `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`.
+   **The build fails without `BETTER_AUTH_SECRET`, deliberately.** Better Auth
+   otherwise falls back to a default secret that ships in its published source
+   — it logs an error, carries on, and the deployment goes out with session
+   cookies anyone can forge. A build that stops is the better outcome.
 4. `pnpm db:migrate && pnpm db:seed` against the Neon URL.
 5. Optional: `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Without them the app just doesn't
