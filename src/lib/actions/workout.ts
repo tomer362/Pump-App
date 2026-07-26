@@ -18,6 +18,7 @@ import {
   type PrKind,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { isBlobUrl } from "@/lib/blob";
 import { estimate1RM } from "@/lib/utils";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
@@ -653,7 +654,11 @@ export type FinishSummary = {
  */
 export async function finishWorkout(
   workoutId: string,
-  opts: { shareToFeed?: boolean; caption?: string | null } = {},
+  opts: {
+    shareToFeed?: boolean;
+    caption?: string | null;
+    photoUrl?: string | null;
+  } = {},
 ): Promise<ActionResult<FinishSummary>> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
@@ -699,6 +704,8 @@ export async function finishWorkout(
 
   const byWe = new Map(wes.map((r) => [r.id, r]));
   const prs: FinishSummary["prs"] = [];
+  const photoUrl =
+    opts.photoUrl && isBlobUrl(opts.photoUrl) ? opts.photoUrl : null;
 
   await db.transaction(async (tx) => {
     // Unticked sets are noise: they were planned but not performed.
@@ -811,6 +818,8 @@ export async function finishWorkout(
         totalSets: scoring.length,
         totalReps,
         prCount: prs.length,
+        // Caller-supplied, so only accepted if it really is our blob store.
+        ...(photoUrl ? { photoUrl } : {}),
       })
       .where(eq(workout.id, workoutId));
 

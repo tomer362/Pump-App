@@ -11,7 +11,8 @@ import {
   Segmented,
   Textarea,
 } from "@/components/ui/primitives";
-import { updateProfile } from "@/lib/actions/user";
+import { PhotoInput } from "@/components/ui/photo-input";
+import { setAvatar, updateProfile } from "@/lib/actions/user";
 import { cn, haptic } from "@/lib/utils";
 
 const REST_PRESETS = [60, 90, 120, 180, 240];
@@ -23,6 +24,8 @@ export function SettingsForm({
   defaultRestSeconds,
   email,
   username,
+  image: initialImage,
+  uploadsEnabled,
 }: {
   name: string;
   bio: string | null;
@@ -30,6 +33,9 @@ export function SettingsForm({
   defaultRestSeconds: number;
   email: string;
   username: string | null;
+  image: string | null;
+  /** False when the deployment has no Blob store — then no avatar control. */
+  uploadsEnabled: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -37,6 +43,7 @@ export function SettingsForm({
   const [bio, setBio] = useState(initialBio ?? "");
   const [unit, setUnit] = useState(initialUnit);
   const [rest, setRest] = useState(defaultRestSeconds);
+  const [image, setImage] = useState(initialImage);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +67,29 @@ export function SettingsForm({
 
   return (
     <div className="space-y-6 px-4">
+      {uploadsEnabled && (
+        <div>
+          <Label>Photo</Label>
+          <PhotoInput
+            value={image}
+            onChange={(url) => {
+              // Saved immediately rather than with the rest of the form: the
+              // upload already happened, and leaving the page would otherwise
+              // orphan the blob.
+              setImage(url);
+              startTransition(async () => {
+                const res = await setAvatar(url);
+                if (!res.ok) setError(res.error);
+                else router.refresh();
+              });
+            }}
+            prefix="avatars"
+            shape="circle"
+            label="Upload a photo"
+          />
+        </div>
+      )}
+
       <div>
         <Label>Display name</Label>
         <Input

@@ -6,6 +6,7 @@ import { Globe, Lock } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/primitives";
+import { PhotoInput } from "@/components/ui/photo-input";
 import { WorkoutCelebration } from "./celebration";
 import { finishWorkout, type FinishSummary } from "@/lib/actions/workout";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ export function FinishSheet({
   defaultName,
   defaultNote,
   unit,
+  uploadsEnabled,
   onNameChange,
   onNoteChange,
 }: {
@@ -26,6 +28,7 @@ export function FinishSheet({
   defaultName: string;
   defaultNote: string;
   unit: "kg" | "lb";
+  uploadsEnabled: boolean;
   onNameChange: (v: string) => void;
   onNoteChange: (v: string) => void;
 }) {
@@ -33,6 +36,7 @@ export function FinishSheet({
   const [name, setName] = useState(defaultName);
   const [note, setNote] = useState(defaultNote);
   const [share, setShare] = useState(true);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<FinishSummary | null>(null);
@@ -43,6 +47,7 @@ export function FinishSheet({
     const res = await finishWorkout(workoutId, {
       shareToFeed: share,
       caption: note || null,
+      photoUrl,
     });
     setSaving(false);
     if (!res.ok) {
@@ -95,6 +100,20 @@ export function FinishSheet({
               maxLength={1000}
             />
           </div>
+
+          {uploadsEnabled && (
+            <div>
+              <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+                Photo
+              </p>
+              <PhotoInput
+                value={photoUrl}
+                onChange={setPhotoUrl}
+                prefix="workouts"
+                label="Add a photo"
+              />
+            </div>
+          )}
 
           <div>
             <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">

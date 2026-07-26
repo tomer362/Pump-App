@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "motion/react";
 import { Heart, MessageCircle, Share2, Trophy } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui/primitives";
@@ -109,6 +110,20 @@ export function PostCard({
           <p className="text-text-3 mt-2 truncate text-[13px]">
             {item.exercises.join(" · ")}
           </p>
+        )}
+
+        {item.workout.photoUrl && (
+          // 4:3 rather than square: gym photos are overwhelmingly landscape
+          // mirror shots, and a square crop cuts the bar out of half of them.
+          <div className="bg-surface-2 relative mt-3 aspect-[4/3] overflow-hidden rounded-[12px]">
+            <Image
+              src={item.workout.photoUrl}
+              alt=""
+              fill
+              sizes="(max-width: 512px) 100vw, 512px"
+              className="object-cover"
+            />
+          </div>
         )}
       </Link>
 

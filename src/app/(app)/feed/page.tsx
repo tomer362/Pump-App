@@ -4,6 +4,7 @@ import { NavBar } from "@/components/ui/nav-bar";
 import { EmptyState, SectionTitle } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { PostCard } from "@/components/social/post-card";
+import { FeedList } from "@/components/social/feed-list";
 import { GymPresenceBar } from "@/components/social/gym-presence-bar";
 import { requireUser } from "@/lib/session";
 import {
@@ -12,6 +13,7 @@ import {
   getFriendsAtGym,
   getMyPresence,
 } from "@/lib/queries/social";
+import { FEED_PAGE_SIZE } from "@/lib/pagination";
 import { db } from "@/lib/db";
 import { gym } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -20,7 +22,7 @@ export default async function FeedPage() {
   const me = await requireUser();
 
   const [items, atGym, presence, discovery] = await Promise.all([
-    getFollowingFeed(me.id, { limit: 20 }),
+    getFollowingFeed(me.id, { limit: FEED_PAGE_SIZE }),
     getFriendsAtGym(me.id),
     getMyPresence(me.id),
     getDiscoveryFeed(me.id, 6),
@@ -74,11 +76,7 @@ export default async function FeedPage() {
           }
         />
       ) : (
-        <div className="space-y-3 px-4">
-          {items.map((item) => (
-            <PostCard key={item.postId} item={item} unit={me.unit} />
-          ))}
-        </div>
+        <FeedList initial={items} unit={me.unit} />
       )}
 
       {discovery.length > 0 && (

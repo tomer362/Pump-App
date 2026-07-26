@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { getFullWorkout } from "@/lib/queries/workout";
 import { getCurrent1rmRecords } from "@/lib/queries/exercise";
 import { WorkoutScreen } from "@/components/workout/workout-screen";
+import { uploadsEnabled } from "@/lib/blob";
 
 export default async function WorkoutPage(props: PageProps<"/workout/[id]">) {
   const { id } = await props.params;
@@ -24,6 +25,7 @@ export default async function WorkoutPage(props: PageProps<"/workout/[id]">) {
       unit={me.unit}
       defaultRestSeconds={me.defaultRestSeconds}
       current1rm={current1rm}
+      uploadsEnabled={uploadsEnabled()}
     />
   );
 }

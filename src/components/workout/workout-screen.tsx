@@ -72,12 +72,15 @@ export function WorkoutScreen({
   unit,
   defaultRestSeconds,
   current1rm,
+  uploadsEnabled,
 }: {
   workout: FullWorkout;
   unit: "kg" | "lb";
   defaultRestSeconds: number;
   /** Existing 1RM per exercise, so a PR can be flagged the instant it happens. */
   current1rm: Record<string, number>;
+  /** False when the deployment has no Blob store — then no photo control. */
+  uploadsEnabled: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -622,6 +625,7 @@ export function WorkoutScreen({
         defaultName={name}
         defaultNote={note}
         unit={unit}
+        uploadsEnabled={uploadsEnabled}
         onNameChange={(v) => {
           setName(v);
           saveMeta({ name: v });

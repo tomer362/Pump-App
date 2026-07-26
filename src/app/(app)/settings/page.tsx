@@ -1,6 +1,7 @@
 import { NavBar } from "@/components/ui/nav-bar";
 import { SettingsForm } from "./settings-form";
 import { requireUser } from "@/lib/session";
+import { uploadsEnabled } from "@/lib/blob";
 
 export default async function SettingsPage() {
   const me = await requireUser();
@@ -14,6 +15,8 @@ export default async function SettingsPage() {
         defaultRestSeconds={me.defaultRestSeconds}
         email={me.email}
         username={me.username}
+        image={me.image}
+        uploadsEnabled={uploadsEnabled()}
       />
     </div>
   );

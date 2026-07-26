@@ -35,6 +35,7 @@ export type FeedItem = {
     totalSets: number;
     prCount: number;
     startedAt: Date;
+    photoUrl: string | null;
   };
   /** Up to three exercise names for the card preview. */
   exercises: string[];
@@ -61,6 +62,7 @@ const feedSelection = (viewerId: string) => ({
   totalSets: workout.totalSets,
   prCount: workout.prCount,
   startedAt: workout.startedAt,
+  photoUrl: workout.photoUrl,
   exercises: sql<string[]>`(
     SELECT COALESCE(ARRAY_AGG(t.name ORDER BY t.position), ARRAY[]::text[])
     FROM (
@@ -113,6 +115,7 @@ function toFeedItem(r: FeedRow): FeedItem {
       totalSets: r.totalSets,
       prCount: r.prCount,
       startedAt: r.startedAt,
+      photoUrl: r.photoUrl,
     },
     exercises: r.exercises ?? [],
   };

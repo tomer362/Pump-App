@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Badge, Card, Stat } from "@/components/ui/primitives";
@@ -42,6 +43,18 @@ export default async function WorkoutDetailPage(
       />
 
       <div className="px-4">
+        {workout.photoUrl && (
+          <div className="bg-surface-2 rounded-card relative mb-4 aspect-[4/3] overflow-hidden">
+            <Image
+              src={workout.photoUrl}
+              alt=""
+              fill
+              sizes="(max-width: 512px) 100vw, 512px"
+              className="object-cover"
+            />
+          </div>
+        )}
+
         {workout.note && (
           <p className="text-text-2 mb-4 text-[14px] leading-relaxed">
             {workout.note}

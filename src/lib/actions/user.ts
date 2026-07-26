@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { isBlobUrl } from "@/lib/blob";
 
 const usernameSchema = z
   .string()
@@ -110,5 +111,30 @@ export async function updateProfile(input: {
     .where(eq(user.id, me.id));
 
   revalidatePath("/profile");
+  return { ok: true };
+}
+
+/**
+ * Persist an avatar the client uploaded straight to Blob storage.
+ *
+ * The URL is caller-supplied, so it is checked against the store's own
+ * hostname before being written — otherwise this is an open redirect that
+ * renders an arbitrary remote image under someone's name, and `next/image`
+ * would refuse to load it anyway.
+ */
+export async function setAvatar(url: string | null): Promise<ActionResult> {
+  const me = await getCurrentUser();
+  if (!me) return { ok: false, error: "Not signed in" };
+
+  if (url !== null && !isBlobUrl(url)) {
+    return { ok: false, error: "That image didn't upload correctly" };
+  }
+
+  await db
+    .update(user)
+    .set({ image: url, updatedAt: new Date() })
+    .where(eq(user.id, me.id));
+
+  revalidatePath("/", "layout");
   return { ok: true };
 }
