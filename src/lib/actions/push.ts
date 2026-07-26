@@ -1,9 +1,11 @@
 "use server";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { friendRequest, pushSubscription } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { deliver } from "./notify";
 import type { ActionResult } from "./user";
 
 type Payload = { title: string; body: string; url?: string };
@@ -16,6 +18,40 @@ function vapidConfigured() {
   );
 }
 
+/**
+ * A push endpoint is a URL this server will later POST to, and it arrives from
+ * the client, so it is validated as untrusted input: https only, length-capped,
+ * and never a local address.
+ */
+const subscriptionSchema = z.object({
+  endpoint: z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        return false;
+      }
+      if (url.protocol !== "https:") return false;
+      // Don't let a caller aim the server at its own network.
+      const host = url.hostname.toLowerCase();
+      return !(
+        host === "localhost" ||
+        host.endsWith(".localhost") ||
+        host === "0.0.0.0" ||
+        /^\d+\.\d+\.\d+\.\d+$/.test(host) ||
+        host.endsWith(".internal") ||
+        host.endsWith(".local")
+      );
+    }, "Invalid push endpoint"),
+  keys: z.object({
+    p256dh: z.string().min(1).max(255),
+    auth: z.string().min(1).max(255),
+  }),
+});
+
 export async function savePushSubscription(sub: {
   endpoint: string;
   keys: { p256dh: string; auth: string };
@@ -23,20 +59,29 @@ export async function savePushSubscription(sub: {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
+  const parsed = subscriptionSchema.safeParse(sub);
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid push subscription" };
+  }
+
+  /**
+   * The conflict target is (user_id, endpoint), never endpoint alone. Keying on
+   * the endpoint by itself would let anyone re-assign someone else's device to
+   * their own account simply by submitting that device's endpoint.
+   */
   await db
     .insert(pushSubscription)
     .values({
       userId: me.id,
-      endpoint: sub.endpoint,
-      p256dh: sub.keys.p256dh,
-      auth: sub.keys.auth,
+      endpoint: parsed.data.endpoint,
+      p256dh: parsed.data.keys.p256dh,
+      auth: parsed.data.keys.auth,
     })
     .onConflictDoUpdate({
-      target: pushSubscription.endpoint,
+      target: [pushSubscription.userId, pushSubscription.endpoint],
       set: {
-        userId: me.id,
-        p256dh: sub.keys.p256dh,
-        auth: sub.keys.auth,
+        p256dh: parsed.data.keys.p256dh,
+        auth: parsed.data.keys.auth,
       },
     });
 
@@ -83,40 +128,12 @@ export async function notifyFriends(userId: string, payload: Payload) {
         FROM ${friendRequest}
         WHERE status = 'accepted' AND (requester_id = ${userId} OR addressee_id = ${userId})
       )`,
-    );
+    )
+    // Bounded: one function invocation shouldn't fan out to an unlimited
+    // number of endpoints.
+    .limit(200);
 
-  if (!subs.length) return;
-
-  const webpush = (await import("web-push")).default;
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!,
-  );
-
-  const dead: string[] = [];
-
-  await Promise.all(
-    subs.map(async (s) => {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: s.endpoint,
-            keys: { p256dh: s.p256dh, auth: s.auth },
-          },
-          JSON.stringify(payload),
-        );
-      } catch (err) {
-        const status = (err as { statusCode?: number }).statusCode;
-        // 404/410 mean the browser dropped the subscription for good.
-        if (status === 404 || status === 410) dead.push(s.id);
-      }
-    }),
-  );
-
-  if (dead.length) {
-    await db.delete(pushSubscription).where(inArray(pushSubscription.id, dead));
-  }
+  await deliver(subs, payload);
 }
 
 export async function isPushConfigured(): Promise<boolean> {

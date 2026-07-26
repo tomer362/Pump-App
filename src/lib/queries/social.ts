@@ -157,7 +157,8 @@ export async function getPost(postId: string, viewerId: string) {
   return rows.length ? toFeedItem(rows[0]) : null;
 }
 
-export async function getComments(postId: string) {
+/** Capped: an unbounded thread lets one spammer make the page un-renderable. */
+export async function getComments(postId: string, limit = 200) {
   return db
     .select({
       id: postComment.id,
@@ -172,7 +173,8 @@ export async function getComments(postId: string) {
     .from(postComment)
     .innerJoin(user, eq(user.id, postComment.userId))
     .where(eq(postComment.postId, postId))
-    .orderBy(postComment.createdAt);
+    .orderBy(postComment.createdAt)
+    .limit(limit);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -289,7 +291,10 @@ export async function getPersonByUsername(
   return row ? toPerson(row) : null;
 }
 
-export async function getFriends(userId: string): Promise<PersonCard[]> {
+export async function getFriends(
+  userId: string,
+  limit = 200,
+): Promise<PersonCard[]> {
   const rows = await db
     .select(personSelection(userId))
     .from(user)
@@ -299,7 +304,10 @@ export async function getFriends(userId: string): Promise<PersonCard[]> {
         FROM ${friendRequest}
         WHERE status = 'accepted' AND (requester_id = ${userId} OR addressee_id = ${userId})
       )`,
-    );
+    )
+    // personSelection runs four correlated subqueries per row, so this is
+    // capped rather than left to grow with the friend list.
+    .limit(limit);
   return rows.map(toPerson);
 }
 

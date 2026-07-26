@@ -8,6 +8,13 @@
       "when": 1785065655931,
       "tag": "0000_goofy_zaladane",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785079301794,
+      "tag": "0001_vengeful_reptil",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,8 @@ import {
 import { getCurrentUser } from "@/lib/session";
 import { grantAchievements } from "./achievements";
 import { notifyFriends } from "./push";
+import { notify, notifyPostAuthor } from "./notify";
+import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
 
 /* -------------------------------------------------------------------------- */
@@ -85,6 +87,12 @@ export async function sendFriendRequest(
 
   if (incoming) return acceptFriendRequest(targetId);
 
+  const limited = await rateLimit(me.id, "friend_request", {
+    limit: 30,
+    windowSeconds: 3600,
+  });
+  if (!limited.ok) return limited;
+
   await db
     .insert(friendRequest)
     .values({ requesterId: me.id, addresseeId: targetId, status: "pending" })
@@ -98,6 +106,14 @@ export async function sendFriendRequest(
     .insert(follow)
     .values({ followerId: me.id, followingId: targetId })
     .onConflictDoNothing();
+
+  await notify({
+    userId: targetId,
+    actorId: me.id,
+    type: "friend_request",
+    body: `${me.name} sent you a friend request`,
+    url: "/friends",
+  });
 
   revalidatePath("/friends");
   return { ok: true, data: { status: "pending" } };
@@ -134,6 +150,14 @@ export async function acceptFriendRequest(
 
   await grantAchievements(me.id, { addedFriend: true });
   await grantAchievements(requesterId, { addedFriend: true });
+
+  await notify({
+    userId: requesterId,
+    actorId: me.id,
+    type: "friend_accepted",
+    body: `${me.name} accepted your friend request`,
+    url: `/u/${me.username ?? me.id}`,
+  });
 
   revalidatePath("/friends");
   revalidatePath("/feed");
@@ -192,43 +216,66 @@ export async function toggleLike(
 ): Promise<ActionResult<{ liked: boolean; likeCount: number }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!z.string().uuid().safeParse(postId).success) {
+    return { ok: false, error: "Post not found" };
+  }
 
-  const [existing] = await db
-    .select()
-    .from(postLike)
-    .where(and(eq(postLike.postId, postId), eq(postLike.userId, me.id)))
-    .limit(1);
+  const limited = await rateLimit(me.id, "toggle_like", {
+    limit: 60,
+    windowSeconds: 60,
+  });
+  if (!limited.ok) return limited;
 
-  const liked = !existing;
+  /**
+   * The counter delta is derived from what the write actually did, inside the
+   * transaction. Reading "does a like exist?" first and branching on it lets
+   * two concurrent taps both take the insert branch: the unique constraint
+   * collapses them to one row, but both would increment, and the count drifts
+   * up permanently with no reconciliation anywhere.
+   */
+  const result = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(postLike)
+      .values({ postId, userId: me.id })
+      .onConflictDoNothing()
+      .returning({ postId: postLike.postId });
 
-  await db.transaction(async (tx) => {
-    if (existing) {
-      await tx
-        .delete(postLike)
-        .where(and(eq(postLike.postId, postId), eq(postLike.userId, me.id)));
-      await tx
-        .update(post)
-        .set({ likeCount: sql`GREATEST(${post.likeCount} - 1, 0)` })
-        .where(eq(post.id, postId));
-    } else {
-      await tx
-        .insert(postLike)
-        .values({ postId, userId: me.id })
-        .onConflictDoNothing();
-      await tx
+    if (inserted.length > 0) {
+      const [row] = await tx
         .update(post)
         .set({ likeCount: sql`${post.likeCount} + 1` })
-        .where(eq(post.id, postId));
+        .where(eq(post.id, postId))
+        .returning({ likeCount: post.likeCount });
+      return { liked: true, likeCount: row?.likeCount ?? 0 };
     }
+
+    const removed = await tx
+      .delete(postLike)
+      .where(and(eq(postLike.postId, postId), eq(postLike.userId, me.id)))
+      .returning({ postId: postLike.postId });
+
+    if (removed.length === 0) {
+      const [row] = await tx
+        .select({ likeCount: post.likeCount })
+        .from(post)
+        .where(eq(post.id, postId))
+        .limit(1);
+      return { liked: false, likeCount: row?.likeCount ?? 0 };
+    }
+
+    const [row] = await tx
+      .update(post)
+      .set({ likeCount: sql`GREATEST(${post.likeCount} - 1, 0)` })
+      .where(eq(post.id, postId))
+      .returning({ likeCount: post.likeCount });
+    return { liked: false, likeCount: row?.likeCount ?? 0 };
   });
 
-  const [row] = await db
-    .select({ likeCount: post.likeCount })
-    .from(post)
-    .where(eq(post.id, postId))
-    .limit(1);
+  if (result.liked) {
+    await notifyPostAuthor(postId, me.id, "like", `${me.name} liked your workout`);
+  }
 
-  return { ok: true, data: { liked, likeCount: row?.likeCount ?? 0 } };
+  return { ok: true, data: result };
 }
 
 export async function addComment(
@@ -239,8 +286,41 @@ export async function addComment(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
+  if (!z.string().uuid().safeParse(postId).success) {
+    return { ok: false, error: "Post not found" };
+  }
+
   const parsed = z.string().trim().min(1).max(500).safeParse(body);
   if (!parsed.success) return { ok: false, error: "Comment can't be empty" };
+
+  const limited = await rateLimit(me.id, "add_comment", {
+    limit: 20,
+    windowSeconds: 60,
+  });
+  if (!limited.ok) return limited;
+
+  const [target] = await db
+    .select({ id: post.id })
+    .from(post)
+    .where(eq(post.id, postId))
+    .limit(1);
+  if (!target) return { ok: false, error: "Post not found" };
+
+  // A reply must point at a comment on THIS post. `parentId` has no foreign
+  // key, so an unchecked value would create a comment that renders nowhere —
+  // the thread only walks replies of its own roots — while still counting
+  // toward commentCount.
+  let resolvedParent: string | null = null;
+  if (parentId) {
+    const [parent] = await db
+      .select({ id: postComment.id, parentId: postComment.parentId })
+      .from(postComment)
+      .where(and(eq(postComment.id, parentId), eq(postComment.postId, postId)))
+      .limit(1);
+    if (!parent) return { ok: false, error: "That comment no longer exists" };
+    // Single-level threading: a reply to a reply attaches to its root.
+    resolvedParent = parent.parentId ?? parent.id;
+  }
 
   const [row] = await db.transaction(async (tx) => {
     const inserted = await tx
@@ -249,7 +329,7 @@ export async function addComment(
         postId,
         userId: me.id,
         body: parsed.data,
-        parentId: parentId ?? null,
+        parentId: resolvedParent,
       })
       .returning({ id: postComment.id });
     await tx
@@ -258,6 +338,13 @@ export async function addComment(
       .where(eq(post.id, postId));
     return inserted;
   });
+
+  await notifyPostAuthor(
+    postId,
+    me.id,
+    resolvedParent ? "comment_reply" : "comment",
+    `${me.name} commented: ${parsed.data.slice(0, 80)}`,
+  );
 
   revalidatePath(`/post/${postId}`);
   return { ok: true, data: { commentId: row.id } };
@@ -275,11 +362,23 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
   if (!c) return { ok: false, error: "Comment not found" };
 
   await db.transaction(async (tx) => {
-    await tx.delete(postComment).where(eq(postComment.id, commentId));
-    await tx
-      .update(post)
-      .set({ commentCount: sql`GREATEST(${post.commentCount} - 1, 0)` })
-      .where(eq(post.id, c.postId));
+    // Replies carry no FK cascade, so deleting a root would otherwise strand
+    // them — invisible in the thread but still counted.
+    const removed = await tx
+      .delete(postComment)
+      .where(
+        or(eq(postComment.id, commentId), eq(postComment.parentId, commentId)),
+      )
+      .returning({ id: postComment.id });
+
+    if (removed.length) {
+      await tx
+        .update(post)
+        .set({
+          commentCount: sql`GREATEST(${post.commentCount} - ${removed.length}, 0)`,
+        })
+        .where(eq(post.id, c.postId));
+    }
   });
 
   revalidatePath(`/post/${c.postId}`);
@@ -305,6 +404,12 @@ export async function createGym(input: {
 }): Promise<ActionResult<{ gymId: string; joinCode: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+
+  const limited = await rateLimit(me.id, "create_gym", {
+    limit: 5,
+    windowSeconds: 3600,
+  });
+  if (!limited.ok) return limited;
 
   const parsed = z
     .object({
@@ -347,7 +452,14 @@ export async function joinGymByCode(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
-  const normalized = code.trim().toUpperCase();
+  // Join codes are the only credential for a gym, so guessing must be slow.
+  const limited = await rateLimit(me.id, "join_gym", {
+    limit: 10,
+    windowSeconds: 600,
+  });
+  if (!limited.ok) return limited;
+
+  const normalized = z.string().trim().max(16).parse(code).toUpperCase();
   const [g] = await db
     .select()
     .from(gym)
@@ -403,6 +515,14 @@ export async function checkInAtGym(input: {
 }): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+
+  // The heaviest action in the app: one call pushes to every friend's device.
+  // Without a cooldown a loop here is a notification cannon.
+  const limited = await rateLimit(me.id, "gym_checkin", {
+    limit: 1,
+    windowSeconds: 600,
+  });
+  if (!limited.ok) return limited;
 
   const minutes = Math.min(240, Math.max(15, input.minutes ?? 90));
   const expiresAt = new Date(Date.now() + minutes * 60_000);

@@ -16,9 +16,16 @@ type Phase = "ready" | "work" | "rest" | "done";
 export function IntervalRunner({
   block,
   onClose,
+  onRoundComplete,
 }: {
   block: Block;
   onClose: () => void;
+  /**
+   * Called as each work phase finishes. Without this the runner was a pretty
+   * standalone clock that recorded nothing — an interval-only workout could
+   * never be finished, because Finish requires at least one completed set.
+   */
+  onRoundComplete: (setIndex: number, seconds: number) => void;
 }) {
   const work = block.intervalWorkSeconds ?? 30;
   const rest = block.intervalRestSeconds ?? 30;
@@ -83,6 +90,8 @@ export function IntervalRunner({
 
       if (left === 0) {
         if (phase === "work") {
+          // Record the work phase that just completed. `round` is 1-based.
+          onRoundComplete(round - 1, work);
           if (round >= rounds) {
             setPhase("done");
             setRunning(false);
@@ -107,7 +116,7 @@ export function IntervalRunner({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [running, phase, round, rounds, rest, work, beginPhase, say]);
+  }, [running, phase, round, rounds, rest, work, beginPhase, say, onRoundComplete]);
 
   function start() {
     // Speaking on the tap satisfies iOS's gesture requirement for audio.

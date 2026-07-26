@@ -15,6 +15,7 @@ import {
   workoutSet,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
 
 function makeJoinCode() {
@@ -37,6 +38,12 @@ export async function createCoopSession(input: {
 }): Promise<ActionResult<{ coopSessionId: string; joinCode: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+
+  const limited = await rateLimit(me.id, "create_coop", {
+    limit: 10,
+    windowSeconds: 3600,
+  });
+  if (!limited.ok) return limited;
 
   const parsed = z
     .object({
@@ -102,10 +109,19 @@ export async function joinCoopSession(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
+  // Same reasoning as gym codes: the code is the only credential.
+  const limited = await rateLimit(me.id, "join_coop", {
+    limit: 10,
+    windowSeconds: 600,
+  });
+  if (!limited.ok) return limited;
+
   const [session] = await db
     .select()
     .from(coopSession)
-    .where(eq(coopSession.joinCode, code.trim().toUpperCase()))
+    .where(
+      eq(coopSession.joinCode, z.string().trim().max(16).parse(code).toUpperCase()),
+    )
     .limit(1);
   if (!session) return { ok: false, error: "No session with that code" };
   if (session.endedAt) return { ok: false, error: "That session has ended" };
@@ -319,18 +335,37 @@ export type CoopSnapshot = {
     lastSetAt: string | null;
     restingUntil: string | null;
     startedAt: string | null;
+    /** Set once this person has finished their own workout. */
+    endedAt: string | null;
   }[];
 };
 
 /**
  * The polled endpoint. One indexed query over denormalised counters — it runs
  * every few seconds per participant, so it must never fan out over sets.
+ *
+ * This is a server action, which means it is a public POST endpoint: the
+ * membership check has to live HERE, not only in the page that renders it.
+ * Without it any signed-in user could enumerate a session id and read the
+ * roster plus the join code, then let themselves in.
  */
 export async function getCoopSnapshot(
   coopSessionId: string,
 ): Promise<CoopSnapshot | null> {
   const me = await getCurrentUser();
   if (!me) return null;
+
+  const [membership] = await db
+    .select({ userId: coopParticipant.userId })
+    .from(coopParticipant)
+    .where(
+      and(
+        eq(coopParticipant.coopSessionId, coopSessionId),
+        eq(coopParticipant.userId, me.id),
+      ),
+    )
+    .limit(1);
+  if (!membership) return null;
 
   const [session] = await db
     .select()
@@ -350,6 +385,7 @@ export async function getCoopSnapshot(
     last_set_at: string | null;
     resting_until: string | null;
     started_at: string | null;
+    ended_at: string | null;
   }>(sql`
     SELECT
       cp.user_id,
@@ -361,7 +397,8 @@ export async function getCoopSnapshot(
       cp.volume_kg,
       cp.last_set_at,
       cp.resting_until,
-      w.started_at
+      w.started_at,
+      w.ended_at
     FROM coop_participant cp
     JOIN "user" u ON u.id = cp.user_id
     LEFT JOIN workout w ON w.id = cp.workout_id
@@ -385,9 +422,12 @@ export async function getCoopSnapshot(
       setsCompleted: r.sets_completed,
       volumeKg: r.volume_kg,
       lastSetAt: r.last_set_at ? new Date(r.last_set_at).toISOString() : null,
-      restingUntil: r.resting_until
-        ? new Date(r.resting_until).toISOString()
-        : null,
+      // A finished lifter must stop resting in the UI, however stale the row.
+      restingUntil:
+        r.ended_at || !r.resting_until
+          ? null
+          : new Date(r.resting_until).toISOString(),
+      endedAt: r.ended_at ? new Date(r.ended_at).toISOString() : null,
       startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
     })),
   };

@@ -300,7 +300,11 @@ export async function getWorkoutCount(userId: string) {
 }
 
 /** Records for the profile and exercise-detail screens. */
-export async function getPersonalRecords(userId: string, exerciseId?: string) {
+export async function getPersonalRecords(
+  userId: string,
+  exerciseId?: string,
+  limit = 500,
+) {
   return db
     .select({
       id: personalRecord.id,
@@ -320,7 +324,8 @@ export async function getPersonalRecords(userId: string, exerciseId?: string) {
         exerciseId ? eq(personalRecord.exerciseId, exerciseId) : undefined,
       ),
     )
-    .orderBy(desc(personalRecord.achievedAt));
+    .orderBy(desc(personalRecord.achievedAt))
+    .limit(limit);
 }
 
 /** Dates of finished workouts in a window — drives the streak + calendar. */

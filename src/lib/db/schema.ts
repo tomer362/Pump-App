@@ -271,6 +271,13 @@ export const workout = pgTable(
   (t) => [
     index("workout_user_started_idx").on(t.userId, t.startedAt),
     index("workout_active_idx").on(t.userId, t.endedAt),
+    // Enforces "at most one unfinished workout per user" in the database.
+    // Every start path is a check-then-insert, so without this a double-tap
+    // can create a second active workout that the UI then hides — and which
+    // permanently blocks starting anything else.
+    uniqueIndex("workout_one_active_idx")
+      .on(t.userId)
+      .where(sql`${t.endedAt} IS NULL`),
   ],
 );
 
@@ -597,12 +604,86 @@ export const pushSubscription = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    endpoint: text("endpoint").notNull().unique(),
+    endpoint: text("endpoint").notNull(),
     p256dh: text("p256dh").notNull(),
     auth: text("auth").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [index("push_user_idx").on(t.userId)],
+  (t) => [
+    index("push_user_idx").on(t.userId),
+    // Unique per (user, endpoint) — NOT on endpoint alone. A global unique
+    // endpoint would let one account claim another account's device by
+    // submitting its endpoint.
+    uniqueIndex("push_user_endpoint_idx").on(t.userId, t.endpoint),
+  ],
+);
+
+/* ==========================================================================
+   Notifications
+   ========================================================================== */
+
+export const NOTIFICATION_TYPES = [
+  "like",
+  "comment",
+  "comment_reply",
+  "friend_request",
+  "friend_accepted",
+  "gym_presence",
+  "achievement",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/**
+ * In-app notification inbox. Push is best-effort and iOS drops subscriptions,
+ * so this table — not the notification tray — is the source of truth for
+ * "what happened while you were away".
+ */
+export const notification = pgTable(
+  "notification",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type", { enum: NOTIFICATION_TYPES }).notNull(),
+    // Who caused it. Null for system events like an achievement unlock.
+    actorId: text("actor_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    postId: uuid("post_id").references(() => post.id, { onDelete: "cascade" }),
+    workoutId: uuid("workout_id").references(() => workout.id, {
+      onDelete: "cascade",
+    }),
+    body: text("body"),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("notification_user_idx").on(t.userId, t.createdAt),
+    index("notification_unread_idx").on(t.userId, t.readAt),
+  ],
+);
+
+/* ==========================================================================
+   Rate limiting
+   ========================================================================== */
+
+/**
+ * Fixed-window counters. Deliberately in Postgres rather than Redis: Hobby has
+ * no durable KV, and these writes are tiny compared with the actions they
+ * guard. Rows are overwritten in place per window, so the table stays small.
+ */
+export const rateLimit = pgTable(
+  "rate_limit",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    windowStart: timestamp("window_start").notNull(),
+    count: integer("count").default(0).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.action] })],
 );
 
 /* ==========================================================================

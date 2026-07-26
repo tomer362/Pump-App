@@ -11,19 +11,62 @@ export type RestTimerState = {
   totalSeconds: number;
 } | null;
 
+const STORAGE_KEY = "pump.rest-timer";
+
+/** Survives a refresh mid-rest, which is otherwise the most jarring data loss. */
+function loadPersisted(workoutId: string | undefined): RestTimerState {
+  if (typeof window === "undefined" || !workoutId) return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as {
+      endsAt: number;
+      totalSeconds: number;
+      workoutId: string;
+    };
+    // Only restore this workout's timer, and only if it hasn't already run out.
+    if (saved.workoutId !== workoutId) return null;
+    if (saved.endsAt <= Date.now()) return null;
+    return { endsAt: saved.endsAt, totalSeconds: saved.totalSeconds };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Rest timer state. Everything is derived from an absolute end timestamp so a
  * throttled background tab, a lock screen, or a browser tab switch can't make
- * the timer drift — the single most common failure of web-based trackers.
+ * the timer drift — the single most common failure of web-based trackers. The
+ * same timestamp is mirrored to sessionStorage, so a reload mid-rest resumes
+ * rather than silently dropping the countdown.
  */
-export function useRestTimer() {
-  const [state, setState] = useState<RestTimerState>(null);
+export function useRestTimer(workoutId?: string) {
+  const [state, setState] = useState<RestTimerState>(() =>
+    loadPersisted(workoutId),
+  );
   const [ticked, setTicked] = useState(0);
   const firedRef = useRef(false);
 
   // Derived, not stored: with no timer running there is nothing to count down,
   // so resetting via setState in an effect would only cause a second render.
   const remaining = state ? ticked : 0;
+
+  // Mirror to sessionStorage so a reload picks the countdown back up.
+  useEffect(() => {
+    if (typeof window === "undefined" || !workoutId) return;
+    try {
+      if (state) {
+        window.sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...state, workoutId }),
+        );
+      } else {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      /* Private mode can refuse writes; the timer still works in-session. */
+    }
+  }, [state, workoutId]);
 
   const start = useCallback((seconds: number) => {
     if (seconds <= 0) return;
@@ -33,12 +76,30 @@ export function useRestTimer() {
 
   const stop = useCallback(() => setState(null), []);
 
+  /** Shift the end time by `delta` seconds, never below "now". */
   const adjust = useCallback((delta: number) => {
     setState((s) => {
       if (!s) return s;
-      const next = Math.max(0, s.endsAt + delta * 1000);
-      return { endsAt: next, totalSeconds: Math.max(1, s.totalSeconds + delta) };
+      const now = Date.now();
+      // Clamp against the present, not against epoch zero — clamping the
+      // absolute timestamp to 0 would jump the timer back to 1970.
+      const endsAt = Math.max(now, s.endsAt + delta * 1000);
+      // Keep the denominator consistent with the new duration so the draining
+      // track stays proportional.
+      const totalSeconds = Math.max(
+        1,
+        Math.ceil((endsAt - now) / 1000),
+        s.totalSeconds + delta,
+      );
+      return { endsAt, totalSeconds };
     });
+  }, []);
+
+  /** Restart at an exact duration — what the presets want. */
+  const setDuration = useCallback((seconds: number) => {
+    if (seconds <= 0) return;
+    firedRef.current = false;
+    setState({ endsAt: Date.now() + seconds * 1000, totalSeconds: seconds });
   }, []);
 
   useEffect(() => {
@@ -71,7 +132,15 @@ export function useRestTimer() {
     }
   }, [state, remaining]);
 
-  return { state, remaining, start, stop, adjust, running: state != null };
+  return {
+    state,
+    remaining,
+    start,
+    stop,
+    adjust,
+    setDuration,
+    running: state != null,
+  };
 }
 
 /** Short synthesised beep — avoids shipping an audio asset. */
@@ -109,11 +178,13 @@ export function RestTimerBar({
   remaining,
   onStop,
   onAdjust,
+  onSetDuration,
 }: {
   state: RestTimerState;
   remaining: number;
   onStop: () => void;
   onAdjust: (delta: number) => void;
+  onSetDuration: (seconds: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -232,7 +303,7 @@ export function RestTimerBar({
                       key={s}
                       onClick={() => {
                         haptic.light();
-                        onAdjust(s - remaining);
+                        onSetDuration(s);
                       }}
                       className="press num bg-surface-2 text-text-2 h-9 flex-1 rounded-[10px] text-[13px] font-semibold"
                     >

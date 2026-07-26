@@ -75,7 +75,8 @@ export function WorkoutScreen({
   const [, startTransition] = useTransition();
   const elapsed = useElapsed(workout.startedAt);
   const keyboardInset = useKeyboardInset();
-  const timer = useRestTimer();
+  // Scoped to this workout so a stale timer from another session is ignored.
+  const timer = useRestTimer(workout.id);
 
   const [blocks, setBlocks] = useState<Block[]>(() =>
     workout.exercises.map(toBlock),
@@ -219,6 +220,40 @@ export function WorkoutScreen({
     );
   }, []);
 
+  /**
+   * Mark the set behind an interval round as done. The runner is a full-screen
+   * timer, so without this the rounds happened but nothing was recorded — and
+   * an interval-only workout could never be finished, since Finish requires at
+   * least one completed set.
+   */
+  const completeIntervalRound = useCallback(
+    (blockId: string, setIndex: number, seconds: number) => {
+      let setId: string | undefined;
+
+      setBlocks((prev) =>
+        prev.map((b) => {
+          if (b.id !== blockId) return b;
+          const target = b.sets[setIndex];
+          if (!target || target.completed) return b;
+          setId = target.id;
+          return {
+            ...b,
+            sets: b.sets.map((s, i) =>
+              i === setIndex ? { ...s, seconds, completed: true } : s,
+            ),
+          };
+        }),
+      );
+
+      if (!setId) return;
+      const id = setId;
+      startTransition(async () => {
+        await updateSet(id, { seconds, completed: true });
+      });
+    },
+    [],
+  );
+
   const dropSet = useCallback((blockId: string, setId: string) => {
     setBlocks((prev) =>
       prev.map((b) =>
@@ -245,9 +280,44 @@ export function WorkoutScreen({
       setPicking(false);
       if (!ids.length) return;
       const res = await addExercisesToWorkout(workout.id, ids);
-      if (res.ok) router.refresh();
+      if (!res.ok || !res.data) return;
+
+      // Append from the action's return value rather than refreshing. A
+      // refresh would update the server payload while this component's local
+      // state — the set values being typed, and the running rest timer —
+      // stayed put, so the new exercises would simply never appear.
+      setBlocks((prev) => [
+        ...prev,
+        ...res.data!.added.map((a) => ({
+          id: a.id,
+          exerciseId: a.exerciseId,
+          name: a.name,
+          primaryMuscle: a.primaryMuscle,
+          equipment: a.equipment,
+          trackingType: a.trackingType,
+          notes: null,
+          restSeconds: a.restSeconds,
+          supersetGroup: null,
+          intervalWorkSeconds: null,
+          intervalRestSeconds: null,
+          previous: [],
+          sets: [
+            {
+              id: a.setId,
+              position: 0,
+              setType: "normal" as SetType,
+              weightKg: null,
+              reps: null,
+              seconds: null,
+              distanceM: null,
+              rpe: null,
+              completed: false,
+            },
+          ],
+        })),
+      ]);
     },
-    [workout.id, router],
+    [workout.id],
   );
 
   const saveMeta = useCallback(
@@ -390,6 +460,7 @@ export function WorkoutScreen({
         remaining={timer.remaining}
         onStop={timer.stop}
         onAdjust={timer.adjust}
+        onSetDuration={timer.setDuration}
       />
 
       {/* --- Sheets --- */}
@@ -460,6 +531,9 @@ export function WorkoutScreen({
         <IntervalRunner
           block={intervalFor}
           onClose={() => setIntervalFor(null)}
+          onRoundComplete={(setIndex, seconds) =>
+            completeIntervalRound(intervalFor.id, setIndex, seconds)
+          }
         />
       )}
 

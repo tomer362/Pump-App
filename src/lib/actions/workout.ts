@@ -83,17 +83,28 @@ export async function startEmptyWorkout(): Promise<
   const existing = await activeWorkoutId(me.id);
   if (existing) return { ok: true, data: { workoutId: existing } };
 
-  const [w] = await db
-    .insert(workout)
-    .values({
-      userId: me.id,
-      name: defaultWorkoutName(),
-      gymId: me.homeGymId,
-    })
-    .returning({ id: workout.id });
+  let workoutId: string;
+  try {
+    const [w] = await db
+      .insert(workout)
+      .values({
+        userId: me.id,
+        name: defaultWorkoutName(),
+        gymId: me.homeGymId,
+      })
+      .returning({ id: workout.id });
+    workoutId = w.id;
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    // Double tap: the other insert won. Hand back the workout it created
+    // rather than surfacing a database error for something the user can't act on.
+    const raced = await activeWorkoutId(me.id);
+    if (!raced) throw err;
+    workoutId = raced;
+  }
 
   revalidatePath("/", "layout");
-  return { ok: true, data: { workoutId: w.id } };
+  return { ok: true, data: { workoutId } };
 }
 
 /**
@@ -123,49 +134,69 @@ export async function startWorkoutFromRoutine(
     return { ok: false, error: "That routine is private" };
   }
 
-  const res = await db.transaction(async (tx) => {
-    const [w] = await tx
-      .insert(workout)
-      .values({
-        userId: me.id,
-        routineId: r.id,
-        name: r.name,
-        gymId: me.homeGymId,
-        loadMultiplier: mult,
-      })
-      .returning({ id: workout.id });
-
-    const res_ = await tx
-      .select()
-      .from(routineExercise)
-      .where(eq(routineExercise.routineId, r.id))
-      .orderBy(asc(routineExercise.position));
-
-    for (const re of res_) {
-      const [we] = await tx
-        .insert(workoutExercise)
+  let res: string;
+  try {
+    res = await db.transaction(async (tx) => {
+      const [w] = await tx
+        .insert(workout)
         .values({
-          workoutId: w.id,
-          exerciseId: re.exerciseId,
-          position: re.position,
-          notes: re.notes,
-          restSeconds: re.restSeconds ?? me.defaultRestSeconds,
-          supersetGroup: re.supersetGroup,
-          intervalWorkSeconds: re.intervalWorkSeconds,
-          intervalRestSeconds: re.intervalRestSeconds,
+          userId: me.id,
+          routineId: r.id,
+          name: r.name,
+          gymId: me.homeGymId,
+          loadMultiplier: mult,
         })
-        .returning({ id: workoutExercise.id });
+        .returning({ id: workout.id });
+
+      // Read the whole routine in two queries, then write it in two — rather
+      // than three round trips per exercise. A 50-exercise routine was ~150
+      // sequential round trips inside one transaction, which is minutes of
+      // connection time on a cold Neon and a real timeout risk.
+      const res_ = await tx
+        .select()
+        .from(routineExercise)
+        .where(eq(routineExercise.routineId, r.id))
+        .orderBy(asc(routineExercise.position));
+
+      if (!res_.length) return w.id;
 
       const rsets = await tx
         .select()
         .from(routineSet)
-        .where(eq(routineSet.routineExerciseId, re.id))
+        .where(
+          inArray(
+            routineSet.routineExerciseId,
+            res_.map((re) => re.id),
+          ),
+        )
         .orderBy(asc(routineSet.position));
 
-      if (rsets.length) {
-        await tx.insert(workoutSet).values(
-          rsets.map((rs) => ({
-            workoutExerciseId: we.id,
+      const inserted = await tx
+        .insert(workoutExercise)
+        .values(
+          res_.map((re) => ({
+            workoutId: w.id,
+            exerciseId: re.exerciseId,
+            position: re.position,
+            notes: re.notes,
+            restSeconds: re.restSeconds ?? me.defaultRestSeconds,
+            supersetGroup: re.supersetGroup,
+            intervalWorkSeconds: re.intervalWorkSeconds,
+            intervalRestSeconds: re.intervalRestSeconds,
+          })),
+        )
+        .returning({ id: workoutExercise.id, position: workoutExercise.position });
+
+      // Map back by position: `returning` order isn't guaranteed, but position
+      // is unique within this workout and came straight from the routine.
+      const weByPosition = new Map(inserted.map((x) => [x.position, x.id]));
+      const rows = rsets.flatMap((rs) => {
+        const re = res_.find((x) => x.id === rs.routineExerciseId);
+        const weId = re ? weByPosition.get(re.position) : undefined;
+        if (!weId) return [];
+        return [
+          {
+            workoutExerciseId: weId,
             position: rs.position,
             setType: rs.setType,
             // Scaled targets, pre-filled but not yet completed.
@@ -178,16 +209,36 @@ export async function startWorkoutFromRoutine(
             distanceM: rs.targetDistanceM,
             rpe: null,
             completedAt: null,
-          })),
-        );
-      }
-    }
+          },
+        ];
+      });
 
-    return w.id;
-  });
+      if (rows.length) await tx.insert(workoutSet).values(rows);
+
+      return w.id;
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return { ok: false, error: "You already have a workout running" };
+    }
+    throw err;
+  }
 
   revalidatePath("/", "layout");
   return { ok: true, data: { workoutId: res } };
+}
+
+/**
+ * Postgres unique-violation. `workout_one_active_idx` is a partial unique index
+ * on (user_id) WHERE ended_at IS NULL, so this is what a lost check-then-insert
+ * race looks like — two taps both saw "no active workout" and both inserted.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === "23505"
+  );
 }
 
 async function activeWorkoutId(userId: string) {
@@ -211,13 +262,35 @@ function defaultWorkoutName() {
 /* Editing a live workout                                                      */
 /* -------------------------------------------------------------------------- */
 
+/** Shape the workout screen needs to render a newly added exercise. */
+export type AddedExercise = {
+  id: string;
+  exerciseId: string;
+  position: number;
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  trackingType: string;
+  restSeconds: number | null;
+  setId: string;
+};
+
+/**
+ * Returns the created rows rather than relying on `router.refresh()`.
+ *
+ * The workout screen keeps set values in local state so re-renders can't fight
+ * the user's typing; a refresh therefore updates the server payload but leaves
+ * that state untouched, and the new exercise never appears. Handing the rows
+ * back lets the client append them directly — and keeps the rest timer, which
+ * also lives in that component's state, alive.
+ */
 export async function addExercisesToWorkout(
   workoutId: string,
   exerciseIds: string[],
-): Promise<ActionResult> {
+): Promise<ActionResult<{ added: AddedExercise[] }>> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
-  if (!exerciseIds.length) return { ok: true };
+  if (!exerciseIds.length) return { ok: true, data: { added: [] } };
 
   const [{ max }] = await db
     .select({ max: sql<number>`COALESCE(MAX(${workoutExercise.position}), -1)::int` })
@@ -230,32 +303,66 @@ export async function addExercisesToWorkout(
     .where(inArray(exercise.id, exerciseIds));
   const byId = new Map(exs.map((e) => [e.id, e]));
 
-  await db.transaction(async (tx) => {
-    let pos = max + 1;
-    for (const id of exerciseIds) {
-      const ex = byId.get(id);
-      if (!ex) continue;
-      const [we] = await tx
-        .insert(workoutExercise)
-        .values({
-          workoutId,
-          exerciseId: id,
-          position: pos++,
-          restSeconds: guard.me.defaultRestSeconds,
-        })
-        .returning({ id: workoutExercise.id });
+  // Keep the caller's ordering, skipping ids that don't resolve.
+  const wanted = exerciseIds
+    .map((id) => byId.get(id))
+    .filter((e): e is NonNullable<typeof e> => e != null);
+  if (!wanted.length) return { ok: true, data: { added: [] } };
 
-      // Start with one empty set so the row is immediately usable.
-      await tx.insert(workoutSet).values({
-        workoutExerciseId: we.id,
-        position: 0,
-        setType: "normal",
+  const added = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(workoutExercise)
+      .values(
+        wanted.map((ex, i) => ({
+          workoutId,
+          exerciseId: ex.id,
+          position: max + 1 + i,
+          restSeconds: guard.me.defaultRestSeconds,
+        })),
+      )
+      .returning({
+        id: workoutExercise.id,
+        exerciseId: workoutExercise.exerciseId,
+        position: workoutExercise.position,
+        restSeconds: workoutExercise.restSeconds,
       });
-    }
+
+    // Start each with one empty set so the row is immediately usable.
+    const sets = await tx
+      .insert(workoutSet)
+      .values(
+        inserted.map((we) => ({
+          workoutExerciseId: we.id,
+          position: 0,
+          setType: "normal" as const,
+        })),
+      )
+      .returning({
+        id: workoutSet.id,
+        workoutExerciseId: workoutSet.workoutExerciseId,
+      });
+
+    const setByWe = new Map(sets.map((s) => [s.workoutExerciseId, s.id]));
+
+    return inserted.map((we) => {
+      const ex = byId.get(we.exerciseId)!;
+      return {
+        id: we.id,
+        exerciseId: we.exerciseId,
+        position: we.position,
+        name: ex.name,
+        primaryMuscle: ex.primaryMuscle as string,
+        equipment: ex.equipment as string,
+        trackingType: ex.trackingType as string,
+        restSeconds: we.restSeconds,
+        setId: setByWe.get(we.id)!,
+      };
+    });
   });
 
-  revalidatePath(`/workout/${workoutId}`);
-  return { ok: true };
+  // Deliberately no revalidatePath: the client appends these directly, and a
+  // refresh here would only risk clobbering in-progress local state.
+  return { ok: true, data: { added } };
 }
 
 export async function removeWorkoutExercise(
@@ -268,7 +375,7 @@ export async function removeWorkoutExercise(
     .delete(workoutExercise)
     .where(eq(workoutExercise.id, workoutExerciseId));
 
-  revalidatePath(`/workout/${guard.workout.id}`);
+  // No revalidate: the screen already dropped it from local state.
   return { ok: true };
 }
 
@@ -323,7 +430,7 @@ export async function addSet(
     })
     .returning({ id: workoutSet.id });
 
-  revalidatePath(`/workout/${guard.workout.id}`);
+  // No revalidate: the screen appends the set from this return value.
   return { ok: true, data: { setId: s.id } };
 }
 
@@ -359,7 +466,6 @@ export async function removeSet(setId: string): Promise<ActionResult> {
     }
   });
 
-  revalidatePath(`/workout/${row.workoutId}`);
   return { ok: true };
 }
 
@@ -487,7 +593,6 @@ export async function updateWorkoutMeta(
   if (!parsed.success) return { ok: false, error: "Invalid values" };
 
   await db.update(workout).set(parsed.data).where(eq(workout.id, workoutId));
-  revalidatePath(`/workout/${workoutId}`);
   return { ok: true };
 }
 
@@ -519,7 +624,6 @@ export async function updateWorkoutExerciseSettings(
     .set(parsed.data)
     .where(eq(workoutExercise.id, workoutExerciseId));
 
-  revalidatePath(`/workout/${guard.workout.id}`);
   return { ok: true };
 }
 
@@ -717,6 +821,10 @@ export async function finishWorkout(
     }
   });
 
+  // If this was a co-op session, end it once everyone has finished. The room
+  // otherwise shows a finished lifter with a forever-ticking clock.
+  if (w.coopSessionId) await endCoopSessionIfAllFinished(w.coopSessionId);
+
   const unlocked = await grantAchievements(me.id, {
     finishedWorkoutAt: endedAt,
     workoutVolumeKg: totalVolumeKg,
@@ -744,6 +852,99 @@ export async function finishWorkout(
   };
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Rebuild this user's records for the given exercises from the sets that still
+ * exist.
+ *
+ * `personal_record` keeps exactly one row per (user, exercise, kind), so the
+ * previous best is overwritten as records improve — there is nothing to fall
+ * back to. Deleting the workout that set a record therefore has to recompute
+ * from history, or the user simply loses the record with no replacement.
+ */
+export async function recalculatePersonalRecords(
+  tx: Tx,
+  userId: string,
+  exerciseIds: string[],
+) {
+  if (!exerciseIds.length) return;
+
+  const ids = sql.join(
+    exerciseIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+
+  await tx.execute(sql`
+    DELETE FROM personal_record
+    WHERE user_id = ${userId} AND exercise_id IN (${ids})
+  `);
+
+  // One statement: gather every surviving qualifying set, then take the best
+  // per (exercise, kind) with DISTINCT ON.
+  await tx.execute(sql`
+    WITH candidate AS (
+      SELECT
+        we.exercise_id,
+        ws.id                                              AS set_id,
+        w.id                                               AS workout_id,
+        ws.weight_kg,
+        ws.reps,
+        COALESCE(ws.estimated_1rm, 0)                      AS e1rm,
+        COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0)   AS volume,
+        w.ended_at
+      FROM workout_set ws
+      JOIN workout_exercise we ON we.id = ws.workout_exercise_id
+      JOIN workout w           ON w.id = we.workout_id
+      WHERE w.user_id = ${userId}
+        AND w.ended_at IS NOT NULL
+        AND ws.completed_at IS NOT NULL
+        AND ws.set_type <> 'warmup'
+        AND we.exercise_id IN (${ids})
+    ),
+    best AS (
+      SELECT DISTINCT ON (exercise_id) exercise_id, '1rm' AS kind, e1rm AS value,
+             weight_kg, reps, set_id, workout_id, ended_at
+      FROM candidate WHERE e1rm > 0 ORDER BY exercise_id, e1rm DESC
+      UNION ALL
+      SELECT DISTINCT ON (exercise_id) exercise_id, 'weight', weight_kg,
+             weight_kg, reps, set_id, workout_id, ended_at
+      FROM candidate WHERE COALESCE(weight_kg, 0) > 0 ORDER BY exercise_id, weight_kg DESC
+      UNION ALL
+      SELECT DISTINCT ON (exercise_id) exercise_id, 'volume', volume,
+             weight_kg, reps, set_id, workout_id, ended_at
+      FROM candidate WHERE volume > 0 ORDER BY exercise_id, volume DESC
+      UNION ALL
+      SELECT DISTINCT ON (exercise_id) exercise_id, 'reps', reps,
+             weight_kg, reps, set_id, workout_id, ended_at
+      FROM candidate WHERE COALESCE(reps, 0) > 0 ORDER BY exercise_id, reps DESC
+    )
+    INSERT INTO personal_record
+      (user_id, exercise_id, kind, value, weight_kg, reps, workout_set_id, workout_id, achieved_at)
+    SELECT ${userId}, exercise_id, kind, value, weight_kg, reps, set_id, workout_id,
+           COALESCE(ended_at, NOW())
+    FROM best
+  `);
+
+  // prCount on other workouts counted records that may no longer exist.
+  await tx.execute(sql`
+    UPDATE workout w SET pr_count = (
+      SELECT COUNT(*)::int FROM personal_record pr
+      WHERE pr.user_id = ${userId} AND pr.workout_id = w.id AND pr.kind = '1rm'
+    )
+    WHERE w.user_id = ${userId} AND w.ended_at IS NOT NULL
+  `);
+}
+
+/** Exercises touched by a workout — needed before it's deleted. */
+async function exerciseIdsInWorkout(tx: Tx, workoutId: string) {
+  const rows = await tx
+    .selectDistinct({ exerciseId: workoutExercise.exerciseId })
+    .from(workoutExercise)
+    .where(eq(workoutExercise.workoutId, workoutId));
+  return rows.map((r) => r.exerciseId);
+}
+
 export async function discardWorkout(workoutId: string): Promise<ActionResult> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
@@ -751,6 +952,7 @@ export async function discardWorkout(workoutId: string): Promise<ActionResult> {
     return { ok: false, error: "Finished workouts can't be discarded here" };
   }
 
+  // An unfinished workout never contributed records, so no recalculation.
   await db.delete(workout).where(eq(workout.id, workoutId));
   revalidatePath("/", "layout");
   return { ok: true };
@@ -759,8 +961,16 @@ export async function discardWorkout(workoutId: string): Promise<ActionResult> {
 export async function deleteWorkout(workoutId: string): Promise<ActionResult> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  const userId = guard.me.id;
 
-  await db.delete(workout).where(eq(workout.id, workoutId));
+  await db.transaction(async (tx) => {
+    // Capture the exercises first: the cascade takes the workout_exercise rows
+    // with it, and the personal_record rows referencing this workout too.
+    const exerciseIds = await exerciseIdsInWorkout(tx, workoutId);
+    await tx.delete(workout).where(eq(workout.id, workoutId));
+    await recalculatePersonalRecords(tx, userId, exerciseIds);
+  });
+
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -768,6 +978,27 @@ export async function deleteWorkout(workoutId: string): Promise<ActionResult> {
 /* -------------------------------------------------------------------------- */
 /* Co-op counters                                                              */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Close a co-op session when its last participant finishes, so it stops
+ * appearing as "in progress" on the launcher and blocking a fresh one.
+ */
+async function endCoopSessionIfAllFinished(coopSessionId: string) {
+  const res = await db.execute<{ unfinished: number }>(sql`
+    SELECT COUNT(*)::int AS unfinished
+    FROM coop_participant cp
+    LEFT JOIN workout w ON w.id = cp.workout_id
+    WHERE cp.coop_session_id = ${coopSessionId}::uuid
+      AND (cp.workout_id IS NULL OR w.ended_at IS NULL)
+  `);
+
+  if ((res.rows[0]?.unfinished ?? 0) > 0) return;
+
+  await db.execute(sql`
+    UPDATE coop_session SET ended_at = NOW()
+    WHERE id = ${coopSessionId}::uuid AND ended_at IS NULL
+  `);
+}
 
 /**
  * Keep the co-op participant row's denormalised counters current. The 3-second

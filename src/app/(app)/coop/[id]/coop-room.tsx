@@ -190,8 +190,24 @@ function ParticipantCard({
   isMe: boolean;
   unit: "kg" | "lb";
 }) {
-  const elapsed = useElapsed(p.startedAt ?? new Date(), p.startedAt != null);
-  const restingLeft = useRestingCountdown(p.restingUntil);
+  const finished = p.endedAt != null;
+  // Freeze the clock once they're done — otherwise a finished lifter appears
+  // to still be training, with a timer that ticks forever.
+  const elapsed = useElapsed(
+    p.startedAt ?? new Date(),
+    p.startedAt != null && !finished,
+  );
+  const finalSeconds =
+    finished && p.startedAt
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(p.endedAt!).getTime() - new Date(p.startedAt).getTime()) /
+              1000,
+          ),
+        )
+      : 0;
+  const restingLeft = useRestingCountdown(finished ? null : p.restingUntil);
 
   return (
     <Card
@@ -204,7 +220,7 @@ function ParticipantCard({
         src={p.image}
         name={p.name}
         size="md"
-        ring={restingLeft === null && p.setsCompleted > 0}
+        ring={!finished && restingLeft === null && p.setsCompleted > 0}
       />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-semibold">
@@ -214,11 +230,19 @@ function ParticipantCard({
         <p className="text-text-3 num text-[12px]">
           {p.setsCompleted} set{p.setsCompleted === 1 ? "" : "s"} ·{" "}
           {formatVolume(p.volumeKg, unit)} {unit}
-          {p.startedAt && ` · ${formatDuration(elapsed)}`}
+          {p.startedAt &&
+            ` · ${formatDuration(finished ? finalSeconds : elapsed)}`}
         </p>
       </div>
 
-      {restingLeft !== null && (
+      {finished && (
+        <span className="bg-surface-2 text-text-2 flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold">
+          <Check className="size-3.5" strokeWidth={3} />
+          Done
+        </span>
+      )}
+
+      {!finished && restingLeft !== null && (
         <motion.span
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
