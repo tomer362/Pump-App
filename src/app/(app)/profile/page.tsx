@@ -32,10 +32,12 @@ export default async function ProfilePage() {
       <NavBar
         title="You"
         right={
-          <Link href="/settings">
-            <span className="press tap text-text-2 grid place-items-center px-2">
-              <Settings className="size-[22px]" strokeWidth={2.2} />
-            </span>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            className="press tap text-text-2 grid place-items-center px-2"
+          >
+            <Settings className="size-[22px]" strokeWidth={2.2} />
           </Link>
         }
       />

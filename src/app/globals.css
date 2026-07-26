@@ -125,6 +125,20 @@ input[type="number"]::-webkit-inner-spin-button {
   color: #000;
 }
 
+/* Keyboard focus must be visible everywhere, not only on the Button
+   component. The UA default ring is near-invisible against #0b0b0c, and
+   `outline-none` is applied in several places for the pressed states. */
+:focus-visible {
+  outline: 2px solid var(--color-volt);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Pointer interaction shouldn't paint a ring. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* Scrollbars: present on desktop, invisible on touch. */
 @media (pointer: fine) {
   ::-webkit-scrollbar {

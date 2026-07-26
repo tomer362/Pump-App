@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -208,10 +208,25 @@ async function createLinkedWorkout(
     .where(eq(routineExercise.routineId, routineId))
     .orderBy(routineExercise.position);
 
-  for (const re of res) {
-    const [we] = await tx
-      .insert(workoutExercise)
-      .values({
+  if (!res.length) return w.id;
+
+  // Batched: this runs once per joiner, so a per-exercise round trip here is
+  // multiplied by the size of the session.
+  const rsets = await tx
+    .select()
+    .from(routineSet)
+    .where(
+      inArray(
+        routineSet.routineExerciseId,
+        res.map((re) => re.id),
+      ),
+    )
+    .orderBy(routineSet.position);
+
+  const inserted = await tx
+    .insert(workoutExercise)
+    .values(
+      res.map((re) => ({
         workoutId: w.id,
         exerciseId: re.exerciseId,
         position: re.position,
@@ -220,29 +235,29 @@ async function createLinkedWorkout(
         supersetGroup: re.supersetGroup,
         intervalWorkSeconds: re.intervalWorkSeconds,
         intervalRestSeconds: re.intervalRestSeconds,
-      })
-      .returning({ id: workoutExercise.id });
+      })),
+    )
+    .returning({ id: workoutExercise.id, position: workoutExercise.position });
 
-    const rsets = await tx
-      .select()
-      .from(routineSet)
-      .where(eq(routineSet.routineExerciseId, re.id))
-      .orderBy(routineSet.position);
+  const byPosition = new Map(inserted.map((x) => [x.position, x.id]));
+  const rows = rsets.flatMap((rs) => {
+    const re = res.find((x) => x.id === rs.routineExerciseId);
+    const weId = re ? byPosition.get(re.position) : undefined;
+    if (!weId) return [];
+    return [
+      {
+        workoutExerciseId: weId,
+        position: rs.position,
+        setType: rs.setType,
+        weightKg: rs.targetWeightKg,
+        reps: rs.targetReps,
+        seconds: rs.targetSeconds,
+        distanceM: rs.targetDistanceM,
+      },
+    ];
+  });
 
-    if (rsets.length) {
-      await tx.insert(workoutSet).values(
-        rsets.map((rs) => ({
-          workoutExerciseId: we.id,
-          position: rs.position,
-          setType: rs.setType,
-          weightKg: rs.targetWeightKg,
-          reps: rs.targetReps,
-          seconds: rs.targetSeconds,
-          distanceM: rs.targetDistanceM,
-        })),
-      );
-    }
-  }
+  if (rows.length) await tx.insert(workoutSet).values(rows);
 
   return w.id;
 }

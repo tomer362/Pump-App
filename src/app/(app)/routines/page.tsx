@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ListChecks, Plus, Users } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { EmptyState, SectionTitle, Avatar } from "@/components/ui/primitives";
-import { Button, IconButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/session";
 import { getRoutines, getFollowedRoutines } from "@/lib/queries/routine";
 
@@ -18,10 +18,12 @@ export default async function RoutinesPage() {
       <NavBar
         title="Routines"
         right={
-          <Link href="/routines/new">
-            <IconButton label="New routine" className="text-volt">
-              <Plus className="size-6" strokeWidth={2.6} />
-            </IconButton>
+          <Link
+            href="/routines/new"
+            aria-label="New routine"
+            className="press tap text-volt grid place-items-center px-2"
+          >
+            <Plus className="size-6" strokeWidth={2.6} />
           </Link>
         }
       />

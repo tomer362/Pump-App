@@ -25,6 +25,8 @@ export function Sheet({
   footer?: React.ReactNode;
 }) {
   const reduce = useReducedMotion();
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const restoreFocusTo = React.useRef<HTMLElement | null>(null);
 
   // Lock the page behind the sheet so scrolling the sheet doesn't chain.
   React.useEffect(() => {
@@ -36,11 +38,70 @@ export function Sheet({
     };
   }, [open]);
 
+  /**
+   * Focus management. `aria-modal="true"` tells assistive tech the rest of the
+   * page is inert, so Tab must actually behave that way — otherwise a screen
+   * reader user is told one thing while the keyboard does another. Focus moves
+   * in on open and returns to the trigger on close, so the next Tab doesn't
+   * restart from the top of the document.
+   */
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+
+    restoreFocusTo.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    const focusables = () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+
+    // Wait for the enter animation to mount the content before focusing.
+    const raf = requestAnimationFrame(() => {
+      const items = focusables();
+      // Prefer a text field — most sheets exist to collect one value.
+      const preferred =
+        items.find((el) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ??
+        items[0] ??
+        panelRef.current;
+      preferred?.focus?.();
+    });
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const items = focusables();
+      if (!items.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (e.shiftKey && (active === first || !panelRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("keydown", onKey);
+      restoreFocusTo.current?.focus?.();
+    };
   }, [open, onClose]);
 
   return (
@@ -56,9 +117,11 @@ export function Sheet({
             onClick={onClose}
           />
           <motion.div
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label={title}
+            aria-label={title ?? "Dialog"}
+            tabIndex={-1}
             className={cn(
               "bg-surface-1 relative w-full max-w-lg overflow-hidden",
               "rounded-t-sheet border-hairline border-t",
@@ -84,7 +147,7 @@ export function Sheet({
               }
             }}
           >
-            <div className="flex justify-center pt-2.5 pb-1">
+            <div aria-hidden className="flex justify-center pt-2.5 pb-1">
               <span className="bg-surface-3 h-1 w-9 rounded-full" />
             </div>
 

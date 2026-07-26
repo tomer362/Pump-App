@@ -452,18 +452,19 @@ export async function removeSet(setId: string): Promise<ActionResult> {
 
   await db.transaction(async (tx) => {
     await tx.delete(workoutSet).where(eq(workoutSet.id, setId));
-    // Renumber so set indices stay 1..n with no gaps.
-    const rest = await tx
-      .select({ id: workoutSet.id })
-      .from(workoutSet)
-      .where(eq(workoutSet.workoutExerciseId, row.weId))
-      .orderBy(asc(workoutSet.position));
-    for (let i = 0; i < rest.length; i++) {
-      await tx
-        .update(workoutSet)
-        .set({ position: i })
-        .where(eq(workoutSet.id, rest[i].id));
-    }
+    // Renumber so set indices stay 1..n with no gaps. One windowed UPDATE
+    // rather than one per surviving set — this runs on the mid-workout hot
+    // path, on a single tap.
+    await tx.execute(sql`
+      UPDATE workout_set ws
+      SET position = ranked.rn
+      FROM (
+        SELECT id, (ROW_NUMBER() OVER (ORDER BY position) - 1) AS rn
+        FROM workout_set
+        WHERE workout_exercise_id = ${row.weId}::uuid
+      ) ranked
+      WHERE ws.id = ranked.id AND ws.position <> ranked.rn
+    `);
   });
 
   return { ok: true };

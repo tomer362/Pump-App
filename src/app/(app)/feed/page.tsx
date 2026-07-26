@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Compass, Dumbbell, UserPlus } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { EmptyState, SectionTitle } from "@/components/ui/primitives";
-import { Button, IconButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { PostCard } from "@/components/social/post-card";
 import { GymPresenceBar } from "@/components/social/gym-presence-bar";
 import { requireUser } from "@/lib/session";
@@ -41,10 +41,12 @@ export default async function FeedPage() {
       <NavBar
         title="Feed"
         right={
-          <Link href="/friends">
-            <IconButton label="Find people" className="text-text-2">
-              <UserPlus className="size-[22px]" strokeWidth={2.2} />
-            </IconButton>
+          <Link
+            href="/friends"
+            aria-label="Find people"
+            className="press tap text-text-2 grid place-items-center px-2"
+          >
+            <UserPlus className="size-[22px]" strokeWidth={2.2} />
           </Link>
         }
       />

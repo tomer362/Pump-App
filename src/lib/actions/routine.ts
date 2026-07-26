@@ -134,11 +134,14 @@ async function writeRoutineChildren(
   routineId: string,
   exercises: z.output<typeof routineInputSchema>["exercises"],
 ) {
-  for (let i = 0; i < exercises.length; i++) {
-    const e = exercises[i];
-    const [re] = await tx
-      .insert(routineExercise)
-      .values({
+  if (!exercises.length) return;
+
+  // Two statements total rather than two per exercise. The zod cap allows 50
+  // exercises, which was 100 sequential round trips inside a transaction.
+  const inserted = await tx
+    .insert(routineExercise)
+    .values(
+      exercises.map((e, i) => ({
         routineId,
         exerciseId: e.exerciseId,
         position: i,
@@ -147,24 +150,28 @@ async function writeRoutineChildren(
         supersetGroup: e.supersetGroup ?? null,
         intervalWorkSeconds: e.intervalWorkSeconds ?? null,
         intervalRestSeconds: e.intervalRestSeconds ?? null,
-      })
-      .returning({ id: routineExercise.id });
+      })),
+    )
+    .returning({ id: routineExercise.id, position: routineExercise.position });
 
-    if (e.sets.length) {
-      await tx.insert(routineSet).values(
-        e.sets.map((s, j) => ({
-          routineExerciseId: re.id,
-          position: j,
-          setType: s.setType,
-          targetWeightKg: s.targetWeightKg ?? null,
-          targetReps: s.targetReps ?? null,
-          targetSeconds: s.targetSeconds ?? null,
-          targetDistanceM: s.targetDistanceM ?? null,
-          targetRpe: s.targetRpe ?? null,
-        })),
-      );
-    }
-  }
+  const byPosition = new Map(inserted.map((r) => [r.position, r.id]));
+
+  const rows = exercises.flatMap((e, i) => {
+    const reId = byPosition.get(i);
+    if (!reId) return [];
+    return e.sets.map((s, j) => ({
+      routineExerciseId: reId,
+      position: j,
+      setType: s.setType,
+      targetWeightKg: s.targetWeightKg ?? null,
+      targetReps: s.targetReps ?? null,
+      targetSeconds: s.targetSeconds ?? null,
+      targetDistanceM: s.targetDistanceM ?? null,
+      targetRpe: s.targetRpe ?? null,
+    }));
+  });
+
+  if (rows.length) await tx.insert(routineSet).values(rows);
 }
 
 export async function deleteRoutine(routineId: string): Promise<ActionResult> {
@@ -219,10 +226,23 @@ export async function copyRoutine(
       .where(eq(routineExercise.routineId, src.id))
       .orderBy(asc(routineExercise.position));
 
-    for (const re of res) {
-      const [newRe] = await tx
-        .insert(routineExercise)
-        .values({
+    if (!res.length) return copy.id;
+
+    const rsets = await tx
+      .select()
+      .from(routineSet)
+      .where(
+        inArray(
+          routineSet.routineExerciseId,
+          res.map((re) => re.id),
+        ),
+      )
+      .orderBy(asc(routineSet.position));
+
+    const inserted = await tx
+      .insert(routineExercise)
+      .values(
+        res.map((re) => ({
           routineId: copy.id,
           exerciseId: re.exerciseId,
           position: re.position,
@@ -231,30 +251,30 @@ export async function copyRoutine(
           supersetGroup: re.supersetGroup,
           intervalWorkSeconds: re.intervalWorkSeconds,
           intervalRestSeconds: re.intervalRestSeconds,
-        })
-        .returning({ id: routineExercise.id });
+        })),
+      )
+      .returning({ id: routineExercise.id, position: routineExercise.position });
 
-      const rsets = await tx
-        .select()
-        .from(routineSet)
-        .where(eq(routineSet.routineExerciseId, re.id))
-        .orderBy(asc(routineSet.position));
+    const byPosition = new Map(inserted.map((r) => [r.position, r.id]));
+    const rows = rsets.flatMap((rs) => {
+      const re = res.find((x) => x.id === rs.routineExerciseId);
+      const newReId = re ? byPosition.get(re.position) : undefined;
+      if (!newReId) return [];
+      return [
+        {
+          routineExerciseId: newReId,
+          position: rs.position,
+          setType: rs.setType,
+          targetWeightKg: rs.targetWeightKg,
+          targetReps: rs.targetReps,
+          targetSeconds: rs.targetSeconds,
+          targetDistanceM: rs.targetDistanceM,
+          targetRpe: rs.targetRpe,
+        },
+      ];
+    });
 
-      if (rsets.length) {
-        await tx.insert(routineSet).values(
-          rsets.map((rs) => ({
-            routineExerciseId: newRe.id,
-            position: rs.position,
-            setType: rs.setType,
-            targetWeightKg: rs.targetWeightKg,
-            targetReps: rs.targetReps,
-            targetSeconds: rs.targetSeconds,
-            targetDistanceM: rs.targetDistanceM,
-            targetRpe: rs.targetRpe,
-          })),
-        );
-      }
-    }
+    if (rows.length) await tx.insert(routineSet).values(rows);
 
     return copy.id;
   });
@@ -313,10 +333,10 @@ export async function saveWorkoutAsRoutine(
       })
       .returning({ id: routine.id });
 
-    for (const we of wes) {
-      const [re] = await tx
-        .insert(routineExercise)
-        .values({
+    const inserted = await tx
+      .insert(routineExercise)
+      .values(
+        wes.map((we) => ({
           routineId: r.id,
           exerciseId: we.exerciseId,
           position: we.position,
@@ -325,29 +345,31 @@ export async function saveWorkoutAsRoutine(
           supersetGroup: we.supersetGroup,
           intervalWorkSeconds: we.intervalWorkSeconds,
           intervalRestSeconds: we.intervalRestSeconds,
-        })
-        .returning({ id: routineExercise.id });
+        })),
+      )
+      .returning({ id: routineExercise.id, position: routineExercise.position });
 
-      const list = byWe.get(we.id) ?? [];
-      if (list.length) {
-        await tx.insert(routineSet).values(
-          list.map((s, j) => ({
-            routineExerciseId: re.id,
-            position: j,
-            setType: s.setType,
-            // Undo any deload scaling so the template holds true prescribed load.
-            targetWeightKg:
-              s.weightKg != null && w.loadMultiplier !== 0
-                ? Math.round((s.weightKg / w.loadMultiplier) * 100) / 100
-                : s.weightKg,
-            targetReps: s.reps,
-            targetSeconds: s.seconds,
-            targetDistanceM: s.distanceM,
-            targetRpe: null,
-          })),
-        );
-      }
-    }
+    const byPosition = new Map(inserted.map((x) => [x.position, x.id]));
+    const rows = wes.flatMap((we) => {
+      const reId = byPosition.get(we.position);
+      if (!reId) return [];
+      return (byWe.get(we.id) ?? []).map((s, j) => ({
+        routineExerciseId: reId,
+        position: j,
+        setType: s.setType,
+        // Undo any deload scaling so the template holds true prescribed load.
+        targetWeightKg:
+          s.weightKg != null && w.loadMultiplier !== 0
+            ? Math.round((s.weightKg / w.loadMultiplier) * 100) / 100
+            : s.weightKg,
+        targetReps: s.reps,
+        targetSeconds: s.seconds,
+        targetDistanceM: s.distanceM,
+        targetRpe: null,
+      }));
+    });
+
+    if (rows.length) await tx.insert(routineSet).values(rows);
     return r.id;
   });
 
