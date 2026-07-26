@@ -10,6 +10,7 @@ import {
   gym,
   gymMember,
   gymPresence,
+  notification,
   post,
   postComment,
   postLike,
@@ -546,7 +547,32 @@ export async function checkInAtGym(input: {
       },
     });
 
-  // Best-effort push; the in-app feed is the source of truth either way.
+  // Push is best-effort; the inbox row is what the user can actually rely on.
+  const friendIds = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      sql`${user.id} IN (
+        SELECT CASE WHEN requester_id = ${me.id} THEN addressee_id ELSE requester_id END
+        FROM ${friendRequest}
+        WHERE status = 'accepted' AND (requester_id = ${me.id} OR addressee_id = ${me.id})
+      )`,
+    )
+    .limit(200);
+
+  if (friendIds.length) {
+    await db.insert(notification).values(
+      friendIds.map((f) => ({
+        userId: f.id,
+        actorId: me.id,
+        type: "gym_presence" as const,
+        body: input.note?.trim()
+          ? `${me.name} is at the gym — ${input.note.trim()}`
+          : `${me.name} is at the gym`,
+      })),
+    );
+  }
+
   await notifyFriends(me.id, {
     title: `${me.name} is at the gym`,
     body: input.note?.trim() || "Training now — come join.",

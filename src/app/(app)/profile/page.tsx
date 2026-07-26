@@ -14,18 +14,21 @@ import { requireUser } from "@/lib/session";
 import { getAchievements, getLifetimeStats } from "@/lib/queries/stats";
 import { getFollowCounts, getFriends } from "@/lib/queries/social";
 import { getWorkoutHistory } from "@/lib/queries/workout";
+import { getUnreadNotificationCount } from "@/lib/actions/notify";
 import { formatDayLabel, formatVolume } from "@/lib/utils";
 
 export default async function ProfilePage() {
   const me = await requireUser();
 
-  const [stats, achievements, counts, friends, recent] = await Promise.all([
-    getLifetimeStats(me.id),
-    getAchievements(me.id),
-    getFollowCounts(me.id),
-    getFriends(me.id),
-    getWorkoutHistory(me.id, { limit: 5 }),
-  ]);
+  const [stats, achievements, counts, friends, recent, unread] =
+    await Promise.all([
+      getLifetimeStats(me.id),
+      getAchievements(me.id),
+      getFollowCounts(me.id),
+      getFriends(me.id),
+      getWorkoutHistory(me.id, { limit: 5 }),
+      getUnreadNotificationCount(me.id),
+    ]);
 
   return (
     <div className="pb-8">
@@ -96,6 +99,11 @@ export default async function ProfilePage() {
             <Card className="press flex items-center gap-3 px-4 py-3.5">
               <Bell className="text-text-3 size-5 shrink-0" />
               <p className="flex-1 text-[15px] font-medium">Notifications</p>
+              {unread > 0 && (
+                <span className="bg-volt num grid min-w-5 place-items-center rounded-full px-1.5 text-[11px] font-bold text-black">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
               <ChevronRight className="text-text-3 size-4 shrink-0" />
             </Card>
           </Link>

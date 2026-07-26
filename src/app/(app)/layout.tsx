@@ -2,6 +2,7 @@ import { TabBar, TabBarSpacer } from "@/components/ui/tab-bar";
 import { ActiveWorkoutPill } from "@/components/workout/active-workout-pill";
 import { requireUser } from "@/lib/session";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
+import { getUnreadNotificationCount } from "@/lib/actions/notify";
 
 export default async function AppLayout({
   children,
@@ -9,7 +10,10 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const me = await requireUser();
-  const active = await getActiveWorkoutSummary(me.id);
+  const [active, unread] = await Promise.all([
+    getActiveWorkoutSummary(me.id),
+    getUnreadNotificationCount(me.id),
+  ]);
 
   return (
     <div className="min-h-screen-d">
@@ -18,7 +22,7 @@ export default async function AppLayout({
           navigating away — the single biggest complaint about web trackers. */}
       {active && <ActiveWorkoutPill workout={active} />}
       <TabBarSpacer />
-      <TabBar />
+      <TabBar unreadCount={unread} />
     </div>
   );
 }

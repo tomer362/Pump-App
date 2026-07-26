@@ -13,7 +13,7 @@ const TABS = [
   { href: "/profile", label: "You", icon: User },
 ] as const;
 
-export function TabBar() {
+export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
   const pathname = usePathname();
 
   return (
@@ -33,11 +33,20 @@ export function TabBar() {
                 onClick={() => haptic.light()}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "press flex h-[52px] flex-col items-center justify-center gap-[3px]",
+                  "press relative flex h-[52px] flex-col items-center justify-center gap-[3px]",
                   "text-[10px] font-medium tracking-[0.01em]",
                   active ? "text-volt" : "text-text-3",
                 )}
               >
+                {/* Unread marker lives on the profile tab, which is where the
+                    inbox is reached from. A dot, not a number: the exact count
+                    isn't actionable at this size. */}
+                {href === "/profile" && unreadCount > 0 && (
+                  <span
+                    aria-label={`${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`}
+                    className="bg-volt ring-bg absolute top-1.5 right-[calc(50%-16px)] size-2 rounded-full ring-2"
+                  />
+                )}
                 {primary ? (
                   <span
                     className={cn(
