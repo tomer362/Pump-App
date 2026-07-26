@@ -429,6 +429,8 @@ export async function addSet(
       weightKg: last?.weightKg ?? null,
       reps: last?.reps ?? null,
       seconds: last?.seconds ?? null,
+      distanceM: last?.distanceM ?? null,
+      rpe: last?.rpe ?? null,
     })
     .returning({ id: workoutSet.id });
 

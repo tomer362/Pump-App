@@ -5,6 +5,7 @@ import {
   follow,
   friendRequest,
   gym,
+  gymMember,
   gymPresence,
   post,
   postComment,
@@ -418,6 +419,80 @@ export async function getMyGyms(userId: string) {
       sql`gm2.gym_id = ${gym.id} AND gm2.user_id = ${userId}`,
     )
     .orderBy(gym.name);
+}
+
+export type GymDetail = {
+  id: string;
+  name: string;
+  city: string | null;
+  joinCode: string;
+  createdAt: Date;
+  members: {
+    id: string;
+    name: string;
+    username: string | null;
+    image: string | null;
+    joinedAt: Date;
+    /** Non-null when this member is checked in right now. */
+    presentSince: Date | null;
+    presenceNote: string | null;
+  }[];
+};
+
+/**
+ * A gym's roster and who's in the building. Membership-gated: the join code is
+ * the only credential a gym has, so a non-member must not be able to read it
+ * back out of a page.
+ */
+export async function getGymDetail(
+  gymId: string,
+  viewerId: string,
+): Promise<GymDetail | null> {
+  const [g] = await db
+    .select({
+      id: gym.id,
+      name: gym.name,
+      city: gym.city,
+      joinCode: gym.joinCode,
+      createdAt: gym.createdAt,
+    })
+    .from(gym)
+    .innerJoin(
+      gymMember,
+      and(eq(gymMember.gymId, gym.id), eq(gymMember.userId, viewerId)),
+    )
+    .where(eq(gym.id, gymId))
+    .limit(1);
+  if (!g) return null;
+
+  const members = await db
+    .select({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      image: user.image,
+      joinedAt: gymMember.joinedAt,
+      presentSince: gymPresence.startedAt,
+      presenceNote: gymPresence.note,
+    })
+    .from(gymMember)
+    .innerJoin(user, eq(user.id, gymMember.userId))
+    // Expired check-ins are filtered here rather than swept by a cron — Hobby
+    // allows two daily jobs and a stale row is harmless if never selected.
+    .leftJoin(
+      gymPresence,
+      and(
+        eq(gymPresence.userId, gymMember.userId),
+        eq(gymPresence.gymId, gymMember.gymId),
+        gt(gymPresence.expiresAt, new Date()),
+      ),
+    )
+    .where(eq(gymMember.gymId, gymId))
+    // Whoever is there now goes to the top; that's the reason to open the page.
+    .orderBy(desc(gymPresence.startedAt), gymMember.joinedAt)
+    .limit(200);
+
+  return { ...g, members };
 }
 
 export async function getUsersByIds(ids: string[]) {

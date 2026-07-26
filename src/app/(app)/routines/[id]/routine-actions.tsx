@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Pencil, Play, Share2, Trash2 } from "lucide-react";
+import { Copy, Pencil, Percent, Play, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
+import { LoadPickerSheet } from "@/components/workout/load-picker";
 import { copyRoutine, deleteRoutine } from "@/lib/actions/routine";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
 import { haptic } from "@/lib/utils";
@@ -25,11 +26,13 @@ export function RoutineActions({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [loadSheet, setLoadSheet] = useState(false);
+  const [multiplier, setMultiplier] = useState(1);
 
-  async function start() {
+  async function start(mult: number) {
     setBusy(true);
     setError(null);
-    const res = await startWorkoutFromRoutine(routineId, 1);
+    const res = await startWorkoutFromRoutine(routineId, mult);
     if (res.ok && res.data) router.push(`/workout/${res.data.workoutId}`);
     else {
       setError(res.ok ? "Could not start" : res.error);
@@ -61,17 +64,33 @@ export function RoutineActions({
   return (
     <>
       <div className="space-y-2">
-        <Button
-          variant="volt"
-          size="lg"
-          block
-          loading={busy}
-          disabled={hasActiveWorkout}
-          onClick={start}
-        >
-          <Play className="size-4" fill="currentColor" />
-          {hasActiveWorkout ? "Finish your current workout first" : "Start routine"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="volt"
+            size="lg"
+            block
+            loading={busy}
+            disabled={hasActiveWorkout}
+            onClick={() => start(1)}
+          >
+            <Play className="size-4" fill="currentColor" />
+            {hasActiveWorkout
+              ? "Finish your current workout first"
+              : "Start routine"}
+          </Button>
+          {!hasActiveWorkout && (
+            <button
+              onClick={() => {
+                haptic.light();
+                setLoadSheet(true);
+              }}
+              aria-label="Start at a different load"
+              className="press tap bg-surface-2 text-text-2 grid shrink-0 place-items-center rounded-field px-3.5"
+            >
+              <Percent className="size-[18px]" strokeWidth={2.4} />
+            </button>
+          )}
+        </div>
 
         <div className="flex gap-2">
           {isOwner ? (
@@ -129,6 +148,16 @@ export function RoutineActions({
       </div>
 
       {error && <p className="text-danger mt-2 text-center text-[13px]">{error}</p>}
+
+      <LoadPickerSheet
+        open={loadSheet}
+        onClose={() => setLoadSheet(false)}
+        routineName={routineName}
+        value={multiplier}
+        onChange={setMultiplier}
+        loading={busy}
+        onConfirm={() => start(multiplier)}
+      />
 
       <Sheet
         open={confirmDelete}

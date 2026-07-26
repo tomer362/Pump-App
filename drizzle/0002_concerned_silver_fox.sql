@@ -1,0 +1,1 @@
+ALTER TABLE "coop_session" ADD COLUMN "load_multiplier" real DEFAULT 1 NOT NULL;

@@ -110,6 +110,15 @@ export function CoopRoom({
           Share the code. Everyone logs their own sets — this screen just shows
           how each of you is doing.
         </p>
+        {snapshot.loadMultiplier !== 1 && (
+          <p className="text-text-2 num mt-2 text-[12px]">
+            Running at{" "}
+            <span className="text-volt font-bold">
+              {Math.round(snapshot.loadMultiplier * 100)}%
+            </span>{" "}
+            of the prescribed load.
+          </p>
+        )}
       </Card>
 
       {me?.workoutId && !ended && (

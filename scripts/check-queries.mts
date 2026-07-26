@@ -42,6 +42,10 @@ const cases: [string, () => Promise<unknown>][] = [
   ["social.getFriendsAtGym", () => socialQ.getFriendsAtGym(uid)],
   ["social.getMyPresence", () => socialQ.getMyPresence(uid)],
   ["social.getMyGyms", () => socialQ.getMyGyms(uid)],
+  [
+    "social.getGymDetail",
+    () => socialQ.getGymDetail("00000000-0000-0000-0000-000000000000", uid),
+  ],
   ["stats.getMuscleVolume", () => statsQ.getMuscleVolume(uid, 7)],
   ["stats.getWeeklyTrend", () => statsQ.getWeeklyTrend(uid, 12)],
   ["stats.getLifetimeStats", () => statsQ.getLifetimeStats(uid)],

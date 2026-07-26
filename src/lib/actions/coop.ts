@@ -35,6 +35,7 @@ function makeJoinCode() {
 export async function createCoopSession(input: {
   name: string;
   routineId?: string | null;
+  loadMultiplier?: number;
 }): Promise<ActionResult<{ coopSessionId: string; joinCode: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
@@ -49,6 +50,7 @@ export async function createCoopSession(input: {
     .object({
       name: z.string().trim().min(1, "Give the session a name").max(60),
       routineId: z.string().uuid().nullable().optional(),
+      loadMultiplier: z.number().min(0.3).max(1.5).optional(),
     })
     .safeParse(input);
   if (!parsed.success) {
@@ -74,6 +76,7 @@ export async function createCoopSession(input: {
         routineId: parsed.data.routineId ?? null,
         name: parsed.data.name,
         joinCode,
+        loadMultiplier: parsed.data.loadMultiplier ?? 1,
       })
       .returning({ id: coopSession.id, joinCode: coopSession.joinCode });
 
@@ -85,6 +88,7 @@ export async function createCoopSession(input: {
       session.id,
       parsed.data.routineId ?? null,
       parsed.data.name,
+      parsed.data.loadMultiplier ?? 1,
     );
 
     await tx.insert(coopParticipant).values({
@@ -161,6 +165,7 @@ export async function joinCoopSession(
       session.id,
       session.routineId,
       session.name,
+      session.loadMultiplier,
     );
     await tx
       .insert(coopParticipant)
@@ -187,10 +192,11 @@ async function createLinkedWorkout(
   coopSessionId: string,
   routineId: string | null,
   name: string,
+  loadMultiplier: number,
 ): Promise<string> {
   const [w] = await tx
     .insert(workout)
-    .values({ userId, routineId, gymId, name, coopSessionId })
+    .values({ userId, routineId, gymId, name, coopSessionId, loadMultiplier })
     .returning({ id: workout.id });
 
   if (!routineId) return w.id;
@@ -249,7 +255,10 @@ async function createLinkedWorkout(
         workoutExerciseId: weId,
         position: rs.position,
         setType: rs.setType,
-        weightKg: rs.targetWeightKg,
+        weightKg:
+          rs.targetWeightKg != null
+            ? Math.round(rs.targetWeightKg * loadMultiplier * 100) / 100
+            : null,
         reps: rs.targetReps,
         seconds: rs.targetSeconds,
         distanceM: rs.targetDistanceM,
@@ -338,6 +347,7 @@ export type CoopSnapshot = {
   name: string;
   joinCode: string;
   hostId: string;
+  loadMultiplier: number;
   endedAt: string | null;
   startedAt: string;
   participants: {
@@ -427,6 +437,7 @@ export async function getCoopSnapshot(
     name: session.name,
     joinCode: session.joinCode,
     hostId: session.hostId,
+    loadMultiplier: session.loadMultiplier,
     startedAt: session.startedAt.toISOString(),
     endedAt: session.endedAt ? session.endedAt.toISOString() : null,
     participants: rows.rows.map((r) => ({

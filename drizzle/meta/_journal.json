@@ -15,6 +15,13 @@
       "when": 1785079301794,
       "tag": "0001_vengeful_reptil",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785081296325,
+      "tag": "0002_concerned_silver_fox",
+      "breakpoints": true
     }
   ]
 }

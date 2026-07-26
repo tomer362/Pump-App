@@ -6,6 +6,7 @@ import { ArrowRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Card, Input } from "@/components/ui/primitives";
+import { LoadGrid } from "@/components/workout/load-picker";
 import { createCoopSession, joinCoopSession } from "@/lib/actions/coop";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ export function CoopLauncher({
   const [mode, setMode] = useState<"create" | "join" | null>(null);
   const [name, setName] = useState("");
   const [routineId, setRoutineId] = useState<string | null>(null);
+  const [multiplier, setMultiplier] = useState(1);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +83,11 @@ export function CoopLauncher({
             onClick={async () => {
               setBusy(true);
               setError(null);
-              const res = await createCoopSession({ name, routineId });
+              const res = await createCoopSession({
+                name,
+                routineId,
+                loadMultiplier: multiplier,
+              });
               setBusy(false);
               if (res.ok && res.data) {
                 router.push(`/coop/${res.data.coopSessionId}`);
@@ -126,6 +132,19 @@ export function CoopLauncher({
               ))}
             </div>
           </div>
+
+          {/* Only meaningful with a routine — there are no prescribed weights
+              to scale in an empty session. */}
+          {routineId && (
+            <div>
+              <Label>Load</Label>
+              <p className="text-text-3 mb-2 text-[12px]">
+                Applies to everyone who joins, so a deload week means the same
+                thing for the whole room.
+              </p>
+              <LoadGrid value={multiplier} onChange={setMultiplier} />
+            </div>
+          )}
 
           {error && <p className="text-danger text-[13px]">{error}</p>}
         </div>

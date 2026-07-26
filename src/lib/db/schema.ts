@@ -564,6 +564,9 @@ export const coopSession = pgTable(
     }),
     name: text("name").notNull(),
     joinCode: text("join_code").notNull().unique(),
+    // Deload/overload for the whole room: whoever joins gets the routine's
+    // weights scaled the same way, so "70% week" means one thing per session.
+    loadMultiplier: real("load_multiplier").default(1).notNull(),
     startedAt: timestamp("started_at").defaultNow().notNull(),
     endedAt: timestamp("ended_at"),
   },

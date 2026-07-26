@@ -2,7 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Home, LogOut, Plus, Users } from "lucide-react";
+import Link from "next/link";
+import {
+  Check,
+  ChevronRight,
+  Copy,
+  Home,
+  LogOut,
+  Plus,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Card, Input } from "@/components/ui/primitives";
@@ -91,7 +100,7 @@ export function GymManager({
         <Card className="divide-hairline mt-4 divide-y overflow-hidden">
           {gyms.map((g) => (
             <div key={g.id} className="px-4 py-3.5">
-              <div className="flex items-start gap-3">
+              <Link href={`/gyms/${g.id}`} className="press flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-[15px] font-semibold">
@@ -110,7 +119,8 @@ export function GymManager({
                     {g.memberCount} member{g.memberCount === 1 ? "" : "s"}
                   </p>
                 </div>
-              </div>
+                <ChevronRight className="text-text-3 size-4 shrink-0" />
+              </Link>
 
               <div className="mt-2.5 flex items-center gap-2">
                 <button
