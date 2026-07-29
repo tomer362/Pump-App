@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform } from "motion/react";
+import {
+  animate,
+  motion,
+  useDragControls,
+  useMotionValue,
+  useTransform,
+} from "motion/react";
 import { Check, Trash2 } from "lucide-react";
 import { cn, formatWeight, haptic, kgToLb, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
@@ -96,40 +102,93 @@ export function SetRow({
     seconds: number | null;
     distanceM?: number | null;
   } | null;
-  onPatch: (patch: Partial<SetDraft>) => void;
+  onPatch: (patch: Partial<SetDraft>, opts?: { fill?: boolean }) => void;
   onToggleComplete: () => void;
   onDelete: () => void;
   onOpenTypeMenu: () => void;
 }) {
   const x = useMotionValue(0);
-  // The bin fades in as the row is dragged left, so the gesture is discoverable.
+  // The bin fades in as the row is dragged left, so the gesture is
+  // discoverable — and only takes taps once it is actually showing, so a
+  // closed row's checkmark and inputs are never shadowed by it.
   const binOpacity = useTransform(x, [-90, -30, 0], [1, 0.5, 0]);
+  const binPointer = useTransform(x, (v) => (v < -8 ? "auto" : "none"));
+
+  /**
+   * The swipe is started by hand rather than by motion's own listener.
+   *
+   * Motion won't begin a drag whose pointer-down landed on a form control, and
+   * the two number inputs are most of this row's width — so the gesture worked
+   * from the narrow strips at either end and did nothing from the middle. That
+   * inconsistency is most of what made it feel broken. Starting the session
+   * ourselves makes the whole row swipeable; a tap still focuses the input,
+   * because a drag only begins once the pointer has actually moved.
+   */
+  const dragControls = useDragControls();
+
+  // Rows are keyed by set id, so this is belt-and-braces against DOM reuse
+  // leaving a new row parked at the previous one's offset.
+  useEffect(() => {
+    x.set(0);
+  }, [set.id, x]);
 
   const columns = setColumns(trackingType);
 
+  const remove = () => {
+    haptic.medium();
+    onDelete();
+  };
+
   return (
     <div className="relative">
-      {/* Delete affordance revealed by the swipe. */}
-      <motion.div
-        style={{ opacity: binOpacity }}
+      {/* Delete affordance revealed by the swipe. A real button, so a row left
+          half-open can be finished with a tap rather than re-swiped. */}
+      <motion.button
+        type="button"
+        aria-label={`Delete set ${index}`}
+        tabIndex={-1}
+        onClick={remove}
+        style={{ opacity: binOpacity, pointerEvents: binPointer }}
         className="bg-danger-fade absolute inset-y-0 right-0 flex w-[90px] items-center justify-end pr-5"
       >
         <Trash2 className="text-danger size-[18px]" strokeWidth={2.2} />
-      </motion.div>
+      </motion.button>
 
       <motion.div
         drag="x"
-        style={{ x }}
+        // Vertical scrolling stays with the page. Without this the browser has
+        // to wait for the gesture to resolve before it will scroll, which is
+        // what made the list feel like it was catching on every row.
+        style={{ x, touchAction: "pan-y" }}
         dragConstraints={{ left: -90, right: 0 }}
         dragElastic={{ left: 0.15, right: 0 }}
         dragDirectionLock
-        onDragEnd={(_, info) => {
-          if (info.offset.x < -70 || info.velocity.x < -500) {
-            haptic.medium();
-            onDelete();
-          } else {
-            x.set(0);
+        // Without this the row can coast past the constraint on a flick and
+        // settle half-open — one of the states that read as broken.
+        dragMomentum={false}
+        dragListener={false}
+        dragControls={dragControls}
+        onPointerDown={(e) => {
+          // Except while this row is being edited: with the keyboard up, a
+          // sideways drag is someone placing a caret, not deleting the set
+          // they are in the middle of typing into.
+          const active = document.activeElement;
+          if (active instanceof HTMLInputElement && e.currentTarget.contains(active)) {
+            return;
           }
+          dragControls.start(e);
+        }}
+        onDragEnd={(_, info) => {
+          // A swipe only counts if it was unambiguously sideways: scrolling
+          // the list with a thumb that drifts left is not a delete.
+          const sideways =
+            Math.abs(info.offset.x) > Math.abs(info.offset.y) * 2;
+          const decisive =
+            info.offset.x < -80 || (info.velocity.x < -800 && info.offset.x < -40);
+          if (sideways && decisive) remove();
+          // Spring back rather than jump back — the instant reset was the
+          // other half of why this felt broken.
+          else animate(x, 0, { type: "spring", stiffness: 500, damping: 40 });
         }}
         className={cn(
           "relative px-3 py-1.5 transition-colors",
@@ -281,7 +340,7 @@ function ValueCell({
   set: SetDraft;
   previous: Previous;
   unit: "kg" | "lb";
-  onPatch: (patch: Partial<SetDraft>) => void;
+  onPatch: (patch: Partial<SetDraft>, opts?: { fill?: boolean }) => void;
 }) {
   if (column === "weight") {
     return (
@@ -302,9 +361,12 @@ function ValueCell({
         onCommit={(raw) => {
           const n = raw === "" ? null : Number(raw);
           if (n != null && !Number.isFinite(n)) return;
-          onPatch({
-            weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n),
-          });
+          onPatch(
+            { weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n) },
+            // Typing a value carries it down the empty sets below it —
+            // clearing one never does. See `patchSet` for the exact run.
+            { fill: n != null },
+          );
         }}
       />
     );
@@ -323,7 +385,7 @@ function ValueCell({
       onCommit={(raw) => {
         const n = raw === "" ? null : Math.round(Number(raw));
         if (n != null && !Number.isFinite(n)) return;
-        onPatch({ [field]: n } as Partial<SetDraft>);
+        onPatch({ [field]: n } as Partial<SetDraft>, { fill: n != null });
       }}
     />
   );

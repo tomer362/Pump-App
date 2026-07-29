@@ -1,6 +1,11 @@
 import { db } from "./index";
 import { achievement, exercise, exerciseAlternative } from "./schema";
-import { SEED_ACHIEVEMENTS, SEED_EXERCISES, LEGACY_NAME_TO_SLUG } from "./seed-data";
+import {
+  SEED_ACHIEVEMENTS,
+  SEED_EXERCISES,
+  LEGACY_NAME_TO_SLUG,
+  popularityOf,
+} from "./seed-data";
 import { youTubeWatchUrl } from "@/lib/exercise-video";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
@@ -49,6 +54,9 @@ async function main() {
       instructions: e.instructions ?? null,
       bodyEffect: e.bodyEffect ?? null,
       videoUrl: e.videoId ? youTubeWatchUrl(e.videoId) : null,
+      // Every row carries a score, so dropping a slug out of POPULAR_SLUGS
+      // resets it to 0 on the next deploy rather than leaving it ranked.
+      popularity: popularityOf(e.slug),
       ownerId: null,
     }));
 
@@ -67,6 +75,7 @@ async function main() {
             instructions: sql`excluded.instructions`,
             bodyEffect: sql`excluded.body_effect`,
             videoUrl: sql`excluded.video_url`,
+            popularity: sql`excluded.popularity`,
           },
         });
     }

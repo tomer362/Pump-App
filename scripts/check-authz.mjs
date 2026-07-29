@@ -432,6 +432,67 @@ try {
     afterHtml.includes(customName) && !afterHtml.includes("Hijacked"),
   );
 
+  // 8. The set mutations take caller-supplied set ids and are the hot path of
+  //    the workout screen — `updateSets` writes several rows at once, so a
+  //    missing owner scope there would let anyone rewrite a stranger's log in
+  //    one request. A adds an exercise to their live workout; B fires both
+  //    mutations at the resulting set id. Neither returns an error for a row
+  //    it doesn't own (the ownership join simply matches nothing), so the
+  //    check that means anything is that A's set is untouched afterwards.
+  await a.page.goto(`${BASE}/workout/${workoutId}`, { waitUntil: "networkidle" });
+  await a.page.getByRole("button", { name: /^Add exercise$/ }).click();
+  await a.page.waitForTimeout(400);
+  await a.page.getByPlaceholder(/search exercises/i).fill("Bench Press");
+  await a.page.waitForTimeout(900);
+  await a.page.getByRole("button", { name: /Bench Press/ }).first().click();
+  await a.page.getByRole("button", { name: /^Add \d+ exercises?$/ }).click();
+  await a.page.waitForTimeout(1200);
+  const victimSetId = await a.page
+    .locator("[data-set-id]")
+    .first()
+    .getAttribute("data-set-id")
+    .catch(() => null);
+  requireFixture(
+    Boolean(victimSetId),
+    "could not read a set id off A's workout screen",
+  );
+
+  const setActions = actionIdsFromManifest("src/lib/actions/workout.ts", [
+    "updateSet",
+    "updateSets",
+  ]);
+  requireFixture(
+    setActions.size === 2,
+    `expected 2 set-mutation action ids in the dev manifest, found ${setActions.size}`,
+  );
+  for (const [name, id] of setActions) {
+    const args =
+      name === "updateSets"
+        ? [[victimSetId], { weightKg: 999, reps: 99 }]
+        : [victimSetId, { weightKg: 999, reps: 99 }];
+    const res = await postAction(b.page, `${BASE}/feed`, id, args);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      `${name} runs but writes nothing for another user's set`,
+      ran,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  await a.page.reload({ waitUntil: "networkidle" });
+  const setValue = await a.page
+    .locator("[data-set-id]")
+    .first()
+    .locator("input")
+    .first()
+    .inputValue()
+    .catch(() => "");
+  check(
+    "A's set survived B's probes unchanged",
+    setValue !== "999",
+    `set weight reads "${setValue}"`,
+  );
+
   // 8. `notifyFriends` used to be exported from a "use server" module while
   //    taking a caller-supplied userId and freeform payload — any signed-in
   //    user could blast arbitrary push text to any user's entire friend list.

@@ -11,7 +11,7 @@ import {
   primaryKey,
   jsonb,
 } from "drizzle-orm/pg-core";
-import { relations, sql } from "drizzle-orm";
+import { asc, desc, relations, sql } from "drizzle-orm";
 
 /* ==========================================================================
    Better Auth tables. Field names are dictated by better-auth's core schema —
@@ -180,11 +180,24 @@ export const exercise = pgTable(
     // exercises drop out of search and the picker; their detail page still
     // resolves, because past workouts link to it.
     archivedAt: timestamp("archived_at"),
+    // How commonly the movement is trained, highest first — the default order
+    // of every picker. Authored per slug in seed-data/popularity.ts and
+    // written by the seed; 0 for everything unranked and for custom
+    // exercises, which then fall into the alphabetical tail.
+    popularity: integer("popularity").default(0).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
     index("exercise_owner_idx").on(t.ownerId),
     index("exercise_muscle_idx").on(t.primaryMuscle),
+    // Matches the list ordering and its keyset cursor exactly — mixed
+    // directions, so a plain ascending index could not be walked backwards
+    // for it.
+    index("exercise_popularity_idx").on(
+      desc(t.popularity),
+      asc(t.name),
+      asc(t.id),
+    ),
     // Postgres unique indexes permit many NULLs, so every custom exercise
     // (slug null) coexists here without a partial-index WHERE clause.
     uniqueIndex("exercise_slug_idx").on(t.slug),
