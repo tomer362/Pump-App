@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -52,13 +52,14 @@ export function ExercisePicker({
     return () => window.clearTimeout(debounce.current);
   }, [open, query, muscle, equipment, signature]);
 
-  // Reset on the way out rather than in an effect keyed on `open`.
-  const close = () => {
+  // Reset on the way out rather than in an effect keyed on `open`. Memoised so
+  // the sheet below gets a stable prop across the re-render per keystroke.
+  const close = useCallback(() => {
     setSelected([]);
     setQuery("");
     setCreating(false);
     onClose();
-  };
+  }, [onClose]);
 
   const grouped = useMemo(() => {
     const recent = items.filter((i) => i.lastPerformedAt);
