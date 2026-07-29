@@ -103,6 +103,19 @@ const cases: [string, () => Promise<unknown>][] = [
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [eid])],
   ["exercise.searchExercises (mine)", () => exerciseQ.searchExercises(uid, { scope: "mine" })],
   ["exercise.searchExercises (archived)", () => exerciseQ.searchExercises(uid, { scope: "archived" })],
+  ["exercise.searchExercisePage", () => exerciseQ.searchExercisePage(uid)],
+  [
+    // The keyset predicate only renders when a cursor is passed, so the first
+    // page alone would leave the half that can actually be a syntax error
+    // untested. Walk one batch forward.
+    "exercise.searchExercisePage (after cursor)",
+    async () => {
+      const first = await exerciseQ.searchExercisePage(uid, { limit: 5 });
+      return exerciseQ.searchExercisePage(uid, { limit: 5, after: first.cursor });
+    },
+  ],
+  ["exercise.getRecentExercises", () => exerciseQ.getRecentExercises(uid)],
+  ["exercise.getExercisesByIds", () => exerciseQ.getExercisesByIds(uid, [eid])],
   ["exercise.getExercise", () => exerciseQ.getExercise(eid)],
   ["exercise.getExerciseHistory", () => exerciseQ.getExerciseHistory(uid, eid)],
   ["exercise.getExerciseRecords", () => exerciseQ.getExerciseRecords(uid, eid)],

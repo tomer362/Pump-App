@@ -124,11 +124,13 @@ export function RoutineBuilder({
       setPicking(false);
       if (!ids.length) return;
       // The picker already has the metadata; refetch minimal info for names.
-      const { searchExercisesAction } = await import(
+      // Only the ids that were picked — this used to pull the whole library
+      // back just to read a handful of rows out of it.
+      const { getExercisesByIdsAction } = await import(
         "@/lib/actions/exercise-search"
       );
-      const all = await searchExercisesAction({});
-      const byId = new Map(all.map((e) => [e.id, e]));
+      const picked = await getExercisesByIdsAction(ids);
+      const byId = new Map(picked.map((e) => [e.id, e]));
       setItems((prev) => [
         ...prev,
         ...ids

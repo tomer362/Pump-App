@@ -1,6 +1,18 @@
 import "server-only";
-import { and, asc, desc, eq, ilike, isNull, or, sql, inArray } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  ilike,
+  isNull,
+  or,
+  sql,
+  inArray,
+} from "drizzle-orm";
 import { db } from "@/lib/db";
+import { EXERCISE_PAGE_SIZE, EXERCISE_RECENT_LIMIT } from "@/lib/pagination";
 import {
   exercise,
   exerciseAlternative,
@@ -20,8 +32,27 @@ export type ExerciseListItem = {
   trackingType: string;
   isCustom: boolean;
   isArchived: boolean;
-  /** Last time this user logged it — powers the "Recent" ordering. */
+  /**
+   * Last time this user logged it — powers the "Recent" ordering. Only
+   * `getRecentExercises` fills this in; the alphabetical pages leave it null
+   * on purpose, because computing it per row is what made loading the library
+   * expensive in the first place.
+   */
   lastPerformedAt: Date | null;
+};
+
+/**
+ * Keyset cursor into the alphabetical library: the last row of the page you
+ * have. `(name, id)` rather than `name` alone — a custom exercise can share a
+ * name with a built-in, and a cursor on a duplicated name would either skip
+ * the twin or loop on it forever.
+ */
+export type ExerciseCursor = { name: string; id: string };
+
+export type ExercisePage = {
+  items: ExerciseListItem[];
+  /** Pass back as `after` for the next batch; null when the library is spent. */
+  cursor: ExerciseCursor | null;
 };
 
 /**
@@ -32,95 +63,189 @@ export type ExerciseListItem = {
  */
 export type ExerciseScope = "available" | "mine" | "archived";
 
+export type ExerciseFilters = {
+  query?: string;
+  muscle?: Muscle | "all";
+  equipment?: Equipment | "all";
+  /**
+   * The manage view needs to reach archived entries; nothing that feeds a
+   * picker ever should.
+   */
+  scope?: ExerciseScope;
+};
+
+/** The filter half of both queries below, so they can't drift apart. */
+function filterWhere(userId: string, f: ExerciseFilters) {
+  const scope = f.scope ?? "available";
+  return and(
+    scope === "mine" || scope === "archived"
+      ? eq(exercise.ownerId, userId)
+      : or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+    scope === "archived"
+      ? sql`${exercise.archivedAt} IS NOT NULL`
+      : isNull(exercise.archivedAt),
+    f.query && f.query.trim()
+      ? ilike(exercise.name, `%${f.query.trim()}%`)
+      : undefined,
+    f.muscle && f.muscle !== "all"
+      ? eq(exercise.primaryMuscle, f.muscle)
+      : undefined,
+    f.equipment && f.equipment !== "all"
+      ? eq(exercise.equipment, f.equipment)
+      : undefined,
+  );
+}
+
+const LIST_COLUMNS = {
+  id: exercise.id,
+  name: exercise.name,
+  primaryMuscle: exercise.primaryMuscle,
+  equipment: exercise.equipment,
+  trackingType: exercise.trackingType,
+  ownerId: exercise.ownerId,
+  archivedAt: exercise.archivedAt,
+} as const;
+
+type ListRow = {
+  id: string;
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  trackingType: string;
+  ownerId: string | null;
+  archivedAt: Date | string | null;
+};
+
+function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
+  return {
+    id: r.id,
+    name: r.name,
+    primaryMuscle: r.primaryMuscle,
+    equipment: r.equipment,
+    trackingType: r.trackingType,
+    isCustom: r.ownerId != null,
+    isArchived: r.archivedAt != null,
+    lastPerformedAt,
+  };
+}
+
 /**
- * The exercise picker. Built-ins plus this user's own, ordered by what they
- * actually use — recency beats alphabetical when you're mid-workout.
+ * One alphabetical batch of the library, keyset-paginated.
+ *
+ * This used to select every matching row with a correlated `MAX(started_at)`
+ * subquery per row and re-sort the lot in JS, so opening a picker cost one
+ * scan of the whole library — against a scale-to-zero database, on a phone,
+ * before anything could render. Recency now comes from `getRecentExercises`,
+ * which is bounded, and the rest arrives a page at a time as the user scrolls.
+ *
+ * Ordered by `(name, id)` because that is also the cursor: `ORDER BY` and the
+ * `>` comparison have to agree on collation, and they do when both are the
+ * plain column.
  */
-export async function searchExercises(
+export async function searchExercisePage(
   userId: string,
   {
-    query,
-    muscle,
-    equipment,
-    // The built-in library is a few hundred entries plus whatever the user has
-    // added, and the result is re-sorted in JS after the SQL orders by name —
-    // so a limit below the library size truncates silently and arbitrarily.
-    limit = 500,
-    // The manage view needs to reach archived entries; nothing that feeds a
-    // picker ever should.
-    scope = "available",
-  }: {
-    query?: string;
-    muscle?: Muscle | "all";
-    equipment?: Equipment | "all";
-    limit?: number;
-    scope?: ExerciseScope;
-  } = {},
-): Promise<ExerciseListItem[]> {
+    after,
+    limit = EXERCISE_PAGE_SIZE,
+    ...filters
+  }: ExerciseFilters & { after?: ExerciseCursor | null; limit?: number } = {},
+): Promise<ExercisePage> {
   const rows = await db
-    .select({
-      id: exercise.id,
-      name: exercise.name,
-      primaryMuscle: exercise.primaryMuscle,
-      equipment: exercise.equipment,
-      trackingType: exercise.trackingType,
-      ownerId: exercise.ownerId,
-      archivedAt: exercise.archivedAt,
-      // The outer column must be written qualified: this select has no joins,
-      // so drizzle renders `${exercise.id}` as a bare "id", which the subquery
-      // would resolve against its own FROM rather than the outer row.
-      lastPerformedAt: sql<string | Date | null>`(
-        SELECT MAX(w.started_at) FROM ${workout} w
-        JOIN ${workoutExercise} we ON we.workout_id = w.id
-        WHERE we.exercise_id = ${sql.raw('"exercise"."id"')} AND w.user_id = ${userId}
-      )`,
-    })
+    .select(LIST_COLUMNS)
     .from(exercise)
     .where(
       and(
-        scope === "mine" || scope === "archived"
-          ? eq(exercise.ownerId, userId)
-          : or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
-        scope === "archived"
-          ? sql`${exercise.archivedAt} IS NOT NULL`
-          : isNull(exercise.archivedAt),
-        query && query.trim()
-          ? ilike(exercise.name, `%${query.trim()}%`)
-          : undefined,
-        muscle && muscle !== "all"
-          ? eq(exercise.primaryMuscle, muscle)
-          : undefined,
-        equipment && equipment !== "all"
-          ? eq(exercise.equipment, equipment)
+        filterWhere(userId, filters),
+        after
+          ? or(
+              gt(exercise.name, after.name),
+              and(eq(exercise.name, after.name), gt(exercise.id, after.id)),
+            )
           : undefined,
       ),
     )
-    .orderBy(asc(exercise.name))
+    .orderBy(asc(exercise.name), asc(exercise.id))
     .limit(limit);
 
-  return rows
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      primaryMuscle: r.primaryMuscle,
-      equipment: r.equipment,
-      trackingType: r.trackingType,
-      isCustom: r.ownerId != null,
-      isArchived: r.archivedAt != null,
-      // Drizzle has no column definition to decode a raw `sql` fragment
-      // against, so this arrives as whatever the driver produced — normalise
-      // rather than assume it is already a Date.
-      lastPerformedAt: r.lastPerformedAt ? new Date(r.lastPerformedAt) : null,
-    }))
-    .sort((a, b) => {
-      // Recently-used first, then never-used alphabetically.
-      if (a.lastPerformedAt && b.lastPerformedAt) {
-        return b.lastPerformedAt.getTime() - a.lastPerformedAt.getTime();
-      }
-      if (a.lastPerformedAt) return -1;
-      if (b.lastPerformedAt) return 1;
-      return a.name.localeCompare(b.name);
-    });
+  const items = rows.map((r) => toListItem(r));
+  const last = items[items.length - 1];
+  return {
+    items,
+    // A short page means the library is spent — no extra count query, and no
+    // trailing request that comes back empty.
+    cursor: last && rows.length === limit ? { name: last.name, id: last.id } : null,
+  };
+}
+
+/**
+ * The exercises this user has actually logged, most recent first — the group
+ * that sits above the alphabetical batches in every picker.
+ *
+ * Bounded by construction: it starts from the user's own workout rows rather
+ * than from the library, so its cost tracks their training history, not the
+ * number of exercises that exist.
+ */
+export async function getRecentExercises(
+  userId: string,
+  { limit = EXERCISE_RECENT_LIMIT, ...filters }: ExerciseFilters & { limit?: number } = {},
+): Promise<ExerciseListItem[]> {
+  const rows = await db
+    .select({
+      ...LIST_COLUMNS,
+      lastPerformedAt: sql<string | Date>`MAX(${workout.startedAt})`,
+    })
+    .from(exercise)
+    .innerJoin(workoutExercise, eq(workoutExercise.exerciseId, exercise.id))
+    .innerJoin(
+      workout,
+      and(eq(workout.id, workoutExercise.workoutId), eq(workout.userId, userId)),
+    )
+    .where(filterWhere(userId, filters))
+    // Grouping by the primary key is enough in Postgres — every other selected
+    // column is functionally dependent on it.
+    .groupBy(exercise.id)
+    .orderBy(sql`MAX(${workout.startedAt}) DESC`)
+    .limit(limit);
+
+  // Drizzle has no column definition to decode a raw `sql` fragment against,
+  // so this arrives as whatever the driver produced — normalise rather than
+  // assume it is already a Date.
+  return rows.map((r) => toListItem(r, new Date(r.lastPerformedAt)));
+}
+
+/**
+ * Whole-library read, kept for callers that genuinely want every match (tests
+ * and the query checker). Nothing user-facing should use it — that is what
+ * `searchExercisePage` is for.
+ */
+export async function searchExercises(
+  userId: string,
+  { limit = 500, ...filters }: ExerciseFilters & { limit?: number } = {},
+): Promise<ExerciseListItem[]> {
+  const { items } = await searchExercisePage(userId, { ...filters, limit });
+  return items;
+}
+
+/**
+ * Resolve a handful of ids the user just picked. Scoped like every other read
+ * here: built-ins plus their own, so an id from someone else's library comes
+ * back empty rather than named.
+ */
+export async function getExercisesByIds(
+  userId: string,
+  ids: string[],
+): Promise<ExerciseListItem[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select(LIST_COLUMNS)
+    .from(exercise)
+    .where(
+      and(
+        inArray(exercise.id, ids),
+        or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+      ),
+    );
+  return rows.map((r) => toListItem(r));
 }
 
 export async function getExercise(id: string) {
