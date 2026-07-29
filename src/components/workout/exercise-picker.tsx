@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Plus, Search, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Check, Loader2, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge, Input } from "@/components/ui/primitives";
 import { Chip, ExerciseForm } from "@/components/exercise/exercise-form";
-import { searchExercisesAction } from "@/lib/actions/exercise-search";
+import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
@@ -35,27 +35,10 @@ export function ExercisePicker({
   const [selected, setSelected] = useState<string[]>([]);
   const [creating, setCreating] = useState(startCreating);
 
-  // Results carry the filter signature they were fetched for, so "loading" is
-  // derived rather than a second state write on every keystroke.
-  const signature = `${query}|${muscle}|${equipment}`;
-  const [fetched, setFetched] = useState<{
-    key: string;
-    rows: ExerciseListItem[];
-  } | null>(null);
-  const items = useMemo(() => fetched?.rows ?? [], [fetched]);
-  const loading = fetched?.key !== signature;
-
-  // Debounce so typing doesn't fire a request per keystroke.
-  const debounce = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (!open) return;
-    window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(async () => {
-      const rows = await searchExercisesAction({ query, muscle, equipment });
-      setFetched({ key: signature, rows });
-    }, 180);
-    return () => window.clearTimeout(debounce.current);
-  }, [open, query, muscle, equipment, signature]);
+  // Rows arrive in scroll-driven batches: the sheet paints on the first one
+  // instead of waiting for the whole library.
+  const { recent, rest, loading, loadingMore, exhausted, sentinelRef, refresh } =
+    useExerciseBatches({ query, muscle, equipment }, { enabled: open });
 
   // Reset on the way out rather than in an effect keyed on `open`. Memoised so
   // the sheet below gets a stable prop across the re-render per keystroke.
@@ -66,11 +49,13 @@ export function ExercisePicker({
     onClose();
   }, [onClose, startCreating]);
 
-  const grouped = useMemo(() => {
-    const recent = items.filter((i) => i.lastPerformedAt);
-    const rest = items.filter((i) => !i.lastPerformedAt);
-    return { recent, rest };
-  }, [items]);
+  // The alphabetical batches cover the whole library, recent entries included,
+  // so drop the duplicates rather than show a row twice.
+  const others = useMemo(() => {
+    const shown = new Set(recent.map((e) => e.id));
+    return rest.filter((e) => !shown.has(e.id));
+  }, [recent, rest]);
+  const empty = recent.length === 0 && rest.length === 0;
 
   function toggle(id: string) {
     haptic.light();
@@ -108,6 +93,10 @@ export function ExercisePicker({
             setCreating(false);
             setQuery("");
             setSelected((s) => [...s, id]);
+            // Clearing an already-empty search box is a same-value no-op, so
+            // ask for the opening batch again explicitly — otherwise the
+            // exercise the user just created isn't in the list behind them.
+            refresh();
           }}
         />
       ) : (
@@ -156,9 +145,9 @@ export function ExercisePicker({
             </div>
           </div>
 
-          {loading && items.length === 0 ? (
+          {loading && empty ? (
             <p className="text-text-3 py-10 text-center text-[14px]">Loading…</p>
-          ) : items.length === 0 ? (
+          ) : empty ? (
             <div className="px-4 py-10 text-center">
               <p className="text-text-2 text-[15px]">No exercises match.</p>
               <Button
@@ -172,9 +161,9 @@ export function ExercisePicker({
             </div>
           ) : (
             <>
-              {grouped.recent.length > 0 && (
+              {recent.length > 0 && (
                 <Group title="Recent">
-                  {grouped.recent.map((e) => (
+                  {recent.map((e) => (
                     <Row
                       key={e.id}
                       item={e}
@@ -184,8 +173,8 @@ export function ExercisePicker({
                   ))}
                 </Group>
               )}
-              <Group title={grouped.recent.length ? "All exercises" : undefined}>
-                {grouped.rest.map((e) => (
+              <Group title={recent.length ? "All exercises" : undefined}>
+                {others.map((e) => (
                   <Row
                     key={e.id}
                     item={e}
@@ -194,6 +183,16 @@ export function ExercisePicker({
                   />
                 ))}
               </Group>
+
+              {/* Sits above the create button so the next batch is already in
+                  flight while that button is still below the fold. */}
+              {!exhausted && (
+                <div ref={sentinelRef} className="flex justify-center py-4">
+                  {loadingMore && (
+                    <Loader2 className="text-text-3 size-4 animate-spin" />
+                  )}
+                </div>
+              )}
 
               <div className="px-4 py-4">
                 <Button block variant="ghost" onClick={() => setCreating(true)}>

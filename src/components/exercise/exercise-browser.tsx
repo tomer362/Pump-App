@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Archive, ChevronRight, Plus, Search, X } from "lucide-react";
+import { Archive, ChevronRight, Loader2, Plus, Search, X } from "lucide-react";
 import { Badge, Card, Input, Segmented } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
 import { Chip } from "@/components/exercise/exercise-form";
-import { searchExercisesAction } from "@/lib/actions/exercise-search";
-import type { ExerciseListItem, ExerciseScope } from "@/lib/queries/exercise";
+import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
+import type { ExerciseBatch } from "@/lib/actions/exercise-search";
+import type { ExerciseScope } from "@/lib/queries/exercise";
 import { MUSCLES } from "@/lib/db/schema";
 import type { Muscle } from "@/lib/db/schema";
 import { labelize } from "@/lib/utils";
@@ -21,29 +22,22 @@ const SCOPES = [
 
 const MUSCLE_FILTERS = ["all", ...MUSCLES] as const;
 
-export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
+export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ExerciseScope>("available");
   const [muscle, setMuscle] = useState<Muscle | "all">("all");
-  const [items, setItems] = useState(initial);
   const [creating, setCreating] = useState(false);
-  const debounce = useRef<number | undefined>(undefined);
 
-  const search = useCallback(
-    async (q: string, s: ExerciseScope, m: Muscle | "all") => {
-      setItems(await searchExercisesAction({ query: q, scope: s, muscle: m }));
-    },
-    [],
-  );
+  // The first batch is server-rendered, the rest arrive as the user scrolls.
+  const { recent, rest, loadingMore, exhausted, sentinelRef, refresh } =
+    useExerciseBatches({ query, scope, muscle }, { initial });
 
-  useEffect(() => {
-    window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(
-      () => void search(query, scope, muscle),
-      200,
-    );
-    return () => window.clearTimeout(debounce.current);
-  }, [query, scope, muscle, search]);
+  // Recent entries are pinned on top and also appear in the alphabetical
+  // batches — show each row once.
+  const items = useMemo(() => {
+    const shown = new Set(recent.map((e) => e.id));
+    return [...recent, ...rest.filter((e) => !shown.has(e.id))];
+  }, [recent, rest]);
 
   return (
     <div className="px-4">
@@ -131,6 +125,14 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
         )}
       </Card>
 
+      {/* Requested ~600px before it reaches the viewport, so the next batch is
+          usually already rendered by the time the user scrolls that far. */}
+      {!exhausted && (
+        <div ref={sentinelRef} className="flex justify-center py-4">
+          {loadingMore && <Loader2 className="text-text-3 size-4 animate-spin" />}
+        </div>
+      )}
+
       {/* Reuses the picker's sheet, opened straight into the create form. */}
       <ExercisePicker
         startCreating
@@ -139,12 +141,12 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
         onConfirm={() => {
           setCreating(false);
           setQuery("");
-          // Refetch directly rather than relying on the effect above: when
+          // Refetch explicitly rather than relying on the filter change: when
           // the search box was already empty (the common case — this is the
           // default state), setQuery("") is a same-value no-op and the
-          // [query]-keyed effect never reruns, so a newly created exercise
-          // silently didn't appear until an unrelated reload.
-          void search("", scope, muscle);
+          // signature never changes, so a newly created exercise silently
+          // didn't appear until an unrelated reload.
+          refresh();
         }}
       />
     </div>
