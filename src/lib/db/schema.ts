@@ -174,6 +174,12 @@ export const exercise = pgTable(
     ownerId: text("owner_id").references(() => user.id, {
       onDelete: "cascade",
     }),
+    // Soft delete for custom exercises. Deleting the row cascades away every
+    // workout_set that referenced it, which silently rewrites history and
+    // wipes the records built from it — so "delete" archives instead. Archived
+    // exercises drop out of search and the picker; their detail page still
+    // resolves, because past workouts link to it.
+    archivedAt: timestamp("archived_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [

@@ -248,6 +248,17 @@ async function exerciseReference(user, problems) {
   const href = await links.first().getAttribute("href");
   await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
 
+  // The reference content lives on the About tab, which is the default only
+  // for an exercise the viewer has never logged. Select it explicitly so this
+  // step doesn't quietly start reporting the charts as missing prose.
+  const about = page.getByRole("tab", { name: "About" });
+  if (!(await about.count())) {
+    problems.push("exercise detail has no About tab");
+    return;
+  }
+  await about.click();
+  await page.waitForTimeout(400);
+
   for (const heading of ["What it trains", "How to do it", "Form", "Alternatives"]) {
     const found = await page.getByText(heading, { exact: true }).count();
     console.log(`  ${found ? "ok  " : "FAIL"} ${heading}`);

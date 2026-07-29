@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge, Input, Textarea } from "@/components/ui/primitives";
+import { Badge, Input } from "@/components/ui/primitives";
+import { Chip, ExerciseForm } from "@/components/exercise/exercise-form";
 import { searchExercisesAction } from "@/lib/actions/exercise-search";
-import { createCustomExercise } from "@/lib/actions/routine";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
@@ -18,17 +18,22 @@ export function ExercisePicker({
   open,
   onClose,
   onConfirm,
+  // Opens straight into the create form. The exercise browser's own "Create
+  // custom exercise" button reuses this sheet, and dropping the user into a
+  // search list they didn't ask for was one tap of pure confusion.
+  startCreating = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (exerciseIds: string[]) => void;
+  startCreating?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [muscle, setMuscle] = useState<(typeof MUSCLE_FILTERS)[number]>("all");
   const [equipment, setEquipment] =
     useState<(typeof EQUIPMENT_FILTERS)[number]>("all");
   const [selected, setSelected] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreating);
 
   // Results carry the filter signature they were fetched for, so "loading" is
   // derived rather than a second state write on every keystroke.
@@ -57,9 +62,9 @@ export function ExercisePicker({
   const close = useCallback(() => {
     setSelected([]);
     setQuery("");
-    setCreating(false);
+    setCreating(startCreating);
     onClose();
-  }, [onClose]);
+  }, [onClose, startCreating]);
 
   const grouped = useMemo(() => {
     const recent = items.filter((i) => i.lastPerformedAt);
@@ -94,9 +99,12 @@ export function ExercisePicker({
       }
     >
       {creating ? (
-        <CreateExerciseForm
-          onCancel={() => setCreating(false)}
-          onCreated={(id) => {
+        <ExerciseForm
+          // With no list behind it, "Cancel" has to mean "close" — going back
+          // to a search the user never opened would be a dead end.
+          onCancel={() => (startCreating ? close() : setCreating(false))}
+          onSaved={(id) => {
+            if (startCreating) return onConfirm([id]);
             setCreating(false);
             setQuery("");
             setSelected((s) => [...s, id]);
@@ -257,166 +265,5 @@ function Row({
       </span>
       {item.isCustom && <Badge>Custom</Badge>}
     </button>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
-        active
-          ? "bg-volt text-black"
-          : "bg-surface-2 text-text-2 hover:text-text-1",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function CreateExerciseForm({
-  onCancel,
-  onCreated,
-}: {
-  onCancel: () => void;
-  onCreated: (id: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [muscle, setMuscle] = useState<string>("chest");
-  const [equipment, setEquipment] = useState<string>("barbell");
-  const [tracking, setTracking] = useState<string>("weight_reps");
-  const [instructions, setInstructions] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    setSaving(true);
-    setError(null);
-    const res = await createCustomExercise({
-      name,
-      primaryMuscle: muscle,
-      equipment,
-      trackingType: tracking,
-      instructions: instructions.trim() || null,
-    });
-    setSaving(false);
-    if (res.ok && res.data) onCreated(res.data.exerciseId);
-    else if (!res.ok) setError(res.error);
-  }
-
-  return (
-    <div className="space-y-5 px-4 pb-6">
-      <div>
-        <Label>Name</Label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Reverse Nordic Curl"
-          autoFocus
-        />
-      </div>
-
-      <div>
-        <Label>Primary muscle</Label>
-        <SelectGrid
-          value={muscle}
-          onChange={setMuscle}
-          options={MUSCLES.map((m) => ({ value: m, label: labelize(m) }))}
-        />
-      </div>
-
-      <div>
-        <Label>Equipment</Label>
-        <SelectGrid
-          value={equipment}
-          onChange={setEquipment}
-          options={EQUIPMENT.map((e) => ({ value: e, label: labelize(e) }))}
-        />
-      </div>
-
-      <div>
-        <Label>How is it measured?</Label>
-        <SelectGrid
-          value={tracking}
-          onChange={setTracking}
-          options={[
-            { value: "weight_reps", label: "Weight & reps" },
-            { value: "reps", label: "Reps only" },
-            { value: "time", label: "Time" },
-            { value: "distance_time", label: "Distance & time" },
-            { value: "weight_time", label: "Weight & time" },
-          ]}
-        />
-      </div>
-
-      <div>
-        <Label>How to do it (optional)</Label>
-        <Textarea
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          placeholder="Setup, cues, range of motion — whatever you'd forget in six weeks."
-          maxLength={1000}
-        />
-      </div>
-
-      {error && <p className="text-danger text-[13px]">{error}</p>}
-
-      <div className="flex gap-2">
-        <Button variant="ghost" block onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="volt"
-          block
-          onClick={submit}
-          loading={saving}
-          disabled={!name.trim()}
-        >
-          Create
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}
-
-function SelectGrid({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((o) => (
-        <Chip
-          key={o.value}
-          label={o.label}
-          active={value === o.value}
-          onClick={() => onChange(o.value)}
-        />
-      ))}
-    </div>
   );
 }

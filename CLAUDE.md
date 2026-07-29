@@ -119,6 +119,17 @@ labels, so no value is reachable only through a tooltip.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
 - Tap targets ≥44 px (`tap` utility).
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
+- **`px-safe-*`, not `px-4 inset-safe-x`.** Both set `padding-left`, so one silently wins — and in portrait, where the inset is `0px`, `inset-safe-x` winning collapsed several large titles flush against the screen edge. `px-safe-4` is `max(1rem, env(safe-area-inset-left))`: the inset can only raise the padding. Use bare `inset-safe-x` only on an element with no horizontal padding of its own (the tab bar, the workout header).
+
+**The document never scrolls.** `body` is exactly `100dvh` and `overflow:
+hidden`; content scrolls in the one container inside it, with
+`overscroll-y-contain`. Before that, `min-h-screen-d` on `body` *and* on the
+`(app)` shell *and* the tab-bar spacer stacked, so every page — however short —
+scrolled into a blank void that iOS then lagged repainting the fixed tab bar
+over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
+`position: fixed` still resolves against the viewport because the scroller sets
+no transform or filter — so docked chrome needs no change. Route shells use
+`min-h-full`, never a second `min-h-screen-d`.
 
 **Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
 area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
@@ -160,6 +171,7 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
 - **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.
+- **A custom exercise is archived, never deleted.** `DELETE` cascades through `workout_exercise` to every set logged against it, rewriting finished sessions and dropping the records computed from them — so the "delete" control sets `exercise.archived_at`. Archived rows drop out of `searchExercises` (and therefore every picker) but still resolve by id, because history links to them. `lib/actions/exercise.ts` owns create/update/archive/restore and scopes every statement with `owner_id = me.id`, which is also what makes the built-in library read-only by construction.
 - **Only curated YouTube ids reach `videoUrl`; everything else falls back to a search** built from the exercise name, and the UI labels the two differently (`lib/exercise-video.ts`). Never present a search results page as a vetted demonstration.
 - **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
 - **`DISTINCT ON` inside a `UNION`** needs each branch parenthesised — an unbracketed `ORDER BY` binds to the whole union and it's a syntax error (`lib/records.ts`).

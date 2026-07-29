@@ -16,8 +16,11 @@ export default async function AppLayout({
   ]);
 
   return (
-    <div className="min-h-screen-d">
-      <div className="mx-auto max-w-lg">{children}</div>
+    // `min-h-full`, not another `min-h-screen-d`: the root shell is already a
+    // viewport tall, and stacking a second one under the tab-bar spacer made
+    // every page — however short — scroll into a blank void.
+    <div className="flex min-h-full flex-col">
+      <div className="mx-auto w-full max-w-lg flex-1">{children}</div>
       {/* Docked above the tab bar so an in-progress workout is never lost by
           navigating away — the single biggest complaint about web trackers. */}
       {active && <ActiveWorkoutPill workout={active} />}

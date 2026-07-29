@@ -1,7 +1,11 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/session";
-import { searchExercises, type ExerciseListItem } from "@/lib/queries/exercise";
+import {
+  searchExercises,
+  type ExerciseListItem,
+  type ExerciseScope,
+} from "@/lib/queries/exercise";
 import type { Equipment, Muscle } from "@/lib/db/schema";
 
 /**
@@ -12,6 +16,7 @@ export async function searchExercisesAction(params: {
   query?: string;
   muscle?: Muscle | "all";
   equipment?: Equipment | "all";
+  scope?: ExerciseScope;
 }): Promise<ExerciseListItem[]> {
   const me = await getCurrentUser();
   if (!me) return [];

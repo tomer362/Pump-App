@@ -165,6 +165,102 @@ export async function getLifetimeStats(userId: string): Promise<LifetimeStats> {
   };
 }
 
+export type TrainingDay = {
+  /** `YYYY-MM-DD` in the database's timezone — the key the grid renders by. */
+  day: string;
+  workouts: number;
+  volumeKg: number;
+};
+
+/**
+ * Which days were trained over a window, for the consistency grid.
+ *
+ * Returns only days that have a workout; the component fills the gaps, which
+ * keeps the payload proportional to sessions rather than to 365 rows of zero.
+ */
+export async function getTrainingCalendar(
+  userId: string,
+  days = 365,
+): Promise<TrainingDay[]> {
+  const res = await db.execute<{
+    day: string;
+    workouts: number;
+    volume: number;
+  }>(sql`
+    SELECT
+      TO_CHAR(DATE(started_at), 'YYYY-MM-DD')  AS day,
+      COUNT(*)::int                            AS workouts,
+      COALESCE(SUM(total_volume_kg), 0)::real  AS volume
+    FROM workout
+    WHERE user_id = ${userId}
+      AND ended_at IS NOT NULL
+      AND started_at >= NOW() - (${days} || ' days')::interval
+    GROUP BY DATE(started_at)
+    ORDER BY day
+  `);
+
+  return res.rows.map((r) => ({
+    day: r.day,
+    workouts: r.workouts,
+    volumeKg: r.volume,
+  }));
+}
+
+export type RecentRecord = {
+  id: string;
+  exerciseId: string;
+  exerciseName: string;
+  kind: string;
+  value: number;
+  weightKg: number | null;
+  reps: number | null;
+  achievedAt: Date;
+};
+
+/**
+ * Most recently set records across every exercise — the PR timeline.
+ *
+ * `personal_record` holds one row per (user, exercise, kind) and is upserted
+ * as records improve, so this is "your current bests, newest first" rather
+ * than a historical log. That's the useful reading: it answers "what have I
+ * moved lately".
+ */
+export async function getRecentRecords(
+  userId: string,
+  limit = 8,
+): Promise<RecentRecord[]> {
+  const res = await db.execute<{
+    id: string;
+    exercise_id: string;
+    exercise_name: string;
+    kind: string;
+    value: number;
+    weight_kg: number | null;
+    reps: number | null;
+    achieved_at: string | Date;
+  }>(sql`
+    SELECT
+      pr.id, pr.exercise_id, e.name AS exercise_name, pr.kind, pr.value,
+      pr.weight_kg, pr.reps, pr.achieved_at
+    FROM personal_record pr
+    JOIN exercise e ON e.id = pr.exercise_id
+    WHERE pr.user_id = ${userId}
+    ORDER BY pr.achieved_at DESC
+    LIMIT ${limit}
+  `);
+
+  return res.rows.map((r) => ({
+    id: r.id,
+    exerciseId: r.exercise_id,
+    exerciseName: r.exercise_name,
+    kind: r.kind,
+    value: r.value,
+    weightKg: r.weight_kg,
+    reps: r.reps,
+    achievedAt: new Date(r.achieved_at),
+  }));
+}
+
 export type AchievementRow = {
   key: string;
   title: string;

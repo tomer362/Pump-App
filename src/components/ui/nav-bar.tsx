@@ -49,11 +49,11 @@ export function NavBar({
     <>
       <header
         className={cn(
-          "sticky top-0 z-30 pt-safe inset-safe-x transition-[background-color,border-color] duration-200",
+          "sticky top-0 z-30 pt-safe transition-[background-color,border-color] duration-200",
           collapsed ? "glass hairline-b" : "bg-bg border-b border-transparent",
         )}
       >
-        <div className="relative flex h-11 items-center px-1">
+        <div className="px-safe-1 relative flex h-11 items-center">
           {back ? (
             <button
               onClick={goBack}
@@ -83,7 +83,7 @@ export function NavBar({
       </header>
 
       {large && (
-        <div className="px-4 pt-1 pb-2 inset-safe-x">
+        <div className="px-safe-4 pt-1 pb-2">
           <h2 className="font-display text-[34px] leading-[1.1] font-bold tracking-[-0.03em]">
             {title}
           </h2>

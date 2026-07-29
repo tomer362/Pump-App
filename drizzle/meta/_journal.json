@@ -36,6 +36,13 @@
       "when": 1785321708663,
       "tag": "0004_backfill_exercise_slugs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785327641098,
+      "tag": "0005_legal_raider",
+      "breakpoints": true
     }
   ]
 }
