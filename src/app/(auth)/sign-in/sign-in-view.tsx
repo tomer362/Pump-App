@@ -29,7 +29,7 @@ export function SignInView() {
   }
 
   return (
-    <main className="flex min-h-screen-d flex-col px-6 pt-safe pb-safe inset-safe-x">
+    <main className="px-safe-6 flex min-h-screen-d flex-col pt-safe pb-safe">
       {/* A single volt bloom behind the mark — the one decorative flourish in
           the whole app, and it earns its place by being the first screen. */}
       <div

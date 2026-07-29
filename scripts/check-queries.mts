@@ -101,7 +101,14 @@ const cases: [string, () => Promise<unknown>][] = [
   ["workout.getPreviousSets", () => workoutQ.getPreviousSets(uid, null, [eid])],
   ["exercise.searchExercises", () => exerciseQ.searchExercises(uid, { query: "bench" })],
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [eid])],
+  ["exercise.searchExercises (mine)", () => exerciseQ.searchExercises(uid, { scope: "mine" })],
+  ["exercise.searchExercises (archived)", () => exerciseQ.searchExercises(uid, { scope: "archived" })],
   ["exercise.getExercise", () => exerciseQ.getExercise(eid)],
+  ["exercise.getExerciseHistory", () => exerciseQ.getExerciseHistory(uid, eid)],
+  ["exercise.getExerciseRecords", () => exerciseQ.getExerciseRecords(uid, eid)],
+  ["exercise.getExerciseSessionSeries", () => exerciseQ.getExerciseSessionSeries(uid, eid)],
+  ["exercise.getExerciseRepMaxes", () => exerciseQ.getExerciseRepMaxes(uid, eid)],
+  ["exercise.getExerciseSummary", () => exerciseQ.getExerciseSummary(uid, eid)],
   altCase,
   ["routine.getRoutines", () => routineQ.getRoutines(uid)],
   ["routine.getFollowedRoutines", () => routineQ.getFollowedRoutines(uid)],
@@ -120,6 +127,8 @@ const cases: [string, () => Promise<unknown>][] = [
   ["stats.getMuscleVolume", () => statsQ.getMuscleVolume(uid, 7)],
   ["stats.getWeeklyTrend", () => statsQ.getWeeklyTrend(uid, 12)],
   ["stats.getLifetimeStats", () => statsQ.getLifetimeStats(uid)],
+  ["stats.getTrainingCalendar", () => statsQ.getTrainingCalendar(uid, 200)],
+  ["stats.getRecentRecords", () => statsQ.getRecentRecords(uid, 6)],
   ["stats.getAchievements", () => statsQ.getAchievements(uid)],
 ];
 

@@ -127,6 +127,33 @@ function serverActionExists(relFilename, exportedName) {
   return false;
 }
 
+/**
+ * The manifest ids for named exports of one `"use server"` file.
+ *
+ * Same ground truth as `serverActionExists`, but returns the id so the export
+ * can actually be POSTed. `actionIdsByName` can't reach these: nothing ships
+ * `archiveCustomExercise` in a client chunk under a resolvable name, yet every
+ * one of them is a live endpoint.
+ */
+function actionIdsFromManifest(relFilename, exportedNames) {
+  const wanted = new Set(exportedNames);
+  const found = new Map();
+  for (const p of globSync(".next/dev/server/server-reference-manifest.json")) {
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      continue;
+    }
+    for (const [id, meta] of Object.entries(raw.node ?? {})) {
+      if (meta.filename === relFilename && wanted.has(meta.exportedName)) {
+        found.set(meta.exportedName, id);
+      }
+    }
+  }
+  return found;
+}
+
 /** POST an action id as this user and return the raw response body. */
 async function postAction(page, url, actionId, args) {
   return page.evaluate(
@@ -326,7 +353,86 @@ try {
     );
   }
 
-  // 7. `notifyFriends` used to be exported from a "use server" module while
+  // 7. Custom-exercise mutations take a caller-supplied exercise id. A owns
+  //    one; B fires every mutation at it. Each action scopes its statement
+  //    with `owner_id = me.id`, so a refusal here is the row simply not
+  //    matching — but the whole point is that the check lives in the action
+  //    and not only in the page that renders the controls.
+  await a.page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await a.page.getByRole("button", { name: /create custom exercise/i }).click();
+  await a.page.waitForTimeout(500);
+  const customName = `Authz Custom ${Date.now()}`;
+  await a.page.getByPlaceholder(/reverse nordic curl/i).fill(customName);
+  await a.page.getByRole("button", { name: /^Create$/ }).click();
+  await a.page.waitForTimeout(1200);
+  await a.page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await a.page.getByPlaceholder(/search exercises/i).fill(customName);
+  await a.page.waitForTimeout(900);
+  const customHref = await a.page
+    .locator('a[href^="/exercises/"]')
+    .first()
+    .getAttribute("href")
+    .catch(() => null);
+  requireFixture(
+    Boolean(customHref),
+    "could not find the custom exercise A just created",
+  );
+  const customId = customHref.split("/").pop();
+
+  // B must not even be able to open the detail page for A's custom exercise.
+  const customRes = await b.page.goto(`${BASE}/exercises/${customId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  check(
+    "another user's custom exercise is not readable",
+    customRes.status() === 404 ||
+      !(await b.page.content()).includes(customName),
+    `status ${customRes.status()}`,
+  );
+
+  const exerciseActions = actionIdsFromManifest("src/lib/actions/exercise.ts", [
+    "updateCustomExercise",
+    "archiveCustomExercise",
+    "restoreCustomExercise",
+  ]);
+  requireFixture(
+    exerciseActions.size === 3,
+    `expected 3 exercise action ids in the dev manifest, found ${exerciseActions.size}`,
+  );
+  for (const [name, id] of exerciseActions) {
+    const args =
+      name === "updateCustomExercise"
+        ? [
+            {
+              exerciseId: customId,
+              name: "Hijacked",
+              primaryMuscle: "chest",
+              secondaryMuscles: [],
+              equipment: "barbell",
+              trackingType: "weight_reps",
+            },
+          ]
+        : [customId];
+    const res = await postAction(b.page, `${BASE}/exercises`, id, args);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    // Every one of them returns `{ok:false}` for a row it doesn't own.
+    const refused = /isn't one of your exercises|Not signed in/.test(res.body);
+    check(
+      `${name} refuses another user's exercise`,
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // And A's exercise must still be intact and unarchived afterwards.
+  await a.page.goto(`${BASE}/exercises/${customId}`, { waitUntil: "networkidle" });
+  const afterHtml = await a.page.content();
+  check(
+    "A's custom exercise survived B's probes unchanged",
+    afterHtml.includes(customName) && !afterHtml.includes("Hijacked"),
+  );
+
+  // 8. `notifyFriends` used to be exported from a "use server" module while
   //    taking a caller-supplied userId and freeform payload — any signed-in
   //    user could blast arbitrary push text to any user's entire friend list.
   //    It never appeared in any client-shipped chunk (nothing client-side
