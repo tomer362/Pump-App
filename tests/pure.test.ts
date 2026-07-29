@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { estimate1RM, formatWeight, kgToLb, lbToKg } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isBlobUrl } from "@/lib/blob";
+import { exerciseVideoLink, isYouTubeUrl } from "@/lib/exercise-video";
 
 describe("estimate1RM (Epley)", () => {
   it("is the weight itself at one rep", () => {
@@ -101,6 +102,63 @@ describe("isBlobUrl", () => {
       "not a url",
     ]) {
       expect(isBlobUrl(url), url).toBe(false);
+    }
+  });
+});
+
+describe("exerciseVideoLink", () => {
+  it("uses a curated URL when one is stored", () => {
+    const link = exerciseVideoLink({
+      name: "Bench Press (Barbell)",
+      videoUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+    });
+    expect(link).toEqual({
+      href: "https://www.youtube.com/watch?v=abcdefghijk",
+      curated: true,
+    });
+  });
+
+  it("falls back to an encoded YouTube search", () => {
+    // curated:false is what stops the UI calling a results page a demo.
+    const link = exerciseVideoLink({ name: "Farmer's Walk", videoUrl: null });
+    expect(link.curated).toBe(false);
+    expect(link.href).toBe(
+      "https://www.youtube.com/results?search_query=Farmer's%20Walk%20proper%20form",
+    );
+    // No raw spaces or quotes can reach the href.
+    expect(link.href).not.toMatch(/[ "<>]/);
+  });
+});
+
+describe("isYouTubeUrl", () => {
+  it("accepts watch and youtu.be URLs", () => {
+    for (const url of [
+      "https://www.youtube.com/watch?v=abcdefghijk",
+      "https://youtube.com/watch?v=ab-de_ghijk",
+      "https://m.youtube.com/watch?v=abcdefghijk",
+      "https://youtu.be/abcdefghijk",
+      "https://www.youtube.com/watch?v=abcdefghijk&t=42",
+    ]) {
+      expect(isYouTubeUrl(url), url).toBe(true);
+    }
+  });
+
+  it("rejects anything that isn't one", () => {
+    // Parsed with URL, never matched against the raw string — which is how
+    // javascript: and lookalike hosts get through a regex.
+    for (const url of [
+      "javascript:alert(1)",
+      "http://www.youtube.com/watch?v=abcdefghijk",
+      "https://youtube.com.evil.test/watch?v=abcdefghijk",
+      "https://www.youtube.com.evil.test/watch?v=abcdefghijk",
+      "//youtube.com/watch?v=abcdefghijk",
+      "https://www.youtube.com/watch?v=short",
+      "https://www.youtube.com/results?search_query=x",
+      "https://youtu.be/",
+      "not a url",
+      "",
+    ]) {
+      expect(isYouTubeUrl(url), url).toBe(false);
     }
   });
 });

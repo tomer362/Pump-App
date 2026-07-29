@@ -9,7 +9,13 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../src/lib/db/index.ts";
-import { exercise, gym, gymMember, workout } from "../src/lib/db/schema.ts";
+import {
+  exercise,
+  exerciseAlternative,
+  gym,
+  gymMember,
+  workout,
+} from "../src/lib/db/schema.ts";
 import * as workoutQ from "../src/lib/queries/workout.ts";
 import * as exerciseQ from "../src/lib/queries/exercise.ts";
 import * as routineQ from "../src/lib/queries/routine.ts";
@@ -71,6 +77,23 @@ const gymCase: [string, () => Promise<unknown>] = anyGymMembership
       () => socialQ.getGymDetail("00000000-0000-0000-0000-000000000000", uid),
     ];
 
+// An exercise that actually has curated alternatives, so the join in
+// getExerciseAlternatives touches real rows rather than returning empty on an
+// arbitrary id — the same reason the gym case above picks a real membership.
+const [anyAlt] = await db
+  .select({ exerciseId: exerciseAlternative.exerciseId })
+  .from(exerciseAlternative)
+  .limit(1);
+const altCase: [string, () => Promise<unknown>] = anyAlt
+  ? [
+      "exercise.getExerciseAlternatives",
+      () => exerciseQ.getExerciseAlternatives(anyAlt.exerciseId),
+    ]
+  : [
+      "exercise.getExerciseAlternatives (SHALLOW — no alternatives seeded, only the empty path ran)",
+      () => exerciseQ.getExerciseAlternatives(eid),
+    ];
+
 const cases: [string, () => Promise<unknown>][] = [
   ["workout.getActiveWorkoutSummary", () => workoutQ.getActiveWorkoutSummary(uid)],
   ["workout.getWorkoutHistory", () => workoutQ.getWorkoutHistory(uid)],
@@ -78,6 +101,8 @@ const cases: [string, () => Promise<unknown>][] = [
   ["workout.getPreviousSets", () => workoutQ.getPreviousSets(uid, null, [eid])],
   ["exercise.searchExercises", () => exerciseQ.searchExercises(uid, { query: "bench" })],
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [eid])],
+  ["exercise.getExercise", () => exerciseQ.getExercise(eid)],
+  altCase,
   ["routine.getRoutines", () => routineQ.getRoutines(uid)],
   ["routine.getFollowedRoutines", () => routineQ.getFollowedRoutines(uid)],
   ["social.getFollowingFeed", () => socialQ.getFollowingFeed(uid)],

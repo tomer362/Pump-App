@@ -3,6 +3,7 @@ import { and, asc, desc, eq, ilike, isNull, or, sql, inArray } from "drizzle-orm
 import { db } from "@/lib/db";
 import {
   exercise,
+  exerciseAlternative,
   personalRecord,
   workout,
   workoutExercise,
@@ -32,7 +33,10 @@ export async function searchExercises(
     query,
     muscle,
     equipment,
-    limit = 200,
+    // The built-in library is a few hundred entries plus whatever the user has
+    // added, and the result is re-sorted in JS after the SQL orders by name —
+    // so a limit below the library size truncates silently and arbitrarily.
+    limit = 500,
   }: {
     query?: string;
     muscle?: Muscle | "all";
@@ -106,6 +110,42 @@ export async function getExercise(id: string) {
     .where(eq(exercise.id, id))
     .limit(1);
   return row ?? null;
+}
+
+export type ExerciseAlternativeItem = {
+  id: string;
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  /** How this one's effect on the body differs from the exercise you're on. */
+  note: string;
+};
+
+/**
+ * Curated "try this instead" list for one exercise.
+ *
+ * Only ever resolves to built-ins. The ownerId filter is defensive rather than
+ * necessary today — nothing writes user-authored alternatives — but it means
+ * this surface could never leak another user's custom exercise name if that
+ * ever changed.
+ */
+export async function getExerciseAlternatives(
+  exerciseId: string,
+): Promise<ExerciseAlternativeItem[]> {
+  return db
+    .select({
+      id: exercise.id,
+      name: exercise.name,
+      primaryMuscle: exercise.primaryMuscle,
+      equipment: exercise.equipment,
+      note: exerciseAlternative.note,
+    })
+    .from(exerciseAlternative)
+    .innerJoin(exercise, eq(exercise.id, exerciseAlternative.alternativeId))
+    .where(
+      and(eq(exerciseAlternative.exerciseId, exerciseId), isNull(exercise.ownerId)),
+    )
+    .orderBy(asc(exerciseAlternative.position), asc(exercise.name));
 }
 
 export type ExerciseHistoryPoint = {

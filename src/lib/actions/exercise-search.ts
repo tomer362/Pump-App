@@ -15,5 +15,5 @@ export async function searchExercisesAction(params: {
 }): Promise<ExerciseListItem[]> {
   const me = await getCurrentUser();
   if (!me) return [];
-  return searchExercises(me.id, { ...params, limit: 300 });
+  return searchExercises(me.id, { ...params, limit: 500 });
 }
