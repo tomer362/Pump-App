@@ -150,6 +150,27 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((err) => {
+    /* This runs inside `pnpm build`, so its failure blocks a deploy — the
+       message has to say what to do. Neon's serverless driver reports a
+       connection failure as a bare DOM-style `ErrorEvent` whose default
+       formatting is `ErrorEvent { type: 'error' }` and nothing else, which
+       tells you nothing about which of the two likely causes you hit. */
+    if (err && typeof err === "object" && (err as { type?: string }).type === "error") {
+      const url = process.env.DATABASE_URL;
+      console.error(
+        "Could not connect to the database while seeding.\n" +
+          (url
+            ? `  DATABASE_URL host: ${(() => {
+                try {
+                  return new URL(url).host;
+                } catch {
+                  return "(unparseable)";
+                }
+              })()}\n`
+            : "  DATABASE_URL is not set.\n") +
+          "  Check the value is set for this environment and the branch is not suspended.",
+      );
+    }
     console.error(err);
     process.exit(1);
   });

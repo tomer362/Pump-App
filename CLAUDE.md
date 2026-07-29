@@ -234,7 +234,16 @@ well as the flag.
    otherwise falls back to a default secret that ships in its published source
    — it logs an error, carries on, and the deployment goes out with session
    cookies anyone can forge. A build that stops is the better outcome.
-4. `pnpm db:migrate && pnpm db:seed` against the Neon URL.
+4. Nothing to run by hand — `pnpm build` runs `drizzle-kit migrate` **and**
+   `pnpm db:seed` before `next build`, so every deploy carries the schema and
+   the built-in library with it.
+   **The seed has to run on deploy, not just locally.** It only ever ran as a
+   manual step against `.env.local`, so the 249 built-in exercises reached dev
+   databases and never production: migrations created an empty `exercise`
+   table and every picker in the deployed app was empty. The seed is an upsert
+   on `slug` and deletes no built-in, so re-running it on each build is safe
+   and is how library edits ship. `db:seed` uses `--env-file-if-exists` because
+   there is no `.env.local` on Vercel.
 5. Optional: `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Without them the app just doesn't
    offer push.
