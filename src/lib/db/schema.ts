@@ -147,6 +147,12 @@ export const exercise = pgTable(
   "exercise",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Stable identifier for built-in library entries; null for user-created
+    // exercises. The uuid is generated per-database, so it can't be the key a
+    // checked-in data file references — this is what the seed upserts on and
+    // what `exercise_alternative` pairs are authored against. Never settable
+    // through a server action.
+    slug: text("slug"),
     name: text("name").notNull(),
     primaryMuscle: text("primary_muscle", { enum: MUSCLES }).notNull(),
     secondaryMuscles: jsonb("secondary_muscles")
@@ -158,6 +164,12 @@ export const exercise = pgTable(
       .default("weight_reps")
       .notNull(),
     instructions: text("instructions"),
+    // Long-form "what it trains": joint action, which tissue does the work,
+    // which quality it builds. Seeded for built-ins only.
+    bodyEffect: text("body_effect"),
+    // Curated form demonstration. Null → the UI falls back to a YouTube
+    // search link, labelled as a search (see lib/exercise-video.ts).
+    videoUrl: text("video_url"),
     // Null owner = built-in library exercise, visible to everyone.
     ownerId: text("owner_id").references(() => user.id, {
       onDelete: "cascade",
@@ -167,6 +179,34 @@ export const exercise = pgTable(
   (t) => [
     index("exercise_owner_idx").on(t.ownerId),
     index("exercise_muscle_idx").on(t.primaryMuscle),
+    // Postgres unique indexes permit many NULLs, so every custom exercise
+    // (slug null) coexists here without a partial-index WHERE clause.
+    uniqueIndex("exercise_slug_idx").on(t.slug),
+  ],
+);
+
+/**
+ * Curated "try this instead" pairs, with a note on how the muscle effect
+ * differs. Directed on purpose: the note is written from `exerciseId`'s point
+ * of view, so a pair that should read both ways is two rows carrying two
+ * different sentences. Auto-mirroring would put the wrong sentence on the
+ * reverse side.
+ */
+export const exerciseAlternative = pgTable(
+  "exercise_alternative",
+  {
+    exerciseId: uuid("exercise_id")
+      .notNull()
+      .references(() => exercise.id, { onDelete: "cascade" }),
+    alternativeId: uuid("alternative_id")
+      .notNull()
+      .references(() => exercise.id, { onDelete: "cascade" }),
+    note: text("note").notNull(),
+    position: integer("position").default(0).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.exerciseId, t.alternativeId] }),
+    index("exercise_alternative_src_idx").on(t.exerciseId),
   ],
 );
 

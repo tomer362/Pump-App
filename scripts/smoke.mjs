@@ -210,6 +210,9 @@ try {
     }
   }
 
+  console.log("→ Exercise detail: reference content");
+  await exerciseReference(a, problems);
+
   console.log("→ Mid-workout: add an exercise, reorder, reload mid-rest");
   await coveredWorkoutPaths(b, problems);
 
@@ -219,6 +222,53 @@ try {
   problems.push(`fatal: ${err.message}`);
 } finally {
   await browser.close();
+}
+
+/**
+ * The exercise detail page is the library's only reader: if the seed did not
+ * run, or ran without alternatives, every section here silently disappears
+ * rather than erroring — which is exactly the kind of empty page a route-status
+ * check reports as "ok".
+ */
+async function exerciseReference(user, problems) {
+  const { page } = user;
+
+  await page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  const links = page.locator('a[href^="/exercises/"]');
+  const count = await links.count();
+  if (!count) {
+    problems.push("exercise library is empty — run `pnpm db:seed`");
+    return;
+  }
+  console.log(`  ${count} exercises in the library`);
+
+  // Navigate by href rather than clicking: at this viewport the row can sit
+  // under the sticky search header, and a swallowed click would make this step
+  // silently pass against the still-rendered list page.
+  const href = await links.first().getAttribute("href");
+  await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
+
+  for (const heading of ["What it trains", "How to do it", "Form", "Alternatives"]) {
+    const found = await page.getByText(heading, { exact: true }).count();
+    console.log(`  ${found ? "ok  " : "FAIL"} ${heading}`);
+    if (!found) problems.push(`exercise detail missing "${heading}"`);
+  }
+
+  const video = await page.locator('a[href*="youtube.com"]').count();
+  console.log(`  ${video ? "ok  " : "FAIL"} form link`);
+  if (!video) problems.push("exercise detail has no YouTube link");
+
+  // Follow an alternative, to prove the internal links resolve rather than 404.
+  const alt = page.locator(`a[href^="/exercises/"]:not([href="${href}"])`).first();
+  if (!(await alt.count())) {
+    problems.push("exercise detail lists no alternative links");
+    return;
+  }
+  const altHref = await alt.getAttribute("href");
+  const res = await page.goto(`${BASE}${altHref}`, { waitUntil: "domcontentloaded" });
+  const status = res?.status() ?? 0;
+  console.log(`  ${status < 400 ? "ok  " : "FAIL"} alternative ${altHref} (${status})`);
+  if (status >= 400) problems.push(`alternative ${altHref} -> ${status}`);
 }
 
 /**

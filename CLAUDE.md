@@ -159,6 +159,8 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Warm-up sets are excluded from volume, records and muscle-volume counts.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
+- **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.
+- **Only curated YouTube ids reach `videoUrl`; everything else falls back to a search** built from the exercise name, and the UI labels the two differently (`lib/exercise-video.ts`). Never present a search results page as a vetted demonstration.
 - **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
 - **`DISTINCT ON` inside a `UNION`** needs each branch parenthesised — an unbracketed `ORDER BY` binds to the whole union and it's a syntax error (`lib/records.ts`).
 - **Anything time-relative is a client component with `suppressHydrationWarning`** — `<TimeAgo>`, `<Elapsed>`. Server and client render at different instants, and a text mismatch makes React discard the subtree: on `ActiveWorkoutPill` that remounts the one component whose job is to persist. Same rule for client-only storage: the rest timer seeds from `sessionStorage` through `useSyncExternalStore` (server snapshot `null`), never a `useState` initialiser.
@@ -180,7 +182,7 @@ pnpm test             # vitest — records, counters, rate limiter, pure helpers
 
 pnpm db:generate      # drizzle-kit generate — after editing schema.ts
 pnpm db:migrate       # apply migrations
-pnpm db:seed          # exercise library + achievements (idempotent)
+pnpm db:seed          # exercise library + achievements (upserts on slug — re-run to update)
 pnpm check:queries    # run every read query against the DB, catch SQL errors
 
 node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, screenshots to /tmp/pump-shots
