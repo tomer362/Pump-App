@@ -28,6 +28,17 @@ export function Sheet({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const restoreFocusTo = React.useRef<HTMLElement | null>(null);
 
+  // Read through a ref so the focus effect below never depends on `onClose`.
+  // Callers pass an inline arrow, so its identity changes on every parent
+  // render; a dep on it re-runs the effect mid-session and the cleanup yanks
+  // focus off whatever the user is typing in. On Android that closes the
+  // keyboard, which resizes the visual viewport, which re-renders the
+  // parent — a flicker loop that never settles.
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   // Lock the page behind the sheet so scrolling the sheet doesn't chain.
   React.useEffect(() => {
     if (!open) return;
@@ -48,6 +59,9 @@ export function Sheet({
   React.useEffect(() => {
     if (!open) return;
 
+    // Held for the cleanup, which runs after React has detached the node.
+    const panel = panelRef.current;
+
     restoreFocusTo.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -62,6 +76,14 @@ export function Sheet({
 
     // Wait for the enter animation to mount the content before focusing.
     const raf = requestAnimationFrame(() => {
+      // On a touch device, focusing a text field summons the on-screen
+      // keyboard, which swallows the bottom half of the sheet before the user
+      // has said they want to type. Move focus to the panel instead — it is
+      // `tabIndex={-1}`, so `aria-modal` and the Tab trap still hold.
+      if (window.matchMedia?.("(pointer: coarse)").matches) {
+        panelRef.current?.focus?.();
+        return;
+      }
       const items = focusables();
       // Prefer a text field — most sheets exist to collect one value.
       const preferred =
@@ -73,7 +95,7 @@ export function Sheet({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -100,9 +122,16 @@ export function Sheet({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKey);
-      restoreFocusTo.current?.focus?.();
+      // Only restore if the trigger is still in the document and focus hasn't
+      // already moved somewhere deliberate outside the sheet.
+      const active = document.activeElement;
+      const focusWasOurs =
+        active === document.body || active === null || (panel?.contains(active) ?? false);
+      if (focusWasOurs && restoreFocusTo.current?.isConnected) {
+        restoreFocusTo.current.focus?.();
+      }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>
