@@ -13,6 +13,7 @@ import {
   Ellipsis,
   Gauge,
   Plus,
+  Repeat2,
   Timer,
   Trash2,
   Calculator,
@@ -43,6 +44,7 @@ import {
   removeSet,
   removeWorkoutExercise,
   reorderWorkoutExercises,
+  replaceWorkoutExercise,
   updateSet,
   updateSets,
   updateWorkoutExerciseSettings,
@@ -102,6 +104,7 @@ export function WorkoutScreen({
   const [finishing, setFinishing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [typeMenuFor, setTypeMenuFor] = useState<{ blockId: string; setId: string } | null>(null);
   const [plateFor, setPlateFor] = useState<number | null>(null);
   const [intervalFor, setIntervalFor] = useState<Block | null>(null);
@@ -324,6 +327,52 @@ export function WorkoutScreen({
     });
   }, []);
 
+  /**
+   * Swap the movement on one block. The server clears the values logged
+   * against the old exercise, so the local block is rebuilt from what it
+   * returns rather than patched — anything kept here would be a number the
+   * database no longer has.
+   */
+  const swapExercise = useCallback(
+    async (blockId: string, exerciseId: string) => {
+      setReplaceFor(null);
+      const res = await replaceWorkoutExercise(blockId, exerciseId);
+      if (!res.ok || !res.data) return;
+      const r = res.data;
+      haptic.light();
+      setBlocks((prev) =>
+        prev.map((b) =>
+          b.id !== blockId
+            ? b
+            : {
+                ...b,
+                exerciseId: r.exerciseId,
+                name: r.name,
+                primaryMuscle: r.primaryMuscle,
+                equipment: r.equipment,
+                trackingType: r.trackingType,
+                notes: null,
+                intervalWorkSeconds: null,
+                intervalRestSeconds: null,
+                previous: r.previous,
+                sets: r.setIds.map((id, i) => ({
+                  id,
+                  position: i,
+                  setType: b.sets[i]?.setType ?? ("normal" as SetType),
+                  weightKg: null,
+                  reps: null,
+                  seconds: null,
+                  distanceM: null,
+                  rpe: null,
+                  completed: false,
+                })),
+              },
+        ),
+      );
+    },
+    [],
+  );
+
   const addExercises = useCallback(
     async (ids: string[]) => {
       setPicking(false);
@@ -458,6 +507,7 @@ export function WorkoutScreen({
   );
 
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
+  const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const optionsSet =
     (typeMenuFor &&
       blocks
@@ -587,6 +637,21 @@ export function WorkoutScreen({
         onConfirm={addExercises}
       />
 
+      <ExercisePicker
+        open={replaceBlock != null}
+        onClose={() => setReplaceFor(null)}
+        mode="replace"
+        replacing={
+          replaceBlock && {
+            id: replaceBlock.exerciseId,
+            name: replaceBlock.name,
+          }
+        }
+        onConfirm={(ids) => {
+          if (replaceBlock && ids[0]) swapExercise(replaceBlock.id, ids[0]);
+        }}
+      />
+
       <Sheet
         open={menuBlock != null}
         onClose={() => setMenuFor(null)}
@@ -603,6 +668,10 @@ export function WorkoutScreen({
             onMove={(delta) => moveBlock(menuBlock.id, delta)}
             canMoveUp={blocks[0]?.id !== menuBlock.id}
             canMoveDown={blocks[blocks.length - 1]?.id !== menuBlock.id}
+            onReplace={() => {
+              setMenuFor(null);
+              setReplaceFor(menuBlock.id);
+            }}
             onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
@@ -748,7 +817,9 @@ function ExerciseBlock({
   );
 
   return (
-    <section className="mb-2">
+    // `data-block-id` is what scripts/check-authz.mjs fires the exercise-level
+    // probes at, for the same reason `data-set-id` exists below.
+    <section className="mb-2" data-block-id={block.id}>
       <div className="flex items-center gap-2 px-4 pt-4 pb-2">
         {block.supersetGroup && (
           <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
@@ -968,6 +1039,7 @@ function ExerciseOptions({
   onMove,
   canMoveUp,
   canMoveDown,
+  onReplace,
   onRemove,
 }: {
   block: Block;
@@ -979,6 +1051,7 @@ function ExerciseOptions({
   onMove: (delta: -1 | 1) => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  onReplace: () => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
@@ -1106,10 +1179,21 @@ function ExerciseOptions({
         />
       </div>
 
-      <Button block variant="danger" onClick={onRemove}>
-        <Trash2 className="size-4" />
-        Remove exercise
-      </Button>
+      <div className="space-y-2">
+        <Button block variant="solid" onClick={onReplace}>
+          <Repeat2 className="size-4" strokeWidth={2.4} />
+          Replace exercise
+        </Button>
+        <p className="text-text-3 text-[12px] leading-snug">
+          Keeps the sets and the rest timer. Anything already logged here is
+          cleared — it was performed on a different movement.
+        </p>
+
+        <Button block variant="danger" onClick={onRemove}>
+          <Trash2 className="size-4" />
+          Remove exercise
+        </Button>
+      </div>
     </div>
   );
 }

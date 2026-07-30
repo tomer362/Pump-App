@@ -8,6 +8,7 @@ import {
   ilike,
   isNull,
   lt,
+  not,
   or,
   sql,
   inArray,
@@ -307,6 +308,72 @@ export async function getExerciseAlternatives(
       and(eq(exerciseAlternative.exerciseId, exerciseId), isNull(exercise.ownerId)),
     )
     .orderBy(asc(exerciseAlternative.position), asc(exercise.name));
+}
+
+/**
+ * What to offer first when swapping one exercise out for another: the curated
+ * alternatives, then — because only a fraction of the library has pairs
+ * authored for it — the most-trained movements that hit the same muscle and
+ * are logged the same way.
+ *
+ * The tracking-type filter is what makes the fallback safe to apply blindly: a
+ * suggestion that tracked distance where the block tracks reps would swap the
+ * columns out from under sets the user is mid-way through.
+ */
+export async function getReplacementSuggestions(
+  userId: string,
+  exerciseId: string,
+  limit = 8,
+): Promise<ExerciseListItem[]> {
+  const [source] = await db
+    .select({
+      primaryMuscle: exercise.primaryMuscle,
+      trackingType: exercise.trackingType,
+    })
+    .from(exercise)
+    .where(
+      and(
+        eq(exercise.id, exerciseId),
+        or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+      ),
+    )
+    .limit(1);
+  if (!source) return [];
+
+  const curated = await db
+    .select(LIST_COLUMNS)
+    .from(exerciseAlternative)
+    .innerJoin(exercise, eq(exercise.id, exerciseAlternative.alternativeId))
+    .where(
+      and(
+        eq(exerciseAlternative.exerciseId, exerciseId),
+        isNull(exercise.ownerId),
+        isNull(exercise.archivedAt),
+      ),
+    )
+    .orderBy(asc(exerciseAlternative.position), asc(exercise.name))
+    .limit(limit);
+
+  const picked = curated.map((r) => toListItem(r));
+  if (picked.length >= limit) return picked;
+
+  const exclude = [exerciseId, ...picked.map((p) => p.id)];
+  const sameMuscle = await db
+    .select(LIST_COLUMNS)
+    .from(exercise)
+    .where(
+      and(
+        eq(exercise.primaryMuscle, source.primaryMuscle),
+        eq(exercise.trackingType, source.trackingType),
+        isNull(exercise.archivedAt),
+        or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+        not(inArray(exercise.id, exclude)),
+      ),
+    )
+    .orderBy(desc(exercise.popularity), asc(exercise.name))
+    .limit(limit - picked.length);
+
+  return [...picked, ...sameMuscle.map((r) => toListItem(r))];
 }
 
 export type ExerciseHistoryPoint = {

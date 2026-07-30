@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -22,12 +22,21 @@ export function ExercisePicker({
   // custom exercise" button reuses this sheet, and dropping the user into a
   // search list they didn't ask for was one tap of pure confusion.
   startCreating = false,
+  // "replace" swaps one movement for another: exactly one row can be selected
+  // and the sheet opens on suggestions for `replacing` rather than on the
+  // whole library, because the exercise you want is nearly always one of them.
+  mode = "add",
+  replacing,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (exerciseIds: string[]) => void;
   startCreating?: boolean;
+  mode?: "add" | "replace";
+  /** The exercise being swapped out — its id and name. Replace mode only. */
+  replacing?: { id: string; name: string } | null;
 }) {
+  const single = mode === "replace";
   const [query, setQuery] = useState("");
   const [muscle, setMuscle] = useState<(typeof MUSCLE_FILTERS)[number]>("all");
   const [equipment, setEquipment] =
@@ -40,6 +49,30 @@ export function ExercisePicker({
   const { recent, rest, loading, loadingMore, exhausted, sentinelRef, refresh } =
     useExerciseBatches({ query, muscle, equipment }, { enabled: open });
 
+  // Curated alternatives for the movement being swapped out, then same-muscle
+  // fallbacks. Only ever fetched for the exercise actually being replaced, and
+  // only while that sheet is open.
+  // Kept with the id they were fetched for rather than cleared on the way in:
+  // that way a result that lands after the sheet has moved on to another
+  // exercise is ignored instead of rendered under the wrong heading.
+  const [suggestions, setSuggestions] = useState<{
+    for: string;
+    items: ExerciseListItem[];
+  } | null>(null);
+  const replacingId = single && open ? (replacing?.id ?? null) : null;
+  useEffect(() => {
+    if (!replacingId) return;
+    let live = true;
+    import("@/lib/actions/exercise-search")
+      .then((m) => m.getReplacementSuggestionsAction(replacingId))
+      .then((items) => {
+        if (live) setSuggestions({ for: replacingId, items });
+      });
+    return () => {
+      live = false;
+    };
+  }, [replacingId]);
+
   // Reset on the way out rather than in an effect keyed on `open`. Memoised so
   // the sheet below gets a stable prop across the re-render per keystroke.
   const close = useCallback(() => {
@@ -49,16 +82,44 @@ export function ExercisePicker({
     onClose();
   }, [onClose, startCreating]);
 
+  // The exercise being replaced is never a candidate to replace itself.
+  const excludeId = single ? (replacing?.id ?? null) : null;
+
+  // Suggestions lead the sheet, so they're subject to the same de-duplication
+  // as "Recent" — and they only make sense while the list is unfiltered; once
+  // the user searches, what they typed is the intent.
+  const filtering =
+    query.trim() !== "" || muscle !== "all" || equipment !== "all";
+  const suggested = useMemo(
+    () =>
+      filtering || !replacingId || suggestions?.for !== replacingId
+        ? []
+        : suggestions.items,
+    [filtering, replacingId, suggestions],
+  );
+
+  const shownRecent = useMemo(() => {
+    const above = new Set(suggested.map((e) => e.id));
+    return recent.filter((e) => e.id !== excludeId && !above.has(e.id));
+  }, [recent, suggested, excludeId]);
+
   // The alphabetical batches cover the whole library, recent entries included,
   // so drop the duplicates rather than show a row twice.
   const others = useMemo(() => {
-    const shown = new Set(recent.map((e) => e.id));
-    return rest.filter((e) => !shown.has(e.id));
-  }, [recent, rest]);
+    const shown = new Set([
+      ...suggested.map((e) => e.id),
+      ...shownRecent.map((e) => e.id),
+    ]);
+    return rest.filter((e) => e.id !== excludeId && !shown.has(e.id));
+  }, [rest, suggested, shownRecent, excludeId]);
+
   const empty = recent.length === 0 && rest.length === 0;
 
   function toggle(id: string) {
     haptic.light();
+    // In replace mode the choice is exclusive — tapping another row moves the
+    // selection rather than adding to it.
+    if (single) return setSelected((s) => (s[0] === id ? [] : [id]));
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   }
 
@@ -66,7 +127,13 @@ export function ExercisePicker({
     <Sheet
       open={open}
       onClose={close}
-      title={creating ? "New exercise" : "Add exercises"}
+      title={
+        creating
+          ? "New exercise"
+          : single
+            ? "Replace exercise"
+            : "Add exercises"
+      }
       maxHeight="92dvh"
       footer={
         creating ? undefined : (
@@ -76,9 +143,13 @@ export function ExercisePicker({
             disabled={selected.length === 0}
             onClick={() => onConfirm(selected)}
           >
-            {selected.length === 0
-              ? "Select exercises"
-              : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
+            {single
+              ? selected.length === 0
+                ? "Select a replacement"
+                : "Replace exercise"
+              : selected.length === 0
+                ? "Select exercises"
+                : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
           </Button>
         )
       }
@@ -92,7 +163,7 @@ export function ExercisePicker({
             if (startCreating) return onConfirm([id]);
             setCreating(false);
             setQuery("");
-            setSelected((s) => [...s, id]);
+            setSelected((s) => (single ? [id] : [...s, id]));
             // Clearing an already-empty search box is a same-value no-op, so
             // ask for the opening batch again explicitly — otherwise the
             // exercise the user just created isn't in the list behind them.
@@ -101,6 +172,13 @@ export function ExercisePicker({
         />
       ) : (
         <div>
+          {single && replacing && (
+            <p className="text-text-3 px-4 pb-2 text-[13px] leading-snug">
+              Swapping out{" "}
+              <span className="text-text-2 font-medium">{replacing.name}</span>.
+              The sets stay; the numbers logged against the old movement don&apos;t.
+            </p>
+          )}
           <div className="bg-surface-1 sticky top-0 z-10 px-4 pb-2">
             <div className="relative">
               <Search className="text-text-3 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
@@ -161,24 +239,45 @@ export function ExercisePicker({
             </div>
           ) : (
             <>
-              {recent.length > 0 && (
-                <Group title="Recent">
-                  {recent.map((e) => (
+              {suggested.length > 0 && (
+                <Group title="Similar exercises">
+                  {suggested.map((e) => (
                     <Row
                       key={e.id}
                       item={e}
                       selected={selected.includes(e.id)}
+                      radio={single}
                       onToggle={() => toggle(e.id)}
                     />
                   ))}
                 </Group>
               )}
-              <Group title={recent.length ? "All exercises" : undefined}>
+              {shownRecent.length > 0 && (
+                <Group title="Recent">
+                  {shownRecent.map((e) => (
+                    <Row
+                      key={e.id}
+                      item={e}
+                      selected={selected.includes(e.id)}
+                      radio={single}
+                      onToggle={() => toggle(e.id)}
+                    />
+                  ))}
+                </Group>
+              )}
+              <Group
+                title={
+                  suggested.length || shownRecent.length
+                    ? "All exercises"
+                    : undefined
+                }
+              >
                 {others.map((e) => (
                   <Row
                     key={e.id}
                     item={e}
                     selected={selected.includes(e.id)}
+                    radio={single}
                     onToggle={() => toggle(e.id)}
                   />
                 ))}
@@ -231,10 +330,14 @@ function Row({
   item,
   selected,
   onToggle,
+  // A replace picker takes exactly one row, and a checkbox that silently
+  // unticks the last one you tapped reads as a bug.
+  radio = false,
 }: {
   item: ExerciseListItem;
   selected: boolean;
   onToggle: () => void;
+  radio?: boolean;
 }) {
   return (
     <button
@@ -246,7 +349,8 @@ function Row({
     >
       <span
         className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-md border transition-colors",
+          "grid size-6 shrink-0 place-items-center border transition-colors",
+          radio ? "rounded-full" : "rounded-md",
           selected
             ? "border-volt bg-volt text-black"
             : "border-hairline-strong",

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import {
   getExercisesByIds,
   getRecentExercises,
+  getReplacementSuggestions,
   searchExercisePage,
   type ExerciseCursor,
   type ExerciseFilters,
@@ -48,6 +49,19 @@ export async function searchExerciseBatchAction(
       : getRecentExercises(me.id, filters),
   ]);
   return { ...page, recent };
+}
+
+/**
+ * What to show at the top of the picker when it opens to swap an exercise out.
+ * Nothing here is privileged — it is the same library every picker reads — so
+ * an unrecognised id comes back empty rather than as an error.
+ */
+export async function getReplacementSuggestionsAction(
+  exerciseId: string,
+): Promise<ExerciseListItem[]> {
+  const me = await getCurrentUser();
+  if (!me) return [];
+  return getReplacementSuggestions(me.id, exerciseId);
 }
 
 /** Names and metadata for the ids a user just selected in a picker. */
