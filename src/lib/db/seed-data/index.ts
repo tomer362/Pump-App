@@ -17,6 +17,7 @@ export type {
 } from "./types";
 export { SEED_ACHIEVEMENTS } from "./achievements";
 export { LEGACY_NAME_TO_SLUG } from "./legacy-slugs";
+export { POPULAR_SLUGS, popularityOf } from "./popularity";
 
 /**
  * Built-in exercise library (ownerId = null). Grouped by muscle region rather

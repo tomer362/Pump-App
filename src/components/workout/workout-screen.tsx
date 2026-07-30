@@ -44,6 +44,7 @@ import {
   removeWorkoutExercise,
   reorderWorkoutExercises,
   updateSet,
+  updateSets,
   updateWorkoutExerciseSettings,
   updateWorkoutMeta,
 } from "@/lib/actions/workout";
@@ -126,29 +127,51 @@ export function WorkoutScreen({
   /* ---------------------------------------------------------------------- */
 
   const patchSet = useCallback(
-    (blockId: string, setId: string, patch: Partial<SetDraft>) => {
+    (
+      blockId: string,
+      setId: string,
+      patch: Partial<SetDraft>,
+      opts?: { fill?: boolean },
+    ) => {
+      // Typing a weight or a rep count carries it down the sets below, which
+      // is how a straight-across working set gets logged in one entry instead
+      // of four. It stops at the first set that already has a number for that
+      // field, is completed, or is a warm-up — so editing one set later never
+      // rewrites the ones under it, and a working weight never lands on a
+      // warm-up.
+      const ids = opts?.fill
+        ? [setId, ...fillTargets(blocks, blockId, setId, patch)]
+        : [setId];
+
       setBlocks((prev) =>
         prev.map((b) =>
           b.id !== blockId
             ? b
             : {
                 ...b,
-                sets: b.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
+                sets: b.sets.map((s) =>
+                  ids.includes(s.id) ? { ...s, ...patch } : s,
+                ),
               },
         ),
       );
+
+      const values = {
+        weightKg: patch.weightKg,
+        reps: patch.reps,
+        seconds: patch.seconds,
+        distanceM: patch.distanceM,
+        rpe: patch.rpe,
+        setType: patch.setType,
+      };
       startTransition(async () => {
-        await updateSet(setId, {
-          weightKg: patch.weightKg,
-          reps: patch.reps,
-          seconds: patch.seconds,
-          distanceM: patch.distanceM,
-          rpe: patch.rpe,
-          setType: patch.setType,
-        });
+        // One round-trip for the whole fill: this fires on every blur of a
+        // numeric cell, mid-workout, on a phone.
+        if (ids.length > 1) await updateSets(ids, values);
+        else await updateSet(setId, values);
       });
     },
-    [],
+    [blocks],
   );
 
   const toggleComplete = useCallback(
@@ -520,7 +543,9 @@ export function WorkoutScreen({
             onOpenMenu={() => setMenuFor(block.id)}
             onOpenPlate={(kg) => setPlateFor(kg)}
             onRunInterval={() => setIntervalFor(block)}
-            onPatchSet={(setId, patch) => patchSet(block.id, setId, patch)}
+            onPatchSet={(setId, patch, opts) =>
+              patchSet(block.id, setId, patch, opts)
+            }
             onToggle={(set) => toggleComplete(block, set)}
             onDeleteSet={(setId) => dropSet(block.id, setId)}
             onAddSet={() => appendSet(block)}
@@ -599,6 +624,11 @@ export function WorkoutScreen({
             onSetRpe={(rpe) => {
               if (!typeMenuFor) return;
               patchSet(typeMenuFor.blockId, typeMenuFor.setId, { rpe });
+            }}
+            onDelete={() => {
+              if (!typeMenuFor) return;
+              dropSet(typeMenuFor.blockId, typeMenuFor.setId);
+              setTypeMenuFor(null);
             }}
           />
         )}
@@ -693,7 +723,11 @@ function ExerciseBlock({
   onOpenMenu: () => void;
   onOpenPlate: (kg: number) => void;
   onRunInterval: () => void;
-  onPatchSet: (setId: string, patch: Partial<SetDraft>) => void;
+  onPatchSet: (
+    setId: string,
+    patch: Partial<SetDraft>,
+    opts?: { fill?: boolean },
+  ) => void;
   onToggle: (set: SetDraft) => void;
   onDeleteSet: (setId: string) => void;
   onAddSet: () => void;
@@ -781,14 +815,16 @@ function ExerciseBlock({
         {block.sets.map((set, i) => {
           if (set.setType !== "warmup") workingIndex++;
           return (
-            <div key={set.id} className="relative">
+            // `data-set-id` is what scripts/check-authz.mjs fires B's probes
+            // at — the set ids are otherwise only in the flight payload.
+            <div key={set.id} data-set-id={set.id} className="relative">
               <SetRow
                 set={set}
                 index={workingIndex}
                 unit={unit}
                 trackingType={block.trackingType}
                 previous={block.previous[i] ?? null}
-                onPatch={(patch) => onPatchSet(set.id, patch)}
+                onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
                 onToggleComplete={() => onToggle(set)}
                 onDelete={() => onDeleteSet(set.id)}
                 onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
@@ -845,10 +881,12 @@ function SetOptions({
   set,
   onSetType,
   onSetRpe,
+  onDelete,
 }: {
   set: SetDraft;
   onSetType: (type: SetType) => void;
   onSetRpe: (rpe: number | null) => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="px-4 pb-5">
@@ -904,6 +942,15 @@ function SetOptions({
           How hard the set felt. 10 is a set you couldn&apos;t have added a rep
           to; 8 leaves two in the tank.
         </p>
+      </div>
+
+      {/* The swipe is the fast path, but it is a gesture: this is the one that
+          works with the keyboard up, with gloves on, or after a mis-swipe. */}
+      <div className="pt-5">
+        <Button block variant="danger" onClick={onDelete}>
+          <Trash2 className="size-4" />
+          Delete set
+        </Button>
       </div>
     </div>
   );
@@ -1076,6 +1123,43 @@ function SheetLabel({ children }: { children: React.ReactNode }) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/** The value fields a typed cell can carry down the rows below it. */
+const FILLABLE = ["weightKg", "reps", "seconds", "distanceM"] as const;
+
+/**
+ * The sets a freshly typed value should be copied into: the unbroken run of
+ * sets below it that have nothing in that column yet.
+ *
+ * Contiguous rather than "every empty set below" on purpose — the run is what
+ * the user can see stopping. It halts at the first set that already carries a
+ * number (that one was entered deliberately), at a completed set (it happened
+ * as logged), and at a warm-up (a working weight is not a warm-up weight).
+ */
+function fillTargets(
+  blocks: Block[],
+  blockId: string,
+  setId: string,
+  patch: Partial<SetDraft>,
+): string[] {
+  const fields = FILLABLE.filter((f) => patch[f] != null);
+  // A numeric cell commits exactly one field. Anything else — the "previous"
+  // copy button, a set-type change — isn't a fill, and filling on a
+  // multi-field patch could write one field over a value that isn't empty.
+  if (fields.length !== 1) return [];
+  const field = fields[0];
+
+  const block = blocks.find((b) => b.id === blockId);
+  const from = block?.sets.findIndex((s) => s.id === setId) ?? -1;
+  if (!block || from < 0) return [];
+
+  const ids: string[] = [];
+  for (const s of block.sets.slice(from + 1)) {
+    if (s.completed || s.setType === "warmup" || s[field] != null) break;
+    ids.push(s.id);
+  }
+  return ids;
+}
 
 function toBlock(e: FullWorkout["exercises"][number]): Block {
   return {

@@ -586,6 +586,78 @@ export async function updateSet(
   };
 }
 
+/**
+ * Write the same values to several sets at once — the fill that carries a
+ * typed weight or rep count down the empty sets below it.
+ *
+ * One call rather than one `updateSet` per row: this fires when a numeric cell
+ * loses focus mid-workout, and four sequential round-trips from a phone on gym
+ * wifi is the difference between instant and noticeably late.
+ *
+ * Deliberately narrower than `updateSet`: it never touches `completedAt` and
+ * runs no PR check. A fill only ever targets sets that are empty and not
+ * completed, so there is no completion to record and nothing that could set a
+ * record — that stays the single-set path, which the checkmark uses.
+ */
+export async function updateSets(
+  setIds: string[],
+  patch: z.input<typeof setPatchSchema>,
+): Promise<ActionResult<{ updated: number }>> {
+  const me = await getCurrentUser();
+  if (!me) return { ok: false, error: "Not signed in" };
+
+  // Bounded: this is a public POST endpoint like every other export here, and
+  // a fill is at most a handful of sets in one exercise.
+  const ids = z.array(z.string().uuid()).min(1).max(20).safeParse(setIds);
+  if (!ids.success) return { ok: false, error: "Invalid set ids" };
+
+  const parsed = setPatchSchema.omit({ completed: true }).safeParse(patch);
+  if (!parsed.success) return { ok: false, error: "Invalid set values" };
+  const p = parsed.data;
+
+  // Same ownership join as `updateSet`. Ids belonging to anyone else simply
+  // don't come back, so they're never written.
+  const rows = await db
+    .select({ id: workoutSet.id, weightKg: workoutSet.weightKg, reps: workoutSet.reps })
+    .from(workoutSet)
+    .innerJoin(
+      workoutExercise,
+      eq(workoutExercise.id, workoutSet.workoutExerciseId),
+    )
+    .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .where(and(inArray(workoutSet.id, ids.data), eq(workout.userId, me.id)));
+  if (!rows.length) return { ok: true, data: { updated: 0 } };
+
+  const columns = {
+    ...(p.weightKg !== undefined ? { weightKg: p.weightKg } : {}),
+    ...(p.reps !== undefined ? { reps: p.reps } : {}),
+    ...(p.seconds !== undefined ? { seconds: p.seconds } : {}),
+    ...(p.distanceM !== undefined ? { distanceM: p.distanceM } : {}),
+    ...(p.rpe !== undefined ? { rpe: p.rpe } : {}),
+    ...(p.setType !== undefined ? { setType: p.setType } : {}),
+  };
+
+  // `estimated_1rm` is per row — it depends on the values the row already had
+  // — but the rows being filled are near-identical, so grouping by the
+  // resulting estimate collapses this to one UPDATE in the normal case.
+  const byEstimate = new Map<number | null, string[]>();
+  for (const r of rows) {
+    const weightKg = p.weightKg !== undefined ? p.weightKg : r.weightKg;
+    const reps = p.reps !== undefined ? p.reps : r.reps;
+    const est = weightKg != null && reps != null ? estimate1RM(weightKg, reps) : null;
+    byEstimate.set(est, [...(byEstimate.get(est) ?? []), r.id]);
+  }
+
+  for (const [estimated1rm, group] of byEstimate) {
+    await db
+      .update(workoutSet)
+      .set({ ...columns, estimated1rm })
+      .where(inArray(workoutSet.id, group));
+  }
+
+  return { ok: true, data: { updated: rows.length } };
+}
+
 export async function updateWorkoutMeta(
   workoutId: string,
   patch: { name?: string; note?: string | null; gymId?: string | null },

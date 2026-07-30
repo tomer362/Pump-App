@@ -7,6 +7,7 @@ import {
   gt,
   ilike,
   isNull,
+  lt,
   or,
   sql,
   inArray,
@@ -42,12 +43,13 @@ export type ExerciseListItem = {
 };
 
 /**
- * Keyset cursor into the alphabetical library: the last row of the page you
- * have. `(name, id)` rather than `name` alone — a custom exercise can share a
- * name with a built-in, and a cursor on a duplicated name would either skip
- * the twin or loop on it forever.
+ * Keyset cursor into the library: the last row of the page you have. Every
+ * column of the ORDER BY is in it — `popularity` because that leads the sort,
+ * then `(name, id)`, and `id` rather than `name` alone because a custom
+ * exercise can share a name with a built-in and a cursor on a duplicated name
+ * would either skip the twin or loop on it forever.
  */
-export type ExerciseCursor = { name: string; id: string };
+export type ExerciseCursor = { popularity: number; name: string; id: string };
 
 export type ExercisePage = {
   items: ExerciseListItem[];
@@ -104,6 +106,8 @@ const LIST_COLUMNS = {
   trackingType: exercise.trackingType,
   ownerId: exercise.ownerId,
   archivedAt: exercise.archivedAt,
+  // Not surfaced to the UI — selected because the cursor is built from it.
+  popularity: exercise.popularity,
 } as const;
 
 type ListRow = {
@@ -114,6 +118,7 @@ type ListRow = {
   trackingType: string;
   ownerId: string | null;
   archivedAt: Date | string | null;
+  popularity: number;
 };
 
 function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
@@ -130,7 +135,7 @@ function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
 }
 
 /**
- * One alphabetical batch of the library, keyset-paginated.
+ * One batch of the library, most commonly trained first, keyset-paginated.
  *
  * This used to select every matching row with a correlated `MAX(started_at)`
  * subquery per row and re-sort the lot in JS, so opening a picker cost one
@@ -138,9 +143,12 @@ function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
  * before anything could render. Recency now comes from `getRecentExercises`,
  * which is bounded, and the rest arrives a page at a time as the user scrolls.
  *
- * Ordered by `(name, id)` because that is also the cursor: `ORDER BY` and the
- * `>` comparison have to agree on collation, and they do when both are the
- * plain column.
+ * Ordered by `(popularity DESC, name, id)` — see `seed-data/popularity.ts` for
+ * where the ranking comes from. That triple is also the cursor: `ORDER BY` and
+ * the comparison have to agree on collation, and they do when both are the
+ * plain columns. Unranked rows score 0 and so tail the list alphabetically,
+ * which is also where custom exercises land — they are reachable through
+ * "Recent" and through search either way.
  */
 export async function searchExercisePage(
   userId: string,
@@ -158,22 +166,30 @@ export async function searchExercisePage(
         filterWhere(userId, filters),
         after
           ? or(
-              gt(exercise.name, after.name),
-              and(eq(exercise.name, after.name), gt(exercise.id, after.id)),
+              lt(exercise.popularity, after.popularity),
+              and(
+                eq(exercise.popularity, after.popularity),
+                or(
+                  gt(exercise.name, after.name),
+                  and(eq(exercise.name, after.name), gt(exercise.id, after.id)),
+                ),
+              ),
             )
           : undefined,
       ),
     )
-    .orderBy(asc(exercise.name), asc(exercise.id))
+    .orderBy(desc(exercise.popularity), asc(exercise.name), asc(exercise.id))
     .limit(limit);
 
-  const items = rows.map((r) => toListItem(r));
-  const last = items[items.length - 1];
+  const last = rows[rows.length - 1];
   return {
-    items,
+    items: rows.map((r) => toListItem(r)),
     // A short page means the library is spent — no extra count query, and no
     // trailing request that comes back empty.
-    cursor: last && rows.length === limit ? { name: last.name, id: last.id } : null,
+    cursor:
+      last && rows.length === limit
+        ? { popularity: last.popularity, name: last.name, id: last.id }
+        : null,
   };
 }
 

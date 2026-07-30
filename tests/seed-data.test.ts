@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SEED_EXERCISES, LEGACY_NAME_TO_SLUG } from "@/lib/db/seed-data";
+import {
+  SEED_EXERCISES,
+  LEGACY_NAME_TO_SLUG,
+  POPULAR_SLUGS,
+  popularityOf,
+} from "@/lib/db/seed-data";
 import { EQUIPMENT, MUSCLES, TRACKING_TYPES } from "@/lib/db/schema";
 import { isYouTubeUrl, youTubeWatchUrl } from "@/lib/exercise-video";
 
@@ -161,5 +166,40 @@ describe("legacy slug backfill", () => {
   it("maps each legacy name and slug exactly once", () => {
     expect(new Set(LEGACY_NAME_TO_SLUG.map(([n]) => n)).size).toBe(94);
     expect(new Set(LEGACY_NAME_TO_SLUG.map(([, s]) => s)).size).toBe(94);
+  });
+});
+
+describe("popularity ranking", () => {
+  it("ranks every slug it lists against a real exercise", () => {
+    const missing = POPULAR_SLUGS.filter((s) => !slugs.has(s));
+    // A typo here is invisible: the seed would simply leave that exercise at 0
+    // and it would sink to the alphabetical tail of every picker.
+    expect(missing).toEqual([]);
+  });
+
+  it("lists each slug once", () => {
+    expect(new Set(POPULAR_SLUGS).size).toBe(POPULAR_SLUGS.length);
+  });
+
+  it("ranks enough of the library to fill the first screens", () => {
+    expect(POPULAR_SLUGS.length).toBeGreaterThanOrEqual(100);
+    // The unranked tail is meant to exist — a rank on everything would be
+    // invented precision, and 0 sorts alphabetically, which is a fine default.
+    expect(POPULAR_SLUGS.length).toBeLessThan(SEED_EXERCISES.length);
+  });
+
+  it("scores in descending list order, and 0 for anything unlisted", () => {
+    expect(popularityOf(POPULAR_SLUGS[0])).toBe(POPULAR_SLUGS.length);
+    expect(popularityOf(POPULAR_SLUGS[1])).toBe(POPULAR_SLUGS.length - 1);
+    expect(popularityOf(POPULAR_SLUGS.at(-1)!)).toBe(1);
+    expect(popularityOf("not-a-real-slug")).toBe(0);
+  });
+
+  it("opens the library on the compound lifts", () => {
+    // The whole point of the ordering: what a picker shows before you scroll.
+    const top = POPULAR_SLUGS.slice(0, 12);
+    for (const slug of ["bench-press-barbell", "squat-barbell", "deadlift-barbell"]) {
+      expect(top, `${slug} should be on the first screen`).toContain(slug);
+    }
   });
 });

@@ -1,0 +1,2 @@
+ALTER TABLE "exercise" ADD COLUMN "popularity" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX "exercise_popularity_idx" ON "exercise" USING btree ("popularity" desc,"name" asc,"id" asc);
