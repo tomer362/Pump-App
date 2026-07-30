@@ -479,7 +479,50 @@ try {
     );
   }
 
+  // The exercise-level swap takes a caller-supplied workout-exercise id *and*
+  // an exercise id, so it needs both scopes: A's block must not be replaceable
+  // by B, and the replacement itself must come from the library B is allowed
+  // to see. B fires it at A's block with A's private custom exercise.
+  const victimBlockId = await a.page
+    .locator("[data-block-id]")
+    .first()
+    .getAttribute("data-block-id")
+    .catch(() => null);
+  requireFixture(
+    Boolean(victimBlockId),
+    "could not read an exercise-block id off A's workout screen",
+  );
+
+  const [, replaceId] = [
+    ...actionIdsFromManifest("src/lib/actions/workout.ts", [
+      "replaceWorkoutExercise",
+    ]),
+  ][0] ?? [];
+  if (!replaceId) {
+    check(
+      "replaceWorkoutExercise refuses another user's exercise block",
+      false,
+      "INCONCLUSIVE: could not resolve the action id — the probe did not run",
+    );
+  } else {
+    const res = await postAction(b.page, `${BASE}/feed`, replaceId, [
+      victimBlockId,
+      customId,
+    ]);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    const refused = /Not found|Not signed in/.test(res.body);
+    check(
+      "replaceWorkoutExercise refuses another user's exercise block",
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
   await a.page.reload({ waitUntil: "networkidle" });
+  check(
+    "A's exercise block survived B's replace probe",
+    (await a.page.content()).includes("Bench Press"),
+  );
   const setValue = await a.page
     .locator("[data-set-id]")
     .first()

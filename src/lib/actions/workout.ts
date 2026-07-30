@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -18,6 +18,7 @@ import {
   type PrKind,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { estimate1RM } from "@/lib/utils";
@@ -381,6 +382,114 @@ export async function removeWorkoutExercise(
 
   // No revalidate: the screen already dropped it from local state.
   return { ok: true };
+}
+
+/** What the workout screen needs to re-render a block after a swap. */
+export type ReplacedExercise = {
+  exerciseId: string;
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  trackingType: string;
+  /** Sets in order — same rows, emptied. */
+  setIds: string[];
+  previous: PreviousSet[];
+};
+
+/**
+ * Swap the movement on one block, keeping its position, rest, superset letter
+ * and set count.
+ *
+ * The logged values are cleared rather than carried over: they were performed
+ * on a different exercise, and leaving them would attribute someone's pull-up
+ * reps to a lat pulldown in history, in the muscle-volume split and in the
+ * records computed at finish. The set *rows* survive — the user asked for
+ * "3 sets of this instead", not for the block to be rebuilt — and so does the
+ * exercise's own "Previous" column, which is refetched for the new movement.
+ *
+ * Live workouts only. A finished workout's totals are denormalised onto the
+ * row at finish, so mutating its sets here would leave them describing sets
+ * that no longer exist.
+ */
+export async function replaceWorkoutExercise(
+  workoutExerciseId: string,
+  exerciseId: string,
+): Promise<ActionResult<ReplacedExercise>> {
+  const guard = await ownedWorkoutExercise(workoutExerciseId);
+  if ("error" in guard) return { ok: false, error: guard.error };
+  if (guard.workout.endedAt)
+    return { ok: false, error: "This workout is already finished" };
+
+  // Scoped exactly like every picker read: built-ins plus this user's own live
+  // custom entries. An archived or someone else's id resolves to nothing.
+  const [target] = await db
+    .select()
+    .from(exercise)
+    .where(
+      and(
+        eq(exercise.id, exerciseId),
+        isNull(exercise.archivedAt),
+        or(isNull(exercise.ownerId), eq(exercise.ownerId, guard.me.id)),
+      ),
+    )
+    .limit(1);
+  if (!target) return { ok: false, error: "Exercise not found" };
+
+  const setIds = await db.transaction(async (tx) => {
+    await tx
+      .update(workoutExercise)
+      .set({
+        exerciseId: target.id,
+        // Cues, seat heights and machine numbers belong to the old movement.
+        notes: null,
+        // Interval prescriptions are per-movement too, and a work/rest
+        // countdown left running on a barbell lift is worse than no setting.
+        intervalWorkSeconds: null,
+        intervalRestSeconds: null,
+      })
+      .where(eq(workoutExercise.id, workoutExerciseId));
+
+    await tx
+      .update(workoutSet)
+      .set({
+        weightKg: null,
+        reps: null,
+        seconds: null,
+        distanceM: null,
+        rpe: null,
+        estimated1rm: null,
+        completedAt: null,
+      })
+      .where(eq(workoutSet.workoutExerciseId, workoutExerciseId));
+
+    return tx
+      .select({ id: workoutSet.id })
+      .from(workoutSet)
+      .where(eq(workoutSet.workoutExerciseId, workoutExerciseId))
+      .orderBy(asc(workoutSet.position));
+  });
+
+  // Clearing completions changes this participant's live co-op numbers.
+  await bumpCoopProgress(guard.workout.id);
+
+  const previous = await getPreviousSets(guard.me.id, guard.workout.id, [
+    target.id,
+  ]);
+
+  // No revalidate, same as the rest of this section: the screen applies the
+  // returned block to its own state, and a refresh would fight it.
+  return {
+    ok: true,
+    data: {
+      exerciseId: target.id,
+      name: target.name,
+      primaryMuscle: target.primaryMuscle,
+      equipment: target.equipment,
+      trackingType: target.trackingType,
+      setIds: setIds.map((s) => s.id),
+      previous: previous.get(target.id) ?? [],
+    },
+  };
 }
 
 export async function reorderWorkoutExercises(

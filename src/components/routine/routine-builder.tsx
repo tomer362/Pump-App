@@ -8,6 +8,7 @@ import {
   Ellipsis,
   GripVertical,
   Plus,
+  Repeat2,
   Timer,
   Trash2,
 } from "lucide-react";
@@ -116,6 +117,7 @@ export function RoutineBuilder({
 
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -166,6 +168,39 @@ export function RoutineBuilder({
     },
     [defaultRestSeconds],
   );
+
+  /**
+   * Swap the movement on one row, keeping its sets, rest and superset letter.
+   *
+   * The targets are kept rather than cleared, unlike the mid-workout swap:
+   * these are a prescription, not a record of work done, and "3×8" survives
+   * the change from a pull-up to a lat pulldown.
+   */
+  const replaceExercise = useCallback(async (key: string, id: string) => {
+    setReplaceFor(null);
+    const { getExercisesByIdsAction } = await import(
+      "@/lib/actions/exercise-search"
+    );
+    const [picked] = await getExercisesByIdsAction([id]);
+    if (!picked) return;
+    haptic.light();
+    setItems((prev) =>
+      prev.map((it) =>
+        it.key !== key
+          ? it
+          : {
+              ...it,
+              exerciseId: picked.id,
+              name: picked.name,
+              primaryMuscle: picked.primaryMuscle,
+              equipment: picked.equipment,
+              trackingType: picked.trackingType,
+              // Cues and machine settings described the old movement.
+              notes: null,
+            },
+      ),
+    );
+  }, []);
 
   function patchExercise(key: string, patch: Partial<DraftExercise>) {
     setItems((prev) =>
@@ -231,6 +266,7 @@ export function RoutineBuilder({
   }
 
   const menuItem = items.find((i) => i.key === menuFor) ?? null;
+  const replaceItem = items.find((i) => i.key === replaceFor) ?? null;
 
   return (
     <div className="min-h-screen-d pb-32">
@@ -340,6 +376,18 @@ export function RoutineBuilder({
         onConfirm={addExercises}
       />
 
+      <ExercisePicker
+        open={replaceItem != null}
+        onClose={() => setReplaceFor(null)}
+        mode="replace"
+        replacing={
+          replaceItem && { id: replaceItem.exerciseId, name: replaceItem.name }
+        }
+        onConfirm={(ids) => {
+          if (replaceItem && ids[0]) replaceExercise(replaceItem.key, ids[0]);
+        }}
+      />
+
       <Sheet
         open={menuItem != null}
         onClose={() => setMenuFor(null)}
@@ -349,6 +397,10 @@ export function RoutineBuilder({
           <ExerciseSettings
             item={menuItem}
             onPatch={(patch) => patchExercise(menuItem.key, patch)}
+            onReplace={() => {
+              setMenuFor(null);
+              setReplaceFor(menuItem.key);
+            }}
             onRemove={() => {
               setItems((prev) => prev.filter((i) => i.key !== menuItem.key));
               setMenuFor(null);
@@ -570,10 +622,12 @@ function TargetInput({
 function ExerciseSettings({
   item,
   onPatch,
+  onReplace,
   onRemove,
 }: {
   item: DraftExercise;
   onPatch: (patch: Partial<DraftExercise>) => void;
+  onReplace: () => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
@@ -714,10 +768,20 @@ function ExerciseSettings({
         />
       </div>
 
-      <Button block variant="danger" onClick={onRemove}>
-        <Trash2 className="size-4" />
-        Remove from routine
-      </Button>
+      <div className="space-y-2">
+        <Button block variant="solid" onClick={onReplace}>
+          <Repeat2 className="size-4" strokeWidth={2.4} />
+          Replace exercise
+        </Button>
+        <p className="text-text-3 text-[12px] leading-snug">
+          Swaps the movement and keeps the sets and targets you prescribed.
+        </p>
+
+        <Button block variant="danger" onClick={onRemove}>
+          <Trash2 className="size-4" />
+          Remove from routine
+        </Button>
+      </div>
     </div>
   );
 }

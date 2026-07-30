@@ -123,6 +123,10 @@ const cases: [string, () => Promise<unknown>][] = [
   ["exercise.getExerciseRepMaxes", () => exerciseQ.getExerciseRepMaxes(uid, eid)],
   ["exercise.getExerciseSummary", () => exerciseQ.getExerciseSummary(uid, eid)],
   altCase,
+  [
+    "exercise.getReplacementSuggestions",
+    () => exerciseQ.getReplacementSuggestions(uid, eid),
+  ],
   ["routine.getRoutines", () => routineQ.getRoutines(uid)],
   ["routine.getFollowedRoutines", () => routineQ.getFollowedRoutines(uid)],
   ["social.getFollowingFeed", () => socialQ.getFollowingFeed(uid)],
