@@ -177,6 +177,14 @@ export function WorkoutScreen({
     return { volume, sets, unfinished };
   }, [blocks]);
 
+  // Feeds the picker so a lift already on the board says so before you add it
+  // a second time. Counted, because a second block of the same lift is legal.
+  const alreadyIn = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const b of blocks) counts[b.exerciseId] = (counts[b.exerciseId] ?? 0) + 1;
+    return counts;
+  }, [blocks]);
+
   /* ---------------------------------------------------------------------- */
   /* Mutations — optimistic locally, persisted in the background.            */
   /* ---------------------------------------------------------------------- */
@@ -636,6 +644,7 @@ export function WorkoutScreen({
         open={picking}
         onClose={() => setPicking(false)}
         onConfirm={addExercises}
+        alreadyIn={alreadyIn}
       />
 
       <Sheet
