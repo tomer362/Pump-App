@@ -22,7 +22,9 @@ import {
   type SetColumn,
 } from "@/components/workout/set-row";
 import { createRoutine, updateRoutine, type RoutineInput } from "@/lib/actions/routine";
-import type { FullRoutine } from "@/lib/queries/routine";
+import { createFolder } from "@/lib/actions/routine-folder";
+import { folderRail } from "@/lib/folder-color";
+import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 
@@ -80,15 +82,19 @@ export function RoutineBuilder({
   existing,
   unit,
   defaultRestSeconds,
+  folders,
 }: {
   existing?: FullRoutine;
   unit: "kg" | "lb";
   defaultRestSeconds: number;
+  folders: FolderListItem[];
 }) {
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
-  const [folder, setFolder] = useState(existing?.folder ?? "");
+  const [folderId, setFolderId] = useState<string | null>(
+    existing?.folderId ?? null,
+  );
   const [isPublic, setIsPublic] = useState(existing?.isPublic ?? true);
   const [items, setItems] = useState<DraftExercise[]>(() =>
     (existing?.exercises ?? []).map((e) => ({
@@ -238,7 +244,7 @@ export function RoutineBuilder({
     const payload: RoutineInput = {
       name,
       notes: notes.trim() || null,
-      folder: folder.trim() || null,
+      folderId,
       isPublic,
       exercises: items.map((it) => ({
         exerciseId: it.exerciseId,
@@ -317,20 +323,26 @@ export function RoutineBuilder({
           rows={2}
           maxLength={1000}
         />
-        <Input
-          value={folder}
-          onChange={(e) => setFolder(e.target.value)}
-          placeholder="Folder — e.g. PPL, Off-season"
-          maxLength={40}
+        <FolderPicker
+          folders={folders}
+          value={folderId}
+          onChange={setFolderId}
         />
-        <Segmented
-          value={isPublic ? "public" : "private"}
-          onChange={(v) => setIsPublic(v === "public")}
-          options={[
-            { value: "public", label: "Shareable" },
-            { value: "private", label: "Private" },
-          ]}
-        />
+        <div>
+          <Segmented
+            value={isPublic ? "public" : "private"}
+            onChange={(v) => setIsPublic(v === "public")}
+            options={[
+              { value: "public", label: "Shareable" },
+              { value: "private", label: "Private" },
+            ]}
+          />
+          <p className="text-text-3 mt-1.5 text-[12px] leading-snug">
+            {isPublic
+              ? "Anyone with the link can open it, and it can be found in Discover."
+              : "Only you can open it."}
+          </p>
+        </div>
       </div>
 
       {error && (
@@ -792,6 +804,153 @@ function ExerciseSettings({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Chips over a free-text field. Typing the folder name was what let "PPL" and
+ * "ppl" become two folders — picking from what already exists can't.
+ */
+function FolderPicker({
+  folders,
+  value,
+  onChange,
+}: {
+  folders: FolderListItem[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [known, setKnown] = useState(folders);
+
+  async function create() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setError(null);
+    const res = await createFolder({ name: trimmed });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    // Reflected locally rather than via router.refresh(): a refresh here would
+    // re-render the builder from the server and discard the unsaved draft.
+    setKnown((prev) => [
+      ...prev,
+      {
+        id: res.data!.folderId,
+        name: trimmed,
+        color: "slate",
+        position: prev.length,
+        rotation: false,
+        routineCount: 0,
+        nextRoutineId: null,
+        nextRoutineName: null,
+      },
+    ]);
+    onChange(res.data!.folderId);
+    setName("");
+    setCreating(false);
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        <FolderChip
+          label="Unfiled"
+          active={value === null}
+          onClick={() => onChange(null)}
+        />
+        {known.map((f) => (
+          <FolderChip
+            key={f.id}
+            label={f.name}
+            color={f.color}
+            active={value === f.id}
+            onClick={() => onChange(f.id)}
+          />
+        ))}
+        {!creating && (
+          <FolderChip
+            label="+ New folder"
+            active={false}
+            onClick={() => setCreating(true)}
+          />
+        )}
+      </div>
+
+      {creating && (
+        <div className="mt-2 flex gap-2">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Folder name"
+            maxLength={40}
+            autoFocus
+            enterKeyHint="done"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void create();
+              }
+            }}
+          />
+          <Button variant="solid" disabled={!name.trim()} onClick={create}>
+            Add
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setCreating(false);
+              setName("");
+              setError(null);
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {error && <p className="text-danger mt-1.5 text-[12px]">{error}</p>}
+    </div>
+  );
+}
+
+function FolderChip({
+  label,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  color?: FolderListItem["color"];
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        haptic.light();
+        onClick();
+      }}
+      aria-pressed={active}
+      className={cn(
+        "press tap inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium",
+        active
+          ? "bg-surface-3 text-text-1"
+          : "bg-surface-2 text-text-3 hover:text-text-2",
+      )}
+    >
+      {color && (
+        <span
+          aria-hidden
+          className={cn("size-2 rounded-full", folderRail(color))}
+        />
+      )}
+      {label}
+    </button>
   );
 }
 

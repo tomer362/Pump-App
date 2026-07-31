@@ -1,25 +1,41 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
   routine,
   routineExercise,
+  routineFolder,
   routineSet,
   workout,
   workoutExercise,
   workoutSet,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { notify } from "./notify";
 import type { ActionResult } from "./user";
+
+/**
+ * A folder id arrives from the client like any other field, so it has to be
+ * proven to belong to the caller before it is written — otherwise the routine
+ * editor doubles as a way to drop rows into someone else's folder.
+ */
+async function ownsFolder(userId: string, folderId: string) {
+  const [row] = await db
+    .select({ id: routineFolder.id })
+    .from(routineFolder)
+    .where(and(eq(routineFolder.id, folderId), eq(routineFolder.userId, userId)))
+    .limit(1);
+  return Boolean(row);
+}
 
 /** Shape the routine editor posts back. The whole routine is saved at once. */
 const routineInputSchema = z.object({
   name: z.string().trim().min(1, "Give the routine a name").max(80),
   notes: z.string().trim().max(1000).nullable().optional(),
-  folder: z.string().trim().max(40).nullable().optional(),
+  folderId: z.string().uuid().nullable().optional(),
   isPublic: z.boolean().default(true),
   exercises: z
     .array(
@@ -61,6 +77,11 @@ export async function createRoutine(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid routine" };
   }
 
+  const folderId = parsed.data.folderId ?? null;
+  if (folderId && !(await ownsFolder(me.id, folderId))) {
+    return { ok: false, error: "Folder not found" };
+  }
+
   const id = await db.transaction(async (tx) => {
     const [r] = await tx
       .insert(routine)
@@ -68,8 +89,13 @@ export async function createRoutine(
         userId: me.id,
         name: parsed.data.name,
         notes: parsed.data.notes ?? null,
-        folder: parsed.data.folder ?? null,
+        folderId,
         isPublic: parsed.data.isPublic,
+        position: sql`(
+          SELECT COALESCE(MAX("position"), -1) + 1 FROM "routine" r2
+          WHERE r2."user_id" = ${me.id}
+            AND r2."folder_id" IS NOT DISTINCT FROM ${folderId}
+        )`,
       })
       .returning({ id: routine.id });
 
@@ -94,11 +120,17 @@ export async function updateRoutine(
   }
 
   const [existing] = await db
-    .select({ id: routine.id })
+    .select({ id: routine.id, folderId: routine.folderId })
     .from(routine)
     .where(and(eq(routine.id, routineId), eq(routine.userId, me.id)))
     .limit(1);
   if (!existing) return { ok: false, error: "Routine not found" };
+
+  const folderId = parsed.data.folderId ?? null;
+  if (folderId && !(await ownsFolder(me.id, folderId))) {
+    return { ok: false, error: "Folder not found" };
+  }
+  const movedFolder = folderId !== existing.folderId;
 
   await db.transaction(async (tx) => {
     await tx
@@ -106,8 +138,19 @@ export async function updateRoutine(
       .set({
         name: parsed.data.name,
         notes: parsed.data.notes ?? null,
-        folder: parsed.data.folder ?? null,
+        folderId,
         isPublic: parsed.data.isPublic,
+        // Only re-position when the routine actually changed folder; a plain
+        // edit must not shuffle it to the end of a list the user ordered.
+        ...(movedFolder
+          ? {
+              position: sql`(
+                SELECT COALESCE(MAX("position"), -1) + 1 FROM "routine" r2
+                WHERE r2."user_id" = ${me.id}
+                  AND r2."folder_id" IS NOT DISTINCT FROM ${folderId}
+              )`,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(routine.id, routineId));
@@ -206,6 +249,11 @@ export async function copyRoutine(
     return { ok: false, error: "That routine is private" };
   }
 
+  // The chain is already flattened to the original for provenance; the save is
+  // credited to that same root, so a copy-of-a-copy still counts for the author.
+  const rootId = src.sourceRoutineId ?? src.id;
+  const isForeign = src.userId !== me.id;
+
   const newId = await db.transaction(async (tx) => {
     const [copy] = await tx
       .insert(routine)
@@ -213,11 +261,24 @@ export async function copyRoutine(
         userId: me.id,
         name: src.userId === me.id ? `${src.name} (copy)` : src.name,
         notes: src.notes,
-        folder: src.folder,
+        // A copy lands unfiled. Inheriting the source's folder dropped a
+        // stranger's filing system into your list.
+        folderId: null,
+        position: sql`(
+          SELECT COALESCE(MAX("position"), -1) + 1 FROM "routine" r2
+          WHERE r2."user_id" = ${me.id} AND r2."folder_id" IS NULL
+        )`,
         isPublic: false,
-        sourceRoutineId: src.sourceRoutineId ?? src.id,
+        sourceRoutineId: rootId,
       })
       .returning({ id: routine.id });
+
+    if (isForeign) {
+      await tx
+        .update(routine)
+        .set({ saveCount: sql`${routine.saveCount} + 1` })
+        .where(eq(routine.id, rootId));
+    }
 
     const res = await tx
       .select()
@@ -278,7 +339,27 @@ export async function copyRoutine(
     return copy.id;
   });
 
+  if (isForeign) {
+    // Credit the author of the original, not whoever's copy you happened to
+    // open — `notify` already drops the notification if that's you.
+    const [root] = await db
+      .select({ userId: routine.userId, name: routine.name })
+      .from(routine)
+      .where(eq(routine.id, rootId))
+      .limit(1);
+    if (root) {
+      await notify({
+        userId: root.userId,
+        actorId: me.id,
+        type: "routine_save",
+        body: `${me.name} saved ${root.name}`,
+        url: `/routines/${rootId}`,
+      });
+    }
+  }
+
   revalidatePath("/routines");
+  revalidatePath(`/routines/${routineId}`);
   return { ok: true, data: { routineId: newId } };
 }
 

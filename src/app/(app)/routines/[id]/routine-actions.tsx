@@ -2,24 +2,32 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Pencil, Percent, Play, Share2, Trash2 } from "lucide-react";
+import { Copy, FolderInput, Pencil, Percent, Play, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { LoadPickerSheet } from "@/components/workout/load-picker";
+import { MoveToFolderSheet } from "@/components/routine/move-to-folder-sheet";
 import { copyRoutine, deleteRoutine } from "@/lib/actions/routine";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
+import type { FolderListItem } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
 
 export function RoutineActions({
   routineId,
   routineName,
   isOwner,
+  isPublic,
   hasActiveWorkout,
+  folders,
+  currentFolderId,
 }: {
   routineId: string;
   routineName: string;
   isOwner: boolean;
+  isPublic: boolean;
   hasActiveWorkout: boolean;
+  folders: FolderListItem[];
+  currentFolderId: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -27,6 +35,7 @@ export function RoutineActions({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadSheet, setLoadSheet] = useState(false);
+  const [moveSheet, setMoveSheet] = useState(false);
   const [multiplier, setMultiplier] = useState(1);
 
   async function start(mult: number) {
@@ -103,10 +112,26 @@ export function RoutineActions({
                 <Pencil className="size-4" />
                 Edit
               </Button>
-              <Button block variant="solid" onClick={share}>
-                <Share2 className="size-4" />
-                {copied ? "Link copied" : "Share"}
+              <Button
+                block
+                variant="solid"
+                onClick={() => {
+                  haptic.light();
+                  setMoveSheet(true);
+                }}
+              >
+                <FolderInput className="size-4" />
+                Move
               </Button>
+              {/* Only offered when the routine is actually reachable. A share
+                  sheet on a private routine hands out a link that 404s for
+                  everyone who receives it. */}
+              {isPublic && (
+                <Button block variant="solid" onClick={share}>
+                  <Share2 className="size-4" />
+                  {copied ? "Copied" : "Share"}
+                </Button>
+              )}
             </>
           ) : (
             <>
@@ -148,6 +173,15 @@ export function RoutineActions({
       </div>
 
       {error && <p className="text-danger mt-2 text-center text-[13px]">{error}</p>}
+
+      <MoveToFolderSheet
+        open={moveSheet}
+        onClose={() => setMoveSheet(false)}
+        routineId={routineId}
+        routineName={routineName}
+        currentFolderId={currentFolderId}
+        folders={folders}
+      />
 
       <LoadPickerSheet
         open={loadSheet}

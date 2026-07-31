@@ -233,6 +233,47 @@ export const exerciseAlternative = pgTable(
    Routines (templates)
    ========================================================================== */
 
+/**
+ * A folder is a real row, not a string on the routine. That is what makes it
+ * renameable, orderable, colourable — and able to exist while empty.
+ */
+export const FOLDER_COLORS = [
+  "slate",
+  "sand",
+  "clay",
+  "moss",
+  "sky",
+  "plum",
+] as const;
+export type FolderColor = (typeof FOLDER_COLORS)[number];
+
+export const routineFolder = pgTable(
+  "routine_folder",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color", { enum: FOLDER_COLORS }).default("slate").notNull(),
+    position: integer("position").default(0).notNull(),
+    // Rotation turns a folder from a drawer into a cycle: the folder knows
+    // which of its routines is up next from what you last finished.
+    rotation: boolean("rotation").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("routine_folder_user_idx").on(t.userId, t.position),
+    // Kills the "PPL" / "ppl" fork in the database rather than in a validator,
+    // which is the only place it can't be raced.
+    uniqueIndex("routine_folder_user_name_idx").on(
+      t.userId,
+      sql`lower(${t.name})`,
+    ),
+  ],
+);
+
 export const routine = pgTable(
   "routine",
   {
@@ -246,11 +287,58 @@ export const routine = pgTable(
     // Set when a routine was copied from someone else, so we can show
     // provenance ("from @tomer") and count shares.
     sourceRoutineId: uuid("source_routine_id"),
-    folder: text("folder"),
+    // Unfiled when null. Deleting a folder unfiles its routines — it must
+    // never cascade, or "delete folder" would silently delete training history.
+    folderId: uuid("folder_id").references(() => routineFolder.id, {
+      onDelete: "set null",
+    }),
+    // Manual order within the folder. Sorting by updatedAt meant that merely
+    // opening and saving a routine reshuffled the list under you.
+    position: integer("position").default(0).notNull(),
+    likeCount: integer("like_count").default(0).notNull(),
+    saveCount: integer("save_count").default(0).notNull(),
+    /**
+     * One sortable key, so "Popular" is a keyset scan against an index instead
+     * of an ORDER BY over a computed expression. GENERATED rather than a plain
+     * column two different actions would each have to remember to write: it
+     * cannot drift from its inputs.
+     */
+    popularity: integer("popularity").generatedAlwaysAs(
+      sql`like_count + 2 * save_count`,
+    ),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (t) => [index("routine_user_idx").on(t.userId)],
+  (t) => [
+    index("routine_user_idx").on(t.userId),
+    index("routine_folder_idx").on(t.folderId, t.position),
+    // Partial on is_public: Discover never reads a private routine, so the
+    // index shouldn't carry one.
+    index("routine_popular_idx")
+      .on(t.popularity, t.id)
+      .where(sql`${t.isPublic}`),
+    index("routine_new_idx")
+      .on(t.createdAt, t.id)
+      .where(sql`${t.isPublic}`),
+  ],
+);
+
+/** Mirrors post_like: composite PK, counter denormalised onto the parent. */
+export const routineLike = pgTable(
+  "routine_like",
+  {
+    routineId: uuid("routine_id")
+      .notNull()
+      .references(() => routine.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.routineId, t.userId] }),
+    index("routine_like_user_idx").on(t.userId),
+  ],
 );
 
 export const routineExercise = pgTable(
@@ -692,6 +780,8 @@ export const NOTIFICATION_TYPES = [
   "friend_accepted",
   "gym_presence",
   "achievement",
+  "routine_like",
+  "routine_save",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -759,9 +849,22 @@ export const userRelations = relations(user, ({ many }) => ({
   achievements: many(userAchievement),
 }));
 
+export const routineFolderRelations = relations(
+  routineFolder,
+  ({ one, many }) => ({
+    user: one(user, { fields: [routineFolder.userId], references: [user.id] }),
+    routines: many(routine),
+  }),
+);
+
 export const routineRelations = relations(routine, ({ one, many }) => ({
   user: one(user, { fields: [routine.userId], references: [user.id] }),
+  folder: one(routineFolder, {
+    fields: [routine.folderId],
+    references: [routineFolder.id],
+  }),
   exercises: many(routineExercise),
+  likes: many(routineLike),
 }));
 
 export const routineExerciseRelations = relations(
@@ -840,6 +943,7 @@ export const postCommentRelations = relations(postComment, ({ one }) => ({
 export type User = typeof user.$inferSelect;
 export type Exercise = typeof exercise.$inferSelect;
 export type Routine = typeof routine.$inferSelect;
+export type RoutineFolder = typeof routineFolder.$inferSelect;
 export type RoutineExercise = typeof routineExercise.$inferSelect;
 export type RoutineSet = typeof routineSet.$inferSelect;
 export type Workout = typeof workout.$inferSelect;

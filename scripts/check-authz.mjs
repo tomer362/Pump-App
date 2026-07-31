@@ -277,6 +277,140 @@ try {
     `status ${routineRes.status()}`,
   );
 
+  // 3b. Folders are rows scoped to one owner, and every mutation takes a bare
+  //     uuid from the caller. A folder id is not secret — it rides in A's own
+  //     HTML — so the scoping has to be inside each action.
+  //     The manifest only carries an id once the client component importing
+  //     the action has been compiled, so visit both screens that pull them in
+  //     — the list (folder manager, reorder) and a routine (move sheet) —
+  //     before resolving, or the lookup comes back half empty.
+  await a.page.goto(`${BASE}/routines`, { waitUntil: "networkidle" });
+  await a.page.goto(`${BASE}/routines/${routineId}`, {
+    waitUntil: "networkidle",
+  });
+
+  const folderActions = actionIdsFromManifest(
+    "src/lib/actions/routine-folder.ts",
+    [
+      "createFolder",
+      "renameFolder",
+      "setFolderColor",
+      "setFolderRotation",
+      "deleteFolder",
+      "reorderFolders",
+      "moveRoutineToFolder",
+      "reorderRoutinesInFolder",
+    ],
+  );
+  requireFixture(
+    folderActions.size === 8,
+    `expected 8 folder action ids in the dev manifest, found ${folderActions.size}`,
+  );
+
+  // A makes a folder of their own, through their own session.
+  const aFolder = await postAction(
+    a.page,
+    `${BASE}/routines`,
+    folderActions.get("createFolder"),
+    [{ name: `Authz folder ${Date.now()}` }],
+  );
+  const folderId = aFolder.body.match(/[0-9a-f]{8}-[0-9a-f-]{27}/)?.[0];
+  requireFixture(
+    Boolean(folderId),
+    `could not create a folder as A: ${aFolder.body.slice(0, 200)}`,
+  );
+
+  const folderProbes = [
+    ["renameFolder", [folderId, "Hijacked"]],
+    ["setFolderColor", [folderId, "clay"]],
+    ["setFolderRotation", [folderId, true]],
+    ["reorderFolders", [[folderId]]],
+    ["moveRoutineToFolder", [routineId, folderId]],
+    ["reorderRoutinesInFolder", [folderId, [routineId]]],
+    // Destructive last, so a failure to refuse doesn't invalidate the probes
+    // above by removing the row they target.
+    ["deleteFolder", [folderId]],
+  ];
+
+  for (const [name, args] of folderProbes) {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines`,
+      folderActions.get(name),
+      args,
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    const refused = /Folder not found|Routine not found|Not signed in/.test(
+      res.body,
+    );
+    check(
+      `${name} refuses another user's folder`,
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // The folder must still exist, keep its name, and hold nothing of B's.
+  await a.page.goto(`${BASE}/routines`, { waitUntil: "networkidle" });
+  const foldersHtml = await a.page.content();
+  check(
+    "A's folder survived B's probes unchanged",
+    foldersHtml.includes("Authz folder") && !foldersHtml.includes("Hijacked"),
+  );
+
+  // 3c. Liking is the one routine action open to non-owners, so its guard is
+  //     the visibility check rather than ownership: A's routine is private.
+  const likeActions = actionIdsFromManifest(
+    "src/lib/actions/routine-social.ts",
+    ["toggleRoutineLike"],
+  );
+  requireFixture(
+    likeActions.size === 1,
+    "expected toggleRoutineLike in the dev manifest",
+  );
+  const likeRes = await postAction(
+    b.page,
+    `${BASE}/routines`,
+    likeActions.get("toggleRoutineLike"),
+    [routineId],
+  );
+  const likeRan = !/Failed to find Server Action/i.test(likeRes.body);
+  check(
+    "toggleRoutineLike refuses another user's private routine",
+    likeRan && /That routine is private|Routine not found/.test(likeRes.body),
+    likeRan ? "" : "INCONCLUSIVE: action did not run",
+  );
+
+  // 3d. A folder id also reaches the database through the routine editor,
+  //     which writes whatever folderId it is handed.
+  const createRoutineAction = actionIdsFromManifest(
+    "src/lib/actions/routine.ts",
+    ["createRoutine"],
+  );
+  requireFixture(
+    createRoutineAction.size === 1,
+    "expected createRoutine in the dev manifest",
+  );
+  const smuggle = await postAction(
+    b.page,
+    `${BASE}/routines/new`,
+    createRoutineAction.get("createRoutine"),
+    [
+      {
+        name: "Smuggled",
+        folderId,
+        isPublic: false,
+        exercises: [{ exerciseId: null, sets: [] }],
+      },
+    ],
+  );
+  const smuggleRan = !/Failed to find Server Action/i.test(smuggle.body);
+  check(
+    "createRoutine refuses another user's folderId",
+    smuggleRan && !/"ok"\s*:\s*true/.test(smuggle.body),
+    smuggleRan ? "" : "INCONCLUSIVE: action did not run",
+  );
+
   // 4. A's gym join code must not be readable by a non-member.
   await a.page.goto(`${BASE}/gyms`, { waitUntil: "networkidle" });
   const addGym = a.page.getByRole("button", { name: /^Add gym$/ });
