@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform } from "motion/react";
+import {
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from "motion/react";
 import { Check, Trash2 } from "lucide-react";
 import { cn, formatWeight, haptic, kgToLb, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
@@ -104,6 +109,16 @@ export function SetRow({
   const x = useMotionValue(0);
   // The bin fades in as the row is dragged left, so the gesture is discoverable.
   const binOpacity = useTransform(x, [-90, -30, 0], [1, 0.5, 0]);
+
+  const reduce = useReducedMotion();
+  // Counts flips into "done" rather than mirroring `completed`, so the burst
+  // replays on every tick and never fires for a row that mounts already done.
+  const [pop, setPop] = useState(0);
+  const wasCompleted = useRef(set.completed);
+  useEffect(() => {
+    if (set.completed && !wasCompleted.current) setPop((n) => n + 1);
+    wasCompleted.current = set.completed;
+  }, [set.completed]);
 
   const columns = setColumns(trackingType);
 
@@ -219,13 +234,34 @@ export function SetRow({
             aria-label={set.completed ? "Mark set incomplete" : "Complete set"}
             aria-pressed={set.completed}
             className={cn(
-              "press grid h-9 w-11 place-items-center rounded-[10px] transition-colors",
+              "press relative grid h-9 w-11 place-items-center rounded-[10px] transition-colors",
               set.completed
                 ? "bg-volt text-black"
                 : "bg-surface-2 text-text-3 hover:text-text-1",
             )}
           >
-            <Check className="size-[18px]" strokeWidth={3} />
+            {/* A ring thrown off the tick. This is the moment the whole screen
+                exists for, and haptics are Android-only — it needs to land
+                visually too. Un-ticking is a correction, so it stays silent. */}
+            {pop > 0 && !reduce && (
+              <motion.span
+                key={pop}
+                initial={{ opacity: 0.85, scale: 0.7 }}
+                animate={{ opacity: 0, scale: 1.85 }}
+                transition={{ duration: 0.42, ease: [0.25, 1, 0.5, 1] }}
+                className="border-volt pointer-events-none absolute inset-0 rounded-[10px] border-2"
+              />
+            )}
+            <motion.span
+              key={pop}
+              // No entrance on mount or on un-ticking — only on the flip to done.
+              initial={pop === 0 || reduce ? false : { scale: 0.45 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 620, damping: 20 }}
+              className="grid place-items-center"
+            >
+              <Check className="size-[18px]" strokeWidth={3} />
+            </motion.span>
           </button>
         </div>
       </motion.div>

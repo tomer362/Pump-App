@@ -93,11 +93,16 @@ export default async function WorkoutDetailPage(
 
         <div className="mt-6 space-y-5">
           {workout.exercises.map((e) => {
-            const working = e.sets.filter((s) => s.setType !== "warmup");
-            const volume = working.reduce(
-              (n, s) => n + (s.weightKg ?? 0) * (s.reps ?? 0),
-              0,
-            );
+            // A finished workout can still carry sets that were planned and
+            // never performed — the lifter chose to record the session as
+            // unfinished. They're shown, but they count for nothing.
+            const performed = e.sets.filter((s) => s.completedAt != null);
+            const skipped = e.sets.length - performed.length;
+            const volume = performed
+              .filter((s) => s.setType !== "warmup")
+              .reduce((n, s) => n + (s.weightKg ?? 0) * (s.reps ?? 0), 0);
+            // Warm-ups don't consume a set number, matching how lifters count.
+            let workingIndex = 0;
             return (
               <div key={e.id}>
                 <div className="mb-1 flex items-center gap-2">
@@ -121,9 +126,10 @@ export default async function WorkoutDetailPage(
                 </div>
 
                 <p className="text-text-3 mb-2 text-[12px]">
-                  {labelize(e.primaryMuscle)} · {e.sets.length} set
-                  {e.sets.length === 1 ? "" : "s"} ·{" "}
+                  {labelize(e.primaryMuscle)} · {performed.length} set
+                  {performed.length === 1 ? "" : "s"} ·{" "}
                   {formatVolume(volume, me.unit)} {me.unit}
+                  {skipped > 0 && ` · ${skipped} skipped`}
                 </p>
 
                 {e.notes && (
@@ -131,7 +137,9 @@ export default async function WorkoutDetailPage(
                 )}
 
                 <Card className="divide-hairline divide-y overflow-hidden">
-                  {e.sets.map((s, i) => {
+                  {e.sets.map((s) => {
+                    const done = s.completedAt != null;
+                    if (done && s.setType !== "warmup") workingIndex++;
                     // Only the measures this exercise actually records — a
                     // plank has no weight, a barbell row has no distance.
                     const parts = [
@@ -148,13 +156,15 @@ export default async function WorkoutDetailPage(
                       className="flex items-center gap-3 px-3 py-2 text-[13px]"
                     >
                       <span className="num text-text-3 w-5 shrink-0 font-bold">
-                        {s.setType === "normal"
-                          ? i + 1
-                          : s.setType === "warmup"
-                            ? "W"
-                            : s.setType === "drop"
-                              ? "D"
-                              : "F"}
+                        {!done
+                          ? "–"
+                          : s.setType === "normal"
+                            ? workingIndex
+                            : s.setType === "warmup"
+                              ? "W"
+                              : s.setType === "drop"
+                                ? "D"
+                                : "F"}
                       </span>
                       {parts.length === 0 ? (
                         <span className="num text-text-3 font-semibold">—</span>
@@ -162,13 +172,24 @@ export default async function WorkoutDetailPage(
                         parts.map((part, j) => (
                           <span key={j} className="contents">
                             {j > 0 && <span className="text-text-3">×</span>}
-                            <span className="num text-text-1 font-semibold">
+                            <span
+                              className={
+                                done
+                                  ? "num text-text-1 font-semibold"
+                                  : "num text-text-3 font-semibold line-through"
+                              }
+                            >
                               {part}
                             </span>
                           </span>
                         ))
                       )}
-                      {s.rpe != null && (
+                      {!done && (
+                        <span className="text-text-3 ml-auto text-[11px] font-semibold tracking-[0.06em] uppercase">
+                          Skipped
+                        </span>
+                      )}
+                      {done && s.rpe != null && (
                         <span className="num text-text-3 ml-auto text-[12px]">
                           RPE {s.rpe}
                         </span>
