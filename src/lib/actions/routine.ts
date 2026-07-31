@@ -1,11 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
-  exercise,
   routine,
   routineExercise,
   routineSet,
@@ -385,73 +384,4 @@ export async function saveWorkoutAsRoutine(
   return { ok: true, data: { routineId: id } };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Custom exercises                                                            */
-/* -------------------------------------------------------------------------- */
-
-const customExerciseSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(80),
-  primaryMuscle: z.string().min(1),
-  equipment: z.string().min(1),
-  trackingType: z
-    .enum(["weight_reps", "reps", "time", "distance_time", "weight_time"])
-    .default("weight_reps"),
-  instructions: z.string().trim().max(1000).nullable().optional(),
-});
-
-export async function createCustomExercise(input: {
-  name: string;
-  primaryMuscle: string;
-  equipment: string;
-  trackingType?: string;
-  instructions?: string | null;
-}): Promise<ActionResult<{ exerciseId: string }>> {
-  const me = await getCurrentUser();
-  if (!me) return { ok: false, error: "Not signed in" };
-
-  const parsed = customExerciseSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
-  }
-
-  const [dupe] = await db
-    .select({ id: exercise.id })
-    .from(exercise)
-    .where(
-      and(
-        eq(exercise.ownerId, me.id),
-        sql`LOWER(${exercise.name}) = LOWER(${parsed.data.name})`,
-      ),
-    )
-    .limit(1);
-  if (dupe) return { ok: false, error: "You already have an exercise with that name" };
-
-  const [row] = await db
-    .insert(exercise)
-    .values({
-      name: parsed.data.name,
-      primaryMuscle: parsed.data.primaryMuscle as never,
-      equipment: parsed.data.equipment as never,
-      trackingType: parsed.data.trackingType as never,
-      instructions: parsed.data.instructions ?? null,
-      ownerId: me.id,
-    })
-    .returning({ id: exercise.id });
-
-  revalidatePath("/exercises");
-  return { ok: true, data: { exerciseId: row.id } };
-}
-
-export async function deleteCustomExercise(
-  exerciseId: string,
-): Promise<ActionResult> {
-  const me = await getCurrentUser();
-  if (!me) return { ok: false, error: "Not signed in" };
-
-  await db
-    .delete(exercise)
-    .where(and(eq(exercise.id, exerciseId), eq(exercise.ownerId, me.id)));
-
-  revalidatePath("/exercises");
-  return { ok: true };
-}
+/* Custom-exercise create/edit/archive live in `actions/exercise.ts`. */

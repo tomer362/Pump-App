@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
 import {
@@ -8,6 +8,7 @@ import {
   Ellipsis,
   GripVertical,
   Plus,
+  Repeat2,
   Timer,
   Trash2,
 } from "lucide-react";
@@ -16,7 +17,6 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Textarea, Segmented } from "@/components/ui/primitives";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
 import {
-  cascadeBelow,
   columnLabel,
   setColumns,
   type SetColumn,
@@ -54,15 +54,16 @@ type DraftExercise = {
 let keySeq = 0;
 const nextKey = () => `k${++keySeq}`;
 
-/** Column key → the `DraftSet` field it edits. */
+/** Column key → the `DraftSet` field it edits. Weight is handled separately
+    because it needs unit conversion on the way in and out. */
 const TARGET_FIELD = {
-  weight: "targetWeightKg",
   reps: "targetReps",
   seconds: "targetSeconds",
   distance: "targetDistanceM",
-} as const satisfies Record<SetColumn, keyof DraftSet>;
-
-type TargetField = (typeof TARGET_FIELD)[SetColumn];
+} as const satisfies Record<
+  Exclude<SetColumn, "weight">,
+  keyof DraftSet
+>;
 
 /** A new set inherits the previous one's targets — programmes repeat. */
 function cloneTargets(last: DraftSet | undefined) {
@@ -116,27 +117,22 @@ export function RoutineBuilder({
 
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  /** The cascade in progress — see `editTarget`. Reset on every cell focus. */
-  const cascade = useRef<{
-    setKey: string;
-    field: TargetField;
-    typed: boolean;
-    filled: string[];
-  } | null>(null);
 
   const addExercises = useCallback(
     async (ids: string[]) => {
       setPicking(false);
       if (!ids.length) return;
       // The picker already has the metadata; refetch minimal info for names.
-      const { searchExercisesAction } = await import(
+      // Only the ids that were picked — this used to pull the whole library
+      // back just to read a handful of rows out of it.
+      const { getExercisesByIdsAction } = await import(
         "@/lib/actions/exercise-search"
       );
-      const all = await searchExercisesAction({});
-      const byId = new Map(all.map((e) => [e.id, e]));
+      const picked = await getExercisesByIdsAction(ids);
+      const byId = new Map(picked.map((e) => [e.id, e]));
       setItems((prev) => [
         ...prev,
         ...ids
@@ -174,12 +170,45 @@ export function RoutineBuilder({
   );
 
   // Same signal the workout screen gives: the picker marks what the draft
-  // already contains, without stopping you programming it twice.
+  // already contains, without stopping you programming a lift twice.
   const alreadyIn = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const it of items) counts[it.exerciseId] = (counts[it.exerciseId] ?? 0) + 1;
     return counts;
   }, [items]);
+
+  /**
+   * Swap the movement on one row, keeping its sets, rest and superset letter.
+   *
+   * The targets are kept rather than cleared, unlike the mid-workout swap:
+   * these are a prescription, not a record of work done, and "3×8" survives
+   * the change from a pull-up to a lat pulldown.
+   */
+  const replaceExercise = useCallback(async (key: string, id: string) => {
+    setReplaceFor(null);
+    const { getExercisesByIdsAction } = await import(
+      "@/lib/actions/exercise-search"
+    );
+    const [picked] = await getExercisesByIdsAction([id]);
+    if (!picked) return;
+    haptic.light();
+    setItems((prev) =>
+      prev.map((it) =>
+        it.key !== key
+          ? it
+          : {
+              ...it,
+              exerciseId: picked.id,
+              name: picked.name,
+              primaryMuscle: picked.primaryMuscle,
+              equipment: picked.equipment,
+              trackingType: picked.trackingType,
+              // Cues and machine settings described the old movement.
+              notes: null,
+            },
+      ),
+    );
+  }, []);
 
   function patchExercise(key: string, patch: Partial<DraftExercise>) {
     setItems((prev) =>
@@ -200,51 +229,6 @@ export function RoutineBuilder({
             },
       ),
     );
-  }
-
-  /**
-   * Type a target into one set and the empty sets under it take the same
-   * number, live. Programmes are written as "4×8 @ 60" far more often than as
-   * four different prescriptions, so the sets below are what you'd have typed
-   * next; anything you've already filled in yourself is left alone.
-   */
-  function editTarget(
-    exKey: string,
-    setKey: string,
-    field: TargetField,
-    value: number | null,
-    typed: boolean,
-  ) {
-    const item = items.find((it) => it.key === exKey);
-    const from = item?.sets.findIndex((s) => s.key === setKey) ?? -1;
-    if (!item || from < 0) return;
-
-    const run =
-      cascade.current?.setKey === setKey && cascade.current.field === field
-        ? cascade.current
-        : (cascade.current = { setKey, field, typed: false, filled: [] });
-    run.typed ||= typed;
-
-    const edited = item.sets.map((s) =>
-      s.key === setKey ? { ...s, [field]: value } : s,
-    );
-
-    // Focusing a cell to read it and moving on isn't a prescription.
-    if (!run.typed) {
-      patchExercise(exKey, { sets: edited });
-      return;
-    }
-
-    const { sets, filled } = cascadeBelow({
-      sets: edited,
-      from,
-      field,
-      value,
-      keyOf: (s) => s.key,
-      owned: new Set(run.filled),
-    });
-    run.filled = filled;
-    patchExercise(exKey, { sets });
   }
 
   async function save() {
@@ -290,6 +274,7 @@ export function RoutineBuilder({
   }
 
   const menuItem = items.find((i) => i.key === menuFor) ?? null;
+  const replaceItem = items.find((i) => i.key === replaceFor) ?? null;
 
   return (
     <div className="min-h-screen-d pb-32">
@@ -365,12 +350,6 @@ export function RoutineBuilder({
             unit={unit}
             onOpenMenu={() => setMenuFor(item.key)}
             onPatchSet={(setKey, patch) => patchSet(item.key, setKey, patch)}
-            onTargetFocus={(setKey, field) => {
-              cascade.current = { setKey, field, typed: false, filled: [] };
-            }}
-            onTargetEdit={(setKey, field, value, typed) =>
-              editTarget(item.key, setKey, field, value, typed)
-            }
             onAddSet={() =>
               patchExercise(item.key, {
                 sets: [
@@ -406,6 +385,18 @@ export function RoutineBuilder({
         alreadyIn={alreadyIn}
       />
 
+      <ExercisePicker
+        open={replaceItem != null}
+        onClose={() => setReplaceFor(null)}
+        mode="replace"
+        replacing={
+          replaceItem && { id: replaceItem.exerciseId, name: replaceItem.name }
+        }
+        onConfirm={(ids) => {
+          if (replaceItem && ids[0]) replaceExercise(replaceItem.key, ids[0]);
+        }}
+      />
+
       <Sheet
         open={menuItem != null}
         onClose={() => setMenuFor(null)}
@@ -415,6 +406,10 @@ export function RoutineBuilder({
           <ExerciseSettings
             item={menuItem}
             onPatch={(patch) => patchExercise(menuItem.key, patch)}
+            onReplace={() => {
+              setMenuFor(null);
+              setReplaceFor(menuItem.key);
+            }}
             onRemove={() => {
               setItems((prev) => prev.filter((i) => i.key !== menuItem.key));
               setMenuFor(null);
@@ -433,8 +428,6 @@ function ExerciseCard({
   unit,
   onOpenMenu,
   onPatchSet,
-  onTargetFocus,
-  onTargetEdit,
   onAddSet,
   onRemoveSet,
 }: {
@@ -442,14 +435,6 @@ function ExerciseCard({
   unit: "kg" | "lb";
   onOpenMenu: () => void;
   onPatchSet: (setKey: string, patch: Partial<DraftSet>) => void;
-  onTargetFocus: (setKey: string, field: TargetField) => void;
-  /** `typed` separates a keystroke from a blur that changed nothing. */
-  onTargetEdit: (
-    setKey: string,
-    field: TargetField,
-    value: number | null,
-    typed: boolean,
-  ) => void;
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
 }) {
@@ -544,41 +529,53 @@ function ExerciseCard({
                     : "F"}
             </button>
 
-            {columns.map((column) => {
-              const field = TARGET_FIELD[column];
-              const isWeight = column === "weight";
-              const current = s[field];
-
-              // Shared by both channels so the number a keystroke cascades is
-              // the number the blur settles on.
-              const parse = (raw: string) => {
-                if (raw === "") return null;
-                const n = isWeight ? Number(raw) : Math.round(Number(raw));
-                if (!Number.isFinite(n)) return null;
-                return isWeight && unit === "lb" ? lbToKg(n) : n;
-              };
-
-              return (
+            {columns.map((column) =>
+              column === "weight" ? (
                 <TargetInput
                   key={column}
                   value={
-                    current == null
+                    s.targetWeightKg == null
                       ? ""
-                      : isWeight
-                        ? String(
-                            Math.round(
-                              (unit === "kg" ? current : kgToLb(current)) * 100,
-                            ) / 100,
-                          )
-                        : String(current)
+                      : String(
+                          Math.round(
+                            (unit === "kg"
+                              ? s.targetWeightKg
+                              : kgToLb(s.targetWeightKg)) * 100,
+                          ) / 100,
+                        )
                   }
                   placeholder="—"
-                  onFocus={() => onTargetFocus(s.key, field)}
-                  onDraft={(raw) => onTargetEdit(s.key, field, parse(raw), true)}
-                  onCommit={(raw) => onTargetEdit(s.key, field, parse(raw), false)}
+                  onCommit={(raw) => {
+                    const n = raw === "" ? null : Number(raw);
+                    onPatchSet(s.key, {
+                      targetWeightKg:
+                        n == null || !Number.isFinite(n)
+                          ? null
+                          : unit === "kg"
+                            ? n
+                            : lbToKg(n),
+                    });
+                  }}
                 />
-              );
-            })}
+              ) : (
+                <TargetInput
+                  key={column}
+                  value={
+                    s[TARGET_FIELD[column]] == null
+                      ? ""
+                      : String(s[TARGET_FIELD[column]])
+                  }
+                  placeholder="—"
+                  onCommit={(raw) => {
+                    const n = raw === "" ? null : Math.round(Number(raw));
+                    onPatchSet(s.key, {
+                      [TARGET_FIELD[column]]:
+                        n == null || !Number.isFinite(n) ? null : n,
+                    });
+                  }}
+                />
+              ),
+            )}
 
             <button
               onClick={() => onRemoveSet(s.key)}
@@ -603,51 +600,24 @@ function ExerciseCard({
   );
 }
 
-/**
- * Commits on blur/Enter so re-renders can't fight the user's typing; `onDraft`
- * is the separate live channel the cascade rides on. The effect only accepts an
- * outside value while the cell is unfocused, which is how a row filled by the
- * cell above it updates without the focused source ever being written back to.
- */
 function TargetInput({
   value,
   placeholder,
-  onFocus,
-  onDraft,
   onCommit,
 }: {
   value: string;
   placeholder: string;
-  onFocus?: () => void;
-  onDraft?: (raw: string) => void;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
-  const focused = useRef(false);
-
-  useEffect(() => {
-    if (!focused.current) setLocal(value);
-  }, [value]);
-
   return (
     <input
       value={local}
       inputMode="decimal"
       placeholder={placeholder}
-      onFocus={(e) => {
-        focused.current = true;
-        onFocus?.();
-        requestAnimationFrame(() => e.target.select());
-      }}
-      onChange={(e) => {
-        const raw = e.target.value.replace(/[^0-9.]/g, "");
-        setLocal(raw);
-        onDraft?.(raw);
-      }}
-      onBlur={() => {
-        focused.current = false;
-        onCommit(local);
-      }}
+      onFocus={(e) => requestAnimationFrame(() => e.target.select())}
+      onChange={(e) => setLocal(e.target.value.replace(/[^0-9.]/g, ""))}
+      onBlur={() => onCommit(local)}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
@@ -661,10 +631,12 @@ function TargetInput({
 function ExerciseSettings({
   item,
   onPatch,
+  onReplace,
   onRemove,
 }: {
   item: DraftExercise;
   onPatch: (patch: Partial<DraftExercise>) => void;
+  onReplace: () => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
@@ -805,10 +777,20 @@ function ExerciseSettings({
         />
       </div>
 
-      <Button block variant="danger" onClick={onRemove}>
-        <Trash2 className="size-4" />
-        Remove from routine
-      </Button>
+      <div className="space-y-2">
+        <Button block variant="solid" onClick={onReplace}>
+          <Repeat2 className="size-4" strokeWidth={2.4} />
+          Replace exercise
+        </Button>
+        <p className="text-text-3 text-[12px] leading-snug">
+          Swaps the movement and keeps the sets and targets you prescribed.
+        </p>
+
+        <Button block variant="danger" onClick={onRemove}>
+          <Trash2 className="size-4" />
+          Remove from routine
+        </Button>
+      </div>
     </div>
   );
 }

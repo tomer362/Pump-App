@@ -65,6 +65,9 @@ html {
   /* Kill the 300ms tap delay without disabling pinch-zoom on content. */
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
+  /* Both html and body: iOS picks the scrolling element itself, and setting
+     this on only one of them still lets the document rubber-band. */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -167,9 +170,24 @@ input[type="number"]::-webkit-inner-spin-button {
 @utility mb-safe {
   margin-bottom: env(safe-area-inset-bottom, 0px);
 }
+/* Use ONLY on elements that have no horizontal padding of their own. Combining
+   it with `px-4` sets padding-left twice and one of them silently wins — in
+   portrait, where the inset is 0px, that collapsed several large titles flush
+   against the screen edge. Anything that needs both wants `px-safe-*`. */
 @utility inset-safe-x {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Horizontal padding that the safe-area inset can only ever raise, never
+   replace. `px-safe-4` is `px-4` in portrait and clears the notch in
+   landscape. */
+@utility px-safe-* {
+  padding-left: max(--spacing(--value(integer)), env(safe-area-inset-left, 0px));
+  padding-right: max(
+    --spacing(--value(integer)),
+    env(safe-area-inset-right, 0px)
+  );
 }
 
 /* Full-height that survives the iOS URL bar showing/hiding. Never use 100vh. */

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  animate,
   motion,
+  useDragControls,
   useMotionValue,
   useReducedMotion,
   useTransform,
@@ -46,59 +48,6 @@ export function setColumns(trackingType: string): SetColumn[] {
   }
 }
 
-/** The `SetDraft` field each value column edits. */
-export type ValueField = "weightKg" | "reps" | "seconds" | "distanceM";
-
-const COLUMN_FIELD: Record<SetColumn, ValueField> = {
-  weight: "weightKg",
-  reps: "reps",
-  seconds: "seconds",
-  distance: "distanceM",
-};
-
-/**
- * Push `value` down the sets below `from`, so filling in the first set of an
- * exercise prescribes the rest of it — the common case is four sets of the
- * same thing, and typing it four times is four times the work.
- *
- * A set the lifter has already given a number of its own is left alone and the
- * run continues past it; `locked` sets (completed ones on the workout screen)
- * are records of work performed, not a plan, so they're never rewritten.
- * `owned` is what an earlier keystroke of this same run filled: those follow
- * the source cell, otherwise typing "100" would strand the sets below on the
- * "1" and clearing the field would leave them stuck.
- */
-export function cascadeBelow<S, K extends keyof S>({
-  sets,
-  from,
-  field,
-  value,
-  keyOf,
-  owned,
-  locked,
-}: {
-  sets: S[];
-  from: number;
-  field: K;
-  value: S[K];
-  keyOf: (set: S) => string;
-  owned: ReadonlySet<string>;
-  locked?: (set: S) => boolean;
-}): { sets: S[]; filled: string[] } {
-  const filled: string[] = [];
-
-  const next = sets.map((set, i) => {
-    if (i <= from || locked?.(set)) return set;
-    const key = keyOf(set);
-    // Nothing to give an untouched set when the source itself is empty.
-    if (!owned.has(key) && (set[field] != null || value == null)) return set;
-    filled.push(key);
-    return set[field] === value ? set : { ...set, [field]: value };
-  });
-
-  return { sets: filled.length ? next : sets, filled };
-}
-
 export function setGridTemplate(columns: SetColumn[]) {
   return `28px minmax(46px, 0.9fr) ${columns
     .map(() => "minmax(56px, 1fr)")
@@ -139,9 +88,6 @@ export function SetRow({
   trackingType,
   previous,
   onPatch,
-  onValueFocus,
-  onValueDraft,
-  onValueCommit,
   onToggleComplete,
   onDelete,
   onOpenTypeMenu,
@@ -157,21 +103,14 @@ export function SetRow({
     seconds: number | null;
     distanceM?: number | null;
   } | null;
-  onPatch: (patch: Partial<SetDraft>) => void;
-  /** A value cell took focus — the start of a fresh cascade run. */
-  onValueFocus: (field: ValueField) => void;
-  /** Every keystroke, local only. */
-  onValueDraft: (field: ValueField, value: number | null) => void;
-  /** Blur or Enter — the point at which the value reaches the server. */
-  onValueCommit: (field: ValueField, value: number | null) => void;
+  onPatch: (
+    patch: Partial<SetDraft>,
+    opts?: { fill?: boolean; local?: boolean },
+  ) => void;
   onToggleComplete: () => void;
   onDelete: () => void;
   onOpenTypeMenu: () => void;
 }) {
-  const x = useMotionValue(0);
-  // The bin fades in as the row is dragged left, so the gesture is discoverable.
-  const binOpacity = useTransform(x, [-90, -30, 0], [1, 0.5, 0]);
-
   const reduce = useReducedMotion();
   // Counts flips into "done" rather than mirroring `completed`, so the burst
   // replays on every tick and never fires for a row that mounts already done.
@@ -182,31 +121,88 @@ export function SetRow({
     wasCompleted.current = set.completed;
   }, [set.completed]);
 
+  const x = useMotionValue(0);
+  // The bin fades in as the row is dragged left, so the gesture is
+  // discoverable — and only takes taps once it is actually showing, so a
+  // closed row's checkmark and inputs are never shadowed by it.
+  const binOpacity = useTransform(x, [-90, -30, 0], [1, 0.5, 0]);
+  const binPointer = useTransform(x, (v) => (v < -8 ? "auto" : "none"));
+
+  /**
+   * The swipe is started by hand rather than by motion's own listener.
+   *
+   * Motion won't begin a drag whose pointer-down landed on a form control, and
+   * the two number inputs are most of this row's width — so the gesture worked
+   * from the narrow strips at either end and did nothing from the middle. That
+   * inconsistency is most of what made it feel broken. Starting the session
+   * ourselves makes the whole row swipeable; a tap still focuses the input,
+   * because a drag only begins once the pointer has actually moved.
+   */
+  const dragControls = useDragControls();
+
+  // Rows are keyed by set id, so this is belt-and-braces against DOM reuse
+  // leaving a new row parked at the previous one's offset.
+  useEffect(() => {
+    x.set(0);
+  }, [set.id, x]);
+
   const columns = setColumns(trackingType);
+
+  const remove = () => {
+    haptic.medium();
+    onDelete();
+  };
 
   return (
     <div className="relative">
-      {/* Delete affordance revealed by the swipe. */}
-      <motion.div
-        style={{ opacity: binOpacity }}
+      {/* Delete affordance revealed by the swipe. A real button, so a row left
+          half-open can be finished with a tap rather than re-swiped. */}
+      <motion.button
+        type="button"
+        aria-label={`Delete set ${index}`}
+        tabIndex={-1}
+        onClick={remove}
+        style={{ opacity: binOpacity, pointerEvents: binPointer }}
         className="bg-danger-fade absolute inset-y-0 right-0 flex w-[90px] items-center justify-end pr-5"
       >
         <Trash2 className="text-danger size-[18px]" strokeWidth={2.2} />
-      </motion.div>
+      </motion.button>
 
       <motion.div
         drag="x"
-        style={{ x }}
+        // Vertical scrolling stays with the page. Without this the browser has
+        // to wait for the gesture to resolve before it will scroll, which is
+        // what made the list feel like it was catching on every row.
+        style={{ x, touchAction: "pan-y" }}
         dragConstraints={{ left: -90, right: 0 }}
         dragElastic={{ left: 0.15, right: 0 }}
         dragDirectionLock
-        onDragEnd={(_, info) => {
-          if (info.offset.x < -70 || info.velocity.x < -500) {
-            haptic.medium();
-            onDelete();
-          } else {
-            x.set(0);
+        // Without this the row can coast past the constraint on a flick and
+        // settle half-open — one of the states that read as broken.
+        dragMomentum={false}
+        dragListener={false}
+        dragControls={dragControls}
+        onPointerDown={(e) => {
+          // Except while this row is being edited: with the keyboard up, a
+          // sideways drag is someone placing a caret, not deleting the set
+          // they are in the middle of typing into.
+          const active = document.activeElement;
+          if (active instanceof HTMLInputElement && e.currentTarget.contains(active)) {
+            return;
           }
+          dragControls.start(e);
+        }}
+        onDragEnd={(_, info) => {
+          // A swipe only counts if it was unambiguously sideways: scrolling
+          // the list with a thumb that drifts left is not a delete.
+          const sideways =
+            Math.abs(info.offset.x) > Math.abs(info.offset.y) * 2;
+          const decisive =
+            info.offset.x < -80 || (info.velocity.x < -800 && info.offset.x < -40);
+          if (sideways && decisive) remove();
+          // Spring back rather than jump back — the instant reset was the
+          // other half of why this felt broken.
+          else animate(x, 0, { type: "spring", stiffness: 500, damping: 40 });
         }}
         className={cn(
           "relative px-3 py-1.5 transition-colors",
@@ -283,9 +279,7 @@ export function SetRow({
               set={set}
               previous={previous}
               unit={unit}
-              onFocus={onValueFocus}
-              onDraft={onValueDraft}
-              onCommit={onValueCommit}
+              onPatch={onPatch}
             />
           ))}
 
@@ -375,75 +369,87 @@ function ValueCell({
   set,
   previous,
   unit,
-  onFocus,
-  onDraft,
-  onCommit,
+  onPatch,
 }: {
   column: SetColumn;
   set: SetDraft;
   previous: Previous;
   unit: "kg" | "lb";
-  onFocus: (field: ValueField) => void;
-  onDraft: (field: ValueField, value: number | null) => void;
-  onCommit: (field: ValueField, value: number | null) => void;
+  onPatch: (
+    patch: Partial<SetDraft>,
+    opts?: { fill?: boolean; local?: boolean },
+  ) => void;
 }) {
-  const field = COLUMN_FIELD[column];
-  const isWeight = field === "weightKg";
+  if (column === "weight") {
+    // One parser for both channels, so what you see mid-keystroke is exactly
+    // what gets written on blur — including the lb→kg conversion.
+    const submit = (raw: string, local: boolean) => {
+      const n = raw === "" ? null : Number(raw);
+      if (n != null && !Number.isFinite(n)) return;
+      onPatch(
+        { weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n) },
+        // Typing a value carries it down the empty sets below it —
+        // clearing one never does. See `patchSet` for the exact run.
+        { fill: n != null, local },
+      );
+    };
+    return (
+      <NumberCell
+        value={
+          set.weightKg == null
+            ? ""
+            : String(
+                Math.round(
+                  (unit === "kg" ? set.weightKg : kgToLb(set.weightKg)) * 100,
+                ) / 100,
+              )
+        }
+        placeholder={
+          previous?.weightKg != null ? formatWeight(previous.weightKg, unit) : "0"
+        }
+        completed={set.completed}
+        onDraft={(raw) => submit(raw, true)}
+        onCommit={(raw) => submit(raw, false)}
+      />
+    );
+  }
+
+  const field = column === "reps" ? "reps" : column === "seconds" ? "seconds" : "distanceM";
   const current = set[field];
   const prior = previous?.[field] ?? null;
 
-  // One parse for both channels. The value a keystroke cascades downward has to
-  // be the same number the blur then persists, or the row would settle onto
-  // something other than what the sets below were given.
-  const relay =
-    (to: (field: ValueField, value: number | null) => void) => (raw: string) => {
-      if (raw === "") return to(field, null);
-      const n = isWeight ? Number(raw) : Math.round(Number(raw));
-      if (!Number.isFinite(n)) return;
-      to(field, isWeight && unit === "lb" ? lbToKg(n) : n);
-    };
+  const submit = (raw: string, local: boolean) => {
+    const n = raw === "" ? null : Math.round(Number(raw));
+    if (n != null && !Number.isFinite(n)) return;
+    onPatch({ [field]: n } as Partial<SetDraft>, { fill: n != null, local });
+  };
 
   return (
     <NumberCell
-      value={
-        current == null
-          ? ""
-          : isWeight
-            ? String(
-                Math.round((unit === "kg" ? current : kgToLb(current)) * 100) /
-                  100,
-              )
-            : String(current)
-      }
-      placeholder={
-        prior == null ? "0" : isWeight ? formatWeight(prior, unit) : String(prior)
-      }
+      value={current == null ? "" : String(current)}
+      placeholder={prior != null ? String(prior) : "0"}
       completed={set.completed}
-      integer={!isWeight}
-      onFocus={() => onFocus(field)}
-      onDraft={relay(onDraft)}
-      onCommit={relay(onCommit)}
+      integer
+      onDraft={(raw) => submit(raw, true)}
+      onCommit={(raw) => submit(raw, false)}
     />
   );
 }
 
 /**
- * A numeric cell that only commits on blur/Enter, so re-renders can't fight
- * the user's typing, and shows the previous session's value as a placeholder
- * — that's what makes an unchanged set a single tap.
+ * A numeric cell that persists on blur/Enter, so re-renders can't fight the
+ * user's typing, and shows the previous session's value as a placeholder —
+ * that's what makes an unchanged set a single tap.
  *
- * `onDraft` is the separate live channel the cascade rides on. It reports what
- * has been typed without disturbing `local`, so the commit guard above stays
- * exactly as strict as it was: this cell is still the only writer of its own
- * text, and a cascade landing on a *different* row's `value` reaches that row
- * through the unfocused branch of the effect below.
+ * `onDraft` is the second, local-only channel: it reports every keystroke so
+ * the fill down the sets below can keep up with what's being typed, without
+ * a round-trip per character. `onCommit` is still the only thing that writes.
  */
 function NumberCell({
   value,
   placeholder,
   completed,
   integer,
-  onFocus,
   onDraft,
   onCommit,
 }: {
@@ -451,16 +457,14 @@ function NumberCell({
   placeholder: string;
   completed: boolean;
   integer?: boolean;
-  onFocus: () => void;
-  onDraft: (raw: string) => void;
+  onDraft?: (raw: string) => void;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
   const focused = useRef(false);
 
-  // Refs so the teardown effect below can read the latest local value and
-  // callback without listing them as deps — this cell mounts fresh per set,
-  // and re-subscribing the pagehide listener on every keystroke would be silly.
+  // Refs so the teardown below can read the latest values without listing them
+  // as deps — re-subscribing `pagehide` on every keystroke would be silly.
   const localRef = useRef(local);
   const valueRef = useRef(value);
   const onCommitRef = useRef(onCommit);
@@ -476,10 +480,9 @@ function NumberCell({
     if (!focused.current) setLocal(value);
   }, [value]);
 
-  // Blur normally commits an edit, but two paths skip it entirely: tapping
-  // the exercise name unmounts this row before the blur handler runs, and
-  // iOS swiping the installed PWA away fires no DOM events at all — only
-  // `pagehide`. Both would otherwise lose whatever the lifter just typed.
+  // Blur normally commits, but two paths skip it: navigating away unmounts this
+  // row before the blur handler runs, and iOS swiping the installed PWA away
+  // fires no ordinary DOM events at all. Both would lose the pending edit.
   useEffect(() => {
     const commitIfDirty = () => {
       if (focused.current && localRef.current !== valueRef.current) {
@@ -501,14 +504,13 @@ function NumberCell({
       placeholder={placeholder}
       onFocus={(e) => {
         focused.current = true;
-        onFocus();
         // Select-all means overwriting is one tap, not tap-then-clear.
         requestAnimationFrame(() => e.target.select());
       }}
       onChange={(e) => {
         const raw = e.target.value.replace(/[^0-9.]/g, "");
         setLocal(raw);
-        onDraft(raw);
+        onDraft?.(raw);
       }}
       onBlur={() => {
         focused.current = false;

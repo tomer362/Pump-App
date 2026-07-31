@@ -119,6 +119,17 @@ labels, so no value is reachable only through a tooltip.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
 - Tap targets ≥44 px (`tap` utility).
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
+- **`px-safe-*`, not `px-4 inset-safe-x`.** Both set `padding-left`, so one silently wins — and in portrait, where the inset is `0px`, `inset-safe-x` winning collapsed several large titles flush against the screen edge. `px-safe-4` is `max(1rem, env(safe-area-inset-left))`: the inset can only raise the padding. Use bare `inset-safe-x` only on an element with no horizontal padding of its own (the tab bar, the workout header).
+
+**The document never scrolls.** `body` is exactly `100dvh` and `overflow:
+hidden`; content scrolls in the one container inside it, with
+`overscroll-y-contain`. Before that, `min-h-screen-d` on `body` *and* on the
+`(app)` shell *and* the tab-bar spacer stacked, so every page — however short —
+scrolled into a blank void that iOS then lagged repainting the fixed tab bar
+over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
+`position: fixed` still resolves against the viewport because the scroller sets
+no transform or filter — so docked chrome needs no change. Route shells use
+`min-h-full`, never a second `min-h-screen-d`.
 
 **Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
 area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
@@ -159,6 +170,9 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Warm-up sets are excluded from volume, records and muscle-volume counts.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
+- **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.
+- **A custom exercise is archived, never deleted.** `DELETE` cascades through `workout_exercise` to every set logged against it, rewriting finished sessions and dropping the records computed from them — so the "delete" control sets `exercise.archived_at`. Archived rows drop out of `searchExercises` (and therefore every picker) but still resolve by id, because history links to them. `lib/actions/exercise.ts` owns create/update/archive/restore and scopes every statement with `owner_id = me.id`, which is also what makes the built-in library read-only by construction.
+- **Only curated YouTube ids reach `videoUrl`; everything else falls back to a search** built from the exercise name, and the UI labels the two differently (`lib/exercise-video.ts`). Never present a search results page as a vetted demonstration.
 - **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
 - **`DISTINCT ON` inside a `UNION`** needs each branch parenthesised — an unbracketed `ORDER BY` binds to the whole union and it's a syntax error (`lib/records.ts`).
 - **Anything time-relative is a client component with `suppressHydrationWarning`** — `<TimeAgo>`, `<Elapsed>`. Server and client render at different instants, and a text mismatch makes React discard the subtree: on `ActiveWorkoutPill` that remounts the one component whose job is to persist. Same rule for client-only storage: the rest timer seeds from `sessionStorage` through `useSyncExternalStore` (server snapshot `null`), never a `useState` initialiser.
@@ -180,7 +194,7 @@ pnpm test             # vitest — records, counters, rate limiter, pure helpers
 
 pnpm db:generate      # drizzle-kit generate — after editing schema.ts
 pnpm db:migrate       # apply migrations
-pnpm db:seed          # exercise library + achievements (idempotent)
+pnpm db:seed          # exercise library + achievements (upserts on slug — re-run to update)
 pnpm check:queries    # run every read query against the DB, catch SQL errors
 
 node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, screenshots to /tmp/pump-shots
@@ -220,7 +234,16 @@ well as the flag.
    otherwise falls back to a default secret that ships in its published source
    — it logs an error, carries on, and the deployment goes out with session
    cookies anyone can forge. A build that stops is the better outcome.
-4. `pnpm db:migrate && pnpm db:seed` against the Neon URL.
+4. Nothing to run by hand — `pnpm build` runs `drizzle-kit migrate` **and**
+   `pnpm db:seed` before `next build`, so every deploy carries the schema and
+   the built-in library with it.
+   **The seed has to run on deploy, not just locally.** It only ever ran as a
+   manual step against `.env.local`, so the 249 built-in exercises reached dev
+   databases and never production: migrations created an empty `exercise`
+   table and every picker in the deployed app was empty. The seed is an upsert
+   on `slug` and deletes no built-in, so re-running it on each build is safe
+   and is how library edits ship. `db:seed` uses `--env-file-if-exists` because
+   there is no `.env.local` on Vercel.
 5. Optional: `npx web-push generate-vapid-keys` → `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Without them the app just doesn't
    offer push.

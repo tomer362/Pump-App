@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { streaks } from "@/lib/streaks";
 import {
   achievement,
   friendRequest,
@@ -29,10 +30,33 @@ type Context = {
  * Evaluate every achievement rule and insert any newly earned ones.
  * Insert-only with ON CONFLICT DO NOTHING, so re-running is harmless and the
  * returned list is exactly what to animate.
+ *
+ * Every call site runs this after its own write has already committed —
+ * `finishWorkout` after the workout is saved, `acceptFriendRequest` after the
+ * friendship is saved — and none of them wrap the call. Achievements are a
+ * garnish on those actions, not a precondition of them, so nothing in here may
+ * throw back out: `ON CONFLICT DO NOTHING` only suppresses a duplicate-row
+ * conflict, not a foreign-key violation (verified directly — inserting a
+ * `userAchievement` row for a key absent from `achievement`, e.g. because a
+ * fresh database hasn't been seeded, throws through the `onConflictDoNothing`
+ * call rather than being swallowed by it). Without this guard, that failure
+ * surfaced as an error screen on a workout that had, in fact, already saved.
  */
 export async function grantAchievements(
   userId: string,
   ctx: Context = {},
+): Promise<UnlockedAchievement[]> {
+  try {
+    return await grantAchievementsUnguarded(userId, ctx);
+  } catch (err) {
+    console.error("[pump] grantAchievements failed; continuing without it", err);
+    return [];
+  }
+}
+
+async function grantAchievementsUnguarded(
+  userId: string,
+  ctx: Context,
 ): Promise<UnlockedAchievement[]> {
   const earned = new Set<string>();
 
@@ -121,7 +145,14 @@ export async function grantAchievements(
     );
 }
 
-/** Consecutive days ending today or yesterday (so a rest day doesn't reset it mid-day). */
+/**
+ * Consecutive days ending today or yesterday (so a rest day doesn't reset it
+ * mid-day). Delegates to the shared, unit-tested `streaks()` instead of its
+ * own copy of the same loop — this used to be an independent reimplementation
+ * with identical logic to `queries/stats.ts`'s copy, which only `streaks()`'s
+ * tests actually covered. Two copies of the same rule are two places for them
+ * to quietly drift apart; there's no reason for this one to exist separately.
+ */
 async function currentStreak(userId: string): Promise<number> {
   const res = await db.execute<{ day: string }>(sql`
     SELECT DISTINCT DATE(started_at) AS day
@@ -131,22 +162,7 @@ async function currentStreak(userId: string): Promise<number> {
     LIMIT 400
   `);
   const days = res.rows.map((r) => new Date(r.day + "T00:00:00"));
-  if (!days.length) return 0;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dayMs = 86_400_000;
-
-  const gapFromToday = Math.round((today.getTime() - days[0].getTime()) / dayMs);
-  if (gapFromToday > 1) return 0;
-
-  let streak = 1;
-  for (let i = 1; i < days.length; i++) {
-    const gap = Math.round((days[i - 1].getTime() - days[i].getTime()) / dayMs);
-    if (gap === 1) streak++;
-    else if (gap > 1) break;
-  }
-  return streak;
+  return streaks(days).current;
 }
 
 const MAJOR_GROUPS = [

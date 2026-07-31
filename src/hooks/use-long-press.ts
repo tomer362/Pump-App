@@ -20,7 +20,10 @@ const MOVE_TOLERANCE_PX = 8;
  * The returned props must all land on the same node: `onClickCapture` is what
  * eats the trailing click, and it only sees it from an ancestor of the link.
  */
-export function useLongPress(onLongPress: () => void, delayMs = 480) {
+export function useLongPress(
+  onLongPress: () => void,
+  { enabled = true, delayMs = 480 }: { enabled?: boolean; delayMs?: number } = {},
+) {
   const timer = useRef<number | null>(null);
   const origin = useRef<{ x: number; y: number } | null>(null);
   const fired = useRef(false);
@@ -42,7 +45,7 @@ export function useLongPress(onLongPress: () => void, delayMs = 480) {
 
   return {
     onPointerDown: (e: React.PointerEvent) => {
-      if (e.button !== 0) return;
+      if (!enabled || e.button !== 0) return;
       cancel();
       // A hold that ended without a click (finger lifted off-target) would
       // otherwise leave the suppression armed and swallow the next real tap.

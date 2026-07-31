@@ -22,6 +22,34 @@
       "when": 1785081296325,
       "tag": "0002_concerned_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785321679736,
+      "tag": "0003_smooth_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785321708663,
+      "tag": "0004_backfill_exercise_slugs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785327641098,
+      "tag": "0005_legal_raider",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785340212825,
+      "tag": "0006_motionless_spot",
+      "breakpoints": true
     }
   ]
 }

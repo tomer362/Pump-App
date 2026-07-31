@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { estimate1RM, formatWeight, kgToLb, lbToKg } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isBlobUrl } from "@/lib/blob";
-import { cascadeBelow } from "@/components/workout/set-row";
+import { exerciseVideoLink, isYouTubeUrl } from "@/lib/exercise-video";
 
 describe("estimate1RM (Epley)", () => {
   it("is the weight itself at one rep", () => {
@@ -83,106 +83,6 @@ describe("streaks", () => {
   });
 });
 
-describe("cascadeBelow", () => {
-  type S = { id: string; weightKg: number | null; completed: boolean };
-
-  const blank = (): S[] =>
-    ["a", "b", "c", "d"].map((id) => ({
-      id,
-      weightKg: null,
-      completed: false,
-    }));
-
-  /** One cascade run, driven keystroke by keystroke the way a cell drives it. */
-  function run(sets: S[]) {
-    let owned = new Set<string>();
-    return {
-      /** A value cell taking focus — the run starts over and owns nothing. */
-      focus() {
-        owned = new Set();
-      },
-      type(sourceId: string, value: number | null) {
-        const from = sets.findIndex((s) => s.id === sourceId);
-        const r = cascadeBelow({
-          sets: sets.map((s) =>
-            s.id === sourceId ? { ...s, weightKg: value } : s,
-          ),
-          from,
-          field: "weightKg" as const,
-          value,
-          keyOf: (s) => s.id,
-          owned,
-          locked: (s) => s.completed,
-        });
-        sets = r.sets;
-        owned = new Set(r.filled);
-        return r.filled;
-      },
-      get values() {
-        return sets.map((s) => s.weightKg);
-      },
-    };
-  }
-
-  it("follows the source cell rather than freezing on the first digit", () => {
-    const r = run(blank());
-    r.focus();
-    r.type("a", 1);
-    expect(r.values).toEqual([1, 1, 1, 1]);
-    r.type("a", 10);
-    r.type("a", 100);
-    expect(r.values).toEqual([100, 100, 100, 100]);
-  });
-
-  it("empties what it filled when the source is cleared", () => {
-    const r = run(blank());
-    r.focus();
-    r.type("a", 1);
-    r.type("a", null);
-    expect(r.values).toEqual([null, null, null, null]);
-  });
-
-  it("skips a set the lifter filled in and carries on past it", () => {
-    const sets = blank();
-    sets[2].weightKg = 60;
-    const r = run(sets);
-    r.focus();
-    expect(r.type("a", 40)).toEqual(["b", "d"]);
-    expect(r.values).toEqual([40, 40, 60, 40]);
-  });
-
-  it("leaves a completed set alone — it's a record, not a plan", () => {
-    const sets = blank();
-    sets[1] = { id: "b", weightKg: 20, completed: true };
-    const r = run(sets);
-    r.focus();
-    expect(r.type("a", 40)).toEqual(["c", "d"]);
-    expect(r.values).toEqual([40, 20, 40, 40]);
-  });
-
-  it("never reaches upward", () => {
-    const r = run(blank());
-    r.focus();
-    r.type("c", 50);
-    expect(r.values).toEqual([null, null, 50, 50]);
-  });
-
-  it("hands a corrected set back to the lifter", () => {
-    // 100 into set 1 fills the rest; correcting set 3 to 8 must not drag set 4
-    // down with it, and must not be undone by the run that filled it.
-    const r = run(blank());
-    r.focus();
-    r.type("a", 1);
-    r.type("a", 10);
-    r.type("a", 100);
-    expect(r.type("a", 100)).toEqual(["b", "c", "d"]);
-
-    r.focus();
-    expect(r.type("c", 8)).toEqual([]);
-    expect(r.values).toEqual([100, 100, 8, 100]);
-  });
-});
-
 describe("isBlobUrl", () => {
   it("accepts our own store", () => {
     expect(
@@ -202,6 +102,63 @@ describe("isBlobUrl", () => {
       "not a url",
     ]) {
       expect(isBlobUrl(url), url).toBe(false);
+    }
+  });
+});
+
+describe("exerciseVideoLink", () => {
+  it("uses a curated URL when one is stored", () => {
+    const link = exerciseVideoLink({
+      name: "Bench Press (Barbell)",
+      videoUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+    });
+    expect(link).toEqual({
+      href: "https://www.youtube.com/watch?v=abcdefghijk",
+      curated: true,
+    });
+  });
+
+  it("falls back to an encoded YouTube search", () => {
+    // curated:false is what stops the UI calling a results page a demo.
+    const link = exerciseVideoLink({ name: "Farmer's Walk", videoUrl: null });
+    expect(link.curated).toBe(false);
+    expect(link.href).toBe(
+      "https://www.youtube.com/results?search_query=Farmer's%20Walk%20proper%20form",
+    );
+    // No raw spaces or quotes can reach the href.
+    expect(link.href).not.toMatch(/[ "<>]/);
+  });
+});
+
+describe("isYouTubeUrl", () => {
+  it("accepts watch and youtu.be URLs", () => {
+    for (const url of [
+      "https://www.youtube.com/watch?v=abcdefghijk",
+      "https://youtube.com/watch?v=ab-de_ghijk",
+      "https://m.youtube.com/watch?v=abcdefghijk",
+      "https://youtu.be/abcdefghijk",
+      "https://www.youtube.com/watch?v=abcdefghijk&t=42",
+    ]) {
+      expect(isYouTubeUrl(url), url).toBe(true);
+    }
+  });
+
+  it("rejects anything that isn't one", () => {
+    // Parsed with URL, never matched against the raw string — which is how
+    // javascript: and lookalike hosts get through a regex.
+    for (const url of [
+      "javascript:alert(1)",
+      "http://www.youtube.com/watch?v=abcdefghijk",
+      "https://youtube.com.evil.test/watch?v=abcdefghijk",
+      "https://www.youtube.com.evil.test/watch?v=abcdefghijk",
+      "//youtube.com/watch?v=abcdefghijk",
+      "https://www.youtube.com/watch?v=short",
+      "https://www.youtube.com/results?search_query=x",
+      "https://youtu.be/",
+      "not a url",
+      "",
+    ]) {
+      expect(isYouTubeUrl(url), url).toBe(false);
     }
   });
 });

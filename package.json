@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-env.mjs && drizzle-kit migrate && pnpm db:seed && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
@@ -14,7 +14,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx --env-file=.env.local src/lib/db/seed.ts",
+    "db:seed": "tsx --env-file-if-exists=.env.local src/lib/db/seed.ts",
     "check:queries": "tsx --conditions=react-server --env-file=.env.local scripts/check-queries.mts"
   },
   "dependencies": {

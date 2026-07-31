@@ -1,13 +1,17 @@
 import Link from "next/link";
-import { Calendar, ChevronRight, Flame, Trophy } from "lucide-react";
+import { Calendar, ChevronRight, Dumbbell, Flame, Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Card, SectionTitle } from "@/components/ui/primitives";
-import { MuscleVolumeChart } from "@/components/stats/muscle-volume-chart";
+import { MuscleVolumePanel } from "@/components/stats/muscle-volume-panel";
 import { WeeklyTrendChart } from "@/components/stats/weekly-trend-chart";
+import { ConsistencyHeatmap } from "@/components/stats/consistency-heatmap";
+import { PrTimeline } from "@/components/stats/pr-timeline";
 import { requireUser } from "@/lib/session";
 import {
   getLifetimeStats,
   getMuscleVolume,
+  getRecentRecords,
+  getTrainingCalendar,
   getWeeklyTrend,
 } from "@/lib/queries/stats";
 import { getPersonalRecords } from "@/lib/queries/workout";
@@ -16,12 +20,15 @@ import { formatDurationLong, formatVolume, formatWeight } from "@/lib/utils";
 export default async function StatsPage() {
   const me = await requireUser();
 
-  const [lifetime, muscles, trend, prs] = await Promise.all([
-    getLifetimeStats(me.id),
-    getMuscleVolume(me.id, 7),
-    getWeeklyTrend(me.id, 12),
-    getPersonalRecords(me.id),
-  ]);
+  const [lifetime, muscles, trend, prs, calendar, recentRecords] =
+    await Promise.all([
+      getLifetimeStats(me.id),
+      getMuscleVolume(me.id, 7),
+      getWeeklyTrend(me.id, 12),
+      getPersonalRecords(me.id),
+      getTrainingCalendar(me.id, 200),
+      getRecentRecords(me.id, 6),
+    ]);
 
   const oneRepMaxes = prs.filter((p) => p.kind === "1rm").slice(0, 6);
 
@@ -82,9 +89,16 @@ export default async function StatsPage() {
         </div>
 
         <div>
-          <SectionTitle>This week by muscle</SectionTitle>
+          <SectionTitle>By muscle</SectionTitle>
           <Card className="px-4 py-4">
-            <MuscleVolumeChart data={muscles} unit={me.unit} />
+            <MuscleVolumePanel initial={muscles} unit={me.unit} />
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle>Consistency</SectionTitle>
+          <Card className="px-4 py-4">
+            <ConsistencyHeatmap days={calendar} />
           </Card>
         </div>
 
@@ -94,6 +108,26 @@ export default async function StatsPage() {
             <WeeklyTrendChart data={trend} unit={me.unit} />
           </Card>
         </div>
+
+        {recentRecords.length > 0 && (
+          <div>
+            <SectionTitle
+              action={
+                <Link
+                  href="/records"
+                  className="text-volt text-[13px] font-semibold"
+                >
+                  All
+                </Link>
+              }
+            >
+              Recent records
+            </SectionTitle>
+            <Card className="overflow-hidden">
+              <PrTimeline records={recentRecords} unit={me.unit} />
+            </Card>
+          </div>
+        )}
 
         {oneRepMaxes.length > 0 && (
           <div>
@@ -138,13 +172,24 @@ export default async function StatsPage() {
           </div>
         )}
 
-        <Link href="/history">
-          <Card className="press flex items-center gap-3 px-4 py-3.5">
-            <Calendar className="text-text-3 size-5 shrink-0" />
-            <p className="flex-1 text-[15px] font-medium">Workout history</p>
-            <ChevronRight className="text-text-3 size-4 shrink-0" />
-          </Card>
-        </Link>
+        <div className="space-y-3">
+          <Link href="/exercises">
+            <Card className="press flex items-center gap-3 px-4 py-3.5">
+              <Dumbbell className="text-text-3 size-5 shrink-0" />
+              <p className="flex-1 text-[15px] font-medium">
+                Exercises &amp; per-exercise progress
+              </p>
+              <ChevronRight className="text-text-3 size-4 shrink-0" />
+            </Card>
+          </Link>
+          <Link href="/history">
+            <Card className="press flex items-center gap-3 px-4 py-3.5">
+              <Calendar className="text-text-3 size-5 shrink-0" />
+              <p className="flex-1 text-[15px] font-medium">Workout history</p>
+              <ChevronRight className="text-text-3 size-4 shrink-0" />
+            </Card>
+          </Link>
+        </div>
       </div>
     </div>
   );

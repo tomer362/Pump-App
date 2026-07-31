@@ -1,23 +1,20 @@
 import { notFound } from "next/navigation";
+import { Archive } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
-import { Badge, Card, EmptyState, SectionTitle } from "@/components/ui/primitives";
-import { ExerciseProgressChart } from "@/components/exercise/exercise-progress-chart";
-import { DeleteExercise } from "./delete-exercise";
+import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
+import { ManageExercise } from "./manage-exercise";
 import { requireUser } from "@/lib/session";
 import {
   getExercise,
+  getExerciseAlternatives,
   getExerciseHistory,
   getExerciseRecords,
+  getExerciseRepMaxes,
+  getExerciseSessionSeries,
+  getExerciseSummary,
 } from "@/lib/queries/exercise";
-import { formatDayLabel, formatWeight, labelize } from "@/lib/utils";
-import { Dumbbell } from "lucide-react";
-
-const KIND_LABEL: Record<string, string> = {
-  "1rm": "Est. 1RM",
-  weight: "Heaviest",
-  volume: "Best set volume",
-  reps: "Most reps",
-};
+import { exerciseVideoLink } from "@/lib/exercise-video";
+import { labelize } from "@/lib/utils";
 
 export default async function ExerciseDetailPage(
   props: PageProps<"/exercises/[id]">,
@@ -30,10 +27,18 @@ export default async function ExerciseDetailPage(
   // Custom exercises belong to one user.
   if (exercise.ownerId && exercise.ownerId !== me.id) notFound();
 
-  const [history, records] = await Promise.all([
-    getExerciseHistory(me.id, id, 30),
-    getExerciseRecords(me.id, id),
-  ]);
+  const [history, records, alternatives, series, repMaxes, summary] =
+    await Promise.all([
+      getExerciseHistory(me.id, id, 30),
+      getExerciseRecords(me.id, id),
+      getExerciseAlternatives(id),
+      getExerciseSessionSeries(me.id, id),
+      getExerciseRepMaxes(me.id, id),
+      getExerciseSummary(me.id, id),
+    ]);
+
+  const mine = exercise.ownerId === me.id;
+  const archived = exercise.archivedAt != null;
 
   return (
     <div className="pb-8">
@@ -44,92 +49,53 @@ export default async function ExerciseDetailPage(
       />
 
       <div className="space-y-6 px-4">
-        {exercise.secondaryMuscles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {exercise.secondaryMuscles.map((m) => (
-              <Badge key={m}>{labelize(m)}</Badge>
-            ))}
+        {archived && (
+          <div className="bg-surface-2 text-text-2 flex items-start gap-2.5 rounded-[var(--radius-card)] px-4 py-3 text-[13px] leading-relaxed">
+            <Archive className="mt-0.5 size-4 shrink-0" />
+            <p>
+              Archived — hidden from search and the exercise picker. Everything
+              below is still yours.
+            </p>
           </div>
         )}
 
-        {exercise.instructions && (
-          <div>
-            <SectionTitle>How to do it</SectionTitle>
-            <Card className="px-4 py-3.5">
-              <p className="text-text-2 text-[14px] leading-relaxed whitespace-pre-line">
-                {exercise.instructions}
-              </p>
-            </Card>
-          </div>
-        )}
+        <ExerciseDetailTabs
+          unit={me.unit}
+          data={{
+            bodyEffect: exercise.bodyEffect,
+            instructions: exercise.instructions,
+            secondaryMuscles: exercise.secondaryMuscles,
+            video: exerciseVideoLink(exercise),
+            alternatives,
+            summary,
+            series,
+            history,
+            repMaxes,
+            records: records.map((r) => ({
+              id: r.id,
+              kind: r.kind,
+              value: r.value,
+              weightKg: r.weightKg,
+              reps: r.reps,
+              achievedAt: r.achievedAt,
+            })),
+          }}
+        />
 
-        {records.length > 0 && (
-          <div>
-            <SectionTitle>Your records</SectionTitle>
-            <Card className="divide-hairline divide-y overflow-hidden">
-              {records.map((r) => (
-                <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="text-text-3 flex-1 text-[13px]">
-                    {KIND_LABEL[r.kind] ?? r.kind}
-                  </span>
-                  <span className="num text-[15px] font-bold">
-                    {r.kind === "reps"
-                      ? `${Math.round(r.value)} reps`
-                      : `${formatWeight(r.value, me.unit)} ${me.unit}`}
-                  </span>
-                </div>
-              ))}
-            </Card>
-          </div>
-        )}
-
-        {history.length === 0 ? (
-          <EmptyState
-            icon={Dumbbell}
-            title="Not logged yet"
-            body="Once you complete a few sets of this exercise, its progress chart and full log appear here."
+        {mine && (
+          <ManageExercise
+            exerciseId={exercise.id}
+            name={exercise.name}
+            archived={archived}
+            initial={{
+              name: exercise.name,
+              primaryMuscle: exercise.primaryMuscle,
+              secondaryMuscles: exercise.secondaryMuscles,
+              equipment: exercise.equipment,
+              trackingType: exercise.trackingType,
+              instructions: exercise.instructions ?? "",
+            }}
           />
-        ) : (
-          <>
-            <div>
-              <SectionTitle>Progress</SectionTitle>
-              <Card className="px-4 py-4">
-                <ExerciseProgressChart data={history} unit={me.unit} />
-              </Card>
-            </div>
-
-            <div>
-              <SectionTitle>Log</SectionTitle>
-              <div className="space-y-3">
-                {history.map((h) => (
-                  <Card key={h.workoutId} className="px-4 py-3">
-                    <p className="text-text-3 mb-1.5 text-[12px]">
-                      {formatDayLabel(new Date(h.date))}
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                      {h.sets.map((s, i) => (
-                        <span key={i} className="num text-[14px]">
-                          <span className="text-text-3">
-                            {s.setType === "warmup" ? "W" : i + 1}
-                          </span>{" "}
-                          <span className="font-semibold">
-                            {s.weightKg != null
-                              ? formatWeight(s.weightKg, me.unit)
-                              : "—"}
-                          </span>
-                          <span className="text-text-3">×{s.reps ?? "—"}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {exercise.ownerId === me.id && (
-          <DeleteExercise exerciseId={exercise.id} name={exercise.name} />
         )}
       </div>
     </div>

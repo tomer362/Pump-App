@@ -1,22 +1,12 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { friendRequest, pushSubscription } from "@/lib/db/schema";
+import { pushSubscription } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
-import { deliver } from "./notify";
+import { vapidConfigured } from "./notify";
 import type { ActionResult } from "./user";
-
-type Payload = { title: string; body: string; url?: string };
-
-function vapidConfigured() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
-      process.env.VAPID_PRIVATE_KEY &&
-      process.env.VAPID_SUBJECT,
-  );
-}
 
 /**
  * A push endpoint is a URL this server will later POST to, and it arrives from
@@ -102,38 +92,6 @@ export async function removePushSubscription(
       ),
     );
   return { ok: true };
-}
-
-/**
- * Send to every accepted friend of `userId`.
- *
- * Push is strictly an extra channel: iOS only delivers to home-screen-installed
- * PWAs and drops subscriptions after long inactivity, so nothing in the app
- * depends on it landing. Failures are swallowed; dead endpoints are pruned.
- */
-export async function notifyFriends(userId: string, payload: Payload) {
-  if (!vapidConfigured()) return;
-
-  const subs = await db
-    .select({
-      id: pushSubscription.id,
-      endpoint: pushSubscription.endpoint,
-      p256dh: pushSubscription.p256dh,
-      auth: pushSubscription.auth,
-    })
-    .from(pushSubscription)
-    .where(
-      sql`${pushSubscription.userId} IN (
-        SELECT CASE WHEN requester_id = ${userId} THEN addressee_id ELSE requester_id END
-        FROM ${friendRequest}
-        WHERE status = 'accepted' AND (requester_id = ${userId} OR addressee_id = ${userId})
-      )`,
-    )
-    // Bounded: one function invocation shouldn't fan out to an unlimited
-    // number of endpoints.
-    .limit(200);
-
-  await deliver(subs, payload);
 }
 
 export async function isPushConfigured(): Promise<boolean> {

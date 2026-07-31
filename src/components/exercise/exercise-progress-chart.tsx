@@ -1,16 +1,32 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ExerciseHistoryPoint } from "@/lib/queries/exercise";
+import { Table2, TrendingUp } from "lucide-react";
+import type { ExerciseSessionPoint } from "@/lib/queries/exercise";
+import { CHART_RANGES, withinRange, type ChartRangeKey } from "@/lib/stats-windows";
 import { cn, formatWeight } from "@/lib/utils";
 
-type Metric = "est1rm" | "weight" | "volume";
+type Metric = "est1rm" | "weight" | "volume" | "reps";
 
-const METRICS: { value: Metric; label: string }[] = [
-  { value: "est1rm", label: "Est. 1RM" },
-  { value: "weight", label: "Top set" },
-  { value: "volume", label: "Volume" },
+const METRICS: { value: Metric; label: string; weighted: boolean }[] = [
+  { value: "est1rm", label: "Est. 1RM", weighted: true },
+  { value: "weight", label: "Top set", weighted: true },
+  { value: "volume", label: "Volume", weighted: true },
+  { value: "reps", label: "Reps", weighted: false },
 ];
+
+function valueOf(p: ExerciseSessionPoint, metric: Metric): number {
+  switch (metric) {
+    case "est1rm":
+      return p.bestEst1rm ?? 0;
+    case "weight":
+      return p.topWeightKg ?? 0;
+    case "volume":
+      return p.volumeKg;
+    case "reps":
+      return p.reps;
+  }
+}
 
 /**
  * Strength over time for one exercise.
@@ -18,33 +34,124 @@ const METRICS: { value: Metric; label: string }[] = [
  * A line, because sessions are a continuous progression and the shape of the
  * trend is the whole point. One metric at a time on a single axis — plotting
  * 1RM and volume together would need two scales and invent a relationship.
+ *
+ * Every value is also reachable from the table view, so nothing is locked
+ * behind a tap on a 2.5px marker.
  */
 export function ExerciseProgressChart({
   data,
   unit,
 }: {
-  data: ExerciseHistoryPoint[];
+  data: ExerciseSessionPoint[];
   unit: "kg" | "lb";
 }) {
   const [metric, setMetric] = useState<Metric>("est1rm");
+  const [range, setRange] = useState<ChartRangeKey>("1y");
+  const [asTable, setAsTable] = useState(false);
   const [active, setActive] = useState<number | null>(null);
 
-  // Query returns newest-first; a time axis reads oldest-first.
-  const points = useMemo(() => [...data].reverse(), [data]);
+  const meta = METRICS.find((m) => m.value === metric)!;
+  const days = CHART_RANGES.find((r) => r.key === range)!.days;
 
-  const values = points.map((p) =>
-    metric === "est1rm"
-      ? (p.bestEst1rm ?? 0)
-      : metric === "weight"
-        ? (p.bestWeightKg ?? 0)
-        : p.totalVolumeKg,
+  // The series arrives oldest-first, which is also how a time axis reads.
+  const points = useMemo(() => withinRange(data, days), [data, days]);
+  const values = useMemo(
+    () => points.map((p) => valueOf(p, metric)),
+    [points, metric],
   );
+
+  const format = (v: number) =>
+    meta.weighted ? `${formatWeight(v, unit)} ${unit}` : `${Math.round(v)}`;
+
+  const controls = (
+    <>
+      <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        {METRICS.map((m) => (
+          <Pill
+            key={m.value}
+            label={m.label}
+            active={metric === m.value}
+            onClick={() => {
+              setMetric(m.value);
+              setActive(null);
+            }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        {CHART_RANGES.map((r) => (
+          <Pill
+            key={r.key}
+            label={r.label}
+            active={range === r.key}
+            onClick={() => {
+              setRange(r.key);
+              setActive(null);
+            }}
+          />
+        ))}
+        <button
+          onClick={() => setAsTable((t) => !t)}
+          aria-pressed={asTable}
+          className="press tap text-text-3 ml-auto grid size-9 shrink-0 place-items-center rounded-full"
+          aria-label={asTable ? "Show chart" : "Show table"}
+        >
+          {asTable ? (
+            <TrendingUp className="size-4" />
+          ) : (
+            <Table2 className="size-4" />
+          )}
+        </button>
+      </div>
+    </>
+  );
+
+  if (points.length === 0) {
+    return (
+      <div>
+        {controls}
+        <p className="text-text-3 py-6 text-center text-[14px]">
+          Nothing logged in this range.
+        </p>
+      </div>
+    );
+  }
+
+  if (asTable) {
+    // Newest first: the table is for reading off recent numbers, not for
+    // following the trend — that's what the chart is.
+    const rows = [...points].reverse();
+    return (
+      <div>
+        {controls}
+        <div className="divide-hairline mt-3 divide-y">
+          {rows.map((p) => (
+            <div key={p.workoutId} className="flex items-baseline gap-3 py-2">
+              <span className="text-text-3 num flex-1 text-[13px]">
+                {p.date.toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+              <span className="num text-[15px] font-bold">
+                {format(valueOf(p, metric))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (points.length < 2) {
     return (
-      <p className="text-text-3 py-6 text-center text-[14px]">
-        One session logged. The trend appears from the second one.
-      </p>
+      <div>
+        {controls}
+        <p className="text-text-3 py-6 text-center text-[14px]">
+          One session in this range. The trend appears from the second one.
+        </p>
+      </div>
     );
   }
 
@@ -65,24 +172,9 @@ export function ExerciseProgressChart({
 
   return (
     <div>
-      <div className="mb-3 flex gap-1.5">
-        {METRICS.map((m) => (
-          <button
-            key={m.value}
-            onClick={() => setMetric(m.value)}
-            className={cn(
-              "press rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
-              metric === m.value
-                ? "bg-volt text-black"
-                : "bg-surface-2 text-text-2",
-            )}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {controls}
 
-      <div className="relative h-40 w-full">
+      <div className="relative mt-3 h-40 w-full">
         <svg
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
@@ -124,10 +216,7 @@ export function ExerciseProgressChart({
             return (
               <span
                 key={i}
-                className={cn(
-                  "ring-surface-1 absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2",
-                  "bg-volt",
-                )}
+                className="bg-volt ring-surface-1 absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2"
                 style={{ left: `${x(i)}%`, top: `${y(v)}%` }}
               />
             );
@@ -136,9 +225,9 @@ export function ExerciseProgressChart({
 
         {/* Full-height hit strips: a 2.5px dot is impossible to tap. */}
         <div className="absolute inset-0 flex">
-          {points.map((_, i) => (
+          {points.map((p, i) => (
             <button
-              key={i}
+              key={p.workoutId}
               onClick={() => setActive(active === i ? null : i)}
               className="h-full flex-1"
               aria-label={`Session ${i + 1} of ${points.length}`}
@@ -147,7 +236,13 @@ export function ExerciseProgressChart({
         </div>
       </div>
 
-      <div className="mt-3 flex items-baseline justify-between">
+      {/* The min and max are labelled directly, so the axis needs no ticks. */}
+      <div className="text-text-3 num mt-2 flex justify-between text-[11px]">
+        <span>low {format(min)}</span>
+        <span>high {format(max)}</span>
+      </div>
+
+      <div className="mt-2 flex items-baseline justify-between">
         <span className="text-text-3 num text-[12px]">
           {points[shown].date.toLocaleDateString("en-GB", {
             day: "numeric",
@@ -156,9 +251,7 @@ export function ExerciseProgressChart({
           })}
         </span>
         <span className="num text-[17px] font-bold">
-          {metric === "volume"
-            ? `${formatWeight(values[shown], unit)} ${unit}`
-            : `${formatWeight(values[shown], unit)} ${unit}`}
+          {format(values[shown])}
         </span>
       </div>
 
@@ -166,5 +259,28 @@ export function ExerciseProgressChart({
         {points.length} sessions · tap the chart to inspect one.
       </p>
     </div>
+  );
+}
+
+function Pill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
+        active ? "bg-volt text-black" : "bg-surface-2 text-text-2",
+      )}
+    >
+      {label}
+    </button>
   );
 }

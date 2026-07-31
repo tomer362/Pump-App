@@ -20,6 +20,7 @@ import {
   Gauge,
   GripVertical,
   Plus,
+  Repeat2,
   Timer,
   Trash2,
   Calculator,
@@ -31,12 +32,10 @@ import { Sheet } from "@/components/ui/sheet";
 import { Badge, Textarea } from "@/components/ui/primitives";
 import {
   SetRow,
-  cascadeBelow,
   columnLabel,
   setColumns,
   setGridTemplate,
   type SetDraft,
-  type ValueField,
 } from "./set-row";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { ExercisePicker } from "./exercise-picker";
@@ -53,7 +52,9 @@ import {
   removeSet,
   removeWorkoutExercise,
   reorderWorkoutExercises,
+  replaceWorkoutExercise,
   updateSet,
+  updateSets,
   updateWorkoutExerciseSettings,
   updateWorkoutMeta,
 } from "@/lib/actions/workout";
@@ -152,8 +153,9 @@ export function WorkoutScreen({
   const [picking, setPicking] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [typeMenuFor, setTypeMenuFor] = useState<{ blockId: string; setId: string } | null>(null);
   const [plateFor, setPlateFor] = useState<number | null>(null);
   const [intervalFor, setIntervalFor] = useState<Block | null>(null);
@@ -162,15 +164,13 @@ export function WorkoutScreen({
   const bestByExercise = useRef(current1rm);
 
   /**
-   * The cascade currently in progress: which cell is driving it, and which sets
-   * it has filled so far. Reset whenever a value cell takes focus, so a set the
-   * lifter has since corrected by hand stops being ours to overwrite.
+   * The live fill in progress: the cell driving it, the field, and the sets it
+   * has written so far. See `patchSet` for why the run has to be remembered.
    */
-  const cascade = useRef<{
+  const fillRun = useRef<{
     setId: string;
-    field: ValueField;
-    typed: boolean;
-    filled: string[];
+    field: (typeof FILLABLE)[number];
+    ids: string[];
   } | null>(null);
 
   const totals = useMemo(() => {
@@ -203,114 +203,91 @@ export function WorkoutScreen({
   /* Mutations — optimistic locally, persisted in the background.            */
   /* ---------------------------------------------------------------------- */
 
-  const writeSet = useCallback(
-    (blockId: string, setId: string, patch: Partial<SetDraft>) => {
+  const patchSet = useCallback(
+    (
+      blockId: string,
+      setId: string,
+      patch: Partial<SetDraft>,
+      opts?: { fill?: boolean; local?: boolean },
+    ) => {
       dirty.current = true;
+      const local = opts?.local === true;
+      const field = FILLABLE.find((f) => f in patch);
+
+      // The run only carries within one uninterrupted typing session. After
+      // the first keystroke of "100" the sets below hold 1, so they are no
+      // longer empty and the fill would stop dead on the "0" — for as long as
+      // this run owns them they count as empty again. A different cell, or a
+      // committed value, ends the run: editing a set later must not rewrite
+      // the ones under it, which is the rule the commit-time fill was built on.
+      const run = fillRun.current;
+      const owned =
+        field && run && run.setId === setId && run.field === field ? run.ids : [];
+
+      const source = owned.length
+        ? blocks.map((b) =>
+            b.id !== blockId
+              ? b
+              : {
+                  ...b,
+                  sets: b.sets.map((s) =>
+                    owned.includes(s.id) ? { ...s, [field!]: null } : s,
+                  ),
+                },
+          )
+        : blocks;
+
+      // Typing a weight or a rep count carries it down the sets below, which
+      // is how a straight-across working set gets logged in one entry instead
+      // of four. It stops at the first set that already has a number for that
+      // field, is completed, or is a warm-up — so editing one set later never
+      // rewrites the ones under it, and a working weight never lands on a
+      // warm-up.
+      const ids = opts?.fill
+        ? [setId, ...fillTargets(source, blockId, setId, patch)]
+        : // Clearing the cell mid-run empties what the run filled, rather than
+          // stranding them on a value the lifter has just deleted.
+          [setId, ...owned];
+
+      if (!local || !field) fillRun.current = null;
+      else if (opts?.fill) fillRun.current = { setId, field, ids: ids.slice(1) };
+      else if (owned.length) fillRun.current = { setId, field, ids: owned };
+      else fillRun.current = null;
+
       setBlocks((prev) =>
         prev.map((b) =>
           b.id !== blockId
             ? b
             : {
                 ...b,
-                sets: b.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
+                sets: b.sets.map((s) =>
+                  ids.includes(s.id) ? { ...s, ...patch } : s,
+                ),
               },
         ),
       );
-    },
-    [],
-  );
 
-  const patchSet = useCallback(
-    (blockId: string, setId: string, patch: Partial<SetDraft>) => {
-      writeSet(blockId, setId, patch);
-      // Fired directly, not inside startTransition: tapping the exercise name
-      // unmounts this component to navigate, and React is free to abandon an
-      // in-flight transition on unmount — which would silently drop the write.
-      void updateSet(setId, {
+      // A keystroke only moves local state. Persisting per character would be
+      // a round-trip per digit on a phone, which the Neon budget rules out.
+      if (local) return;
+
+      const values = {
         weightKg: patch.weightKg,
         reps: patch.reps,
         seconds: patch.seconds,
         distanceM: patch.distanceM,
         rpe: patch.rpe,
         setType: patch.setType,
-      });
+      };
+      // Fired directly, not inside startTransition: tapping the exercise name
+      // unmounts this component to navigate, and React is free to abandon an
+      // in-flight transition on unmount — which would silently drop the write.
+      // One round-trip for the whole fill either way.
+      if (ids.length > 1) void updateSets(ids, values);
+      else void updateSet(setId, values);
     },
-    [writeSet],
+    [blocks],
   );
-
-  /**
-   * Write a value cell and carry it down the empty sets beneath it. The index
-   * the cascade starts from is read off the block's own `sets` — a row shouldn't
-   * have to be told where it sits, and threading a position through the props
-   * would go stale the moment a set is added or deleted.
-   *
-   * Returns the sets it filled, so the commit path knows what to persist.
-   */
-  const cascadeValue = useCallback(
-    (
-      blockId: string,
-      setId: string,
-      field: ValueField,
-      value: number | null,
-      typed: boolean,
-    ) => {
-      const block = blocks.find((b) => b.id === blockId);
-      const from = block?.sets.findIndex((s) => s.id === setId) ?? -1;
-      if (!block || from < 0) return [];
-
-      const run =
-        cascade.current?.setId === setId && cascade.current.field === field
-          ? cascade.current
-          : (cascade.current = { setId, field, typed: false, filled: [] });
-      run.typed ||= typed;
-
-      // Focusing a set to read it and moving on isn't a prescription — only a
-      // cell that was actually typed into cascades.
-      if (!run.typed) {
-        writeSet(blockId, setId, { [field]: value } as Partial<SetDraft>);
-        return [];
-      }
-
-      const { sets, filled } = cascadeBelow({
-        sets: block.sets.map((s) =>
-          s.id === setId ? { ...s, [field]: value } : s,
-        ),
-        from,
-        field,
-        value,
-        keyOf: (s) => s.id,
-        owned: new Set(run.filled),
-        // A ticked set is a record of something performed, not a plan.
-        locked: (s) => s.completed,
-      });
-      run.filled = filled;
-
-      setBlocks((prev) =>
-        prev.map((b) => (b.id === blockId ? { ...b, sets } : b)),
-      );
-      return filled;
-    },
-    [blocks, writeSet],
-  );
-
-  /**
-   * Blur or Enter. One round trip per set the cascade actually reached — every
-   * one of them holds the same number as the source, so they share a patch, and
-   * a keystroke on the way here cost nothing.
-   */
-  const commitValue = useCallback(
-    (blockId: string, setId: string, field: ValueField, value: number | null) => {
-      const filled = cascadeValue(blockId, setId, field, value, false);
-      const patch = { [field]: value } as Partial<Record<ValueField, number | null>>;
-      // Direct, not in a transition — see patchSet.
-      void Promise.all([setId, ...filled].map((id) => updateSet(id, patch)));
-    },
-    [cascadeValue],
-  );
-
-  const beginEdit = useCallback((setId: string, field: ValueField) => {
-    cascade.current = { setId, field, typed: false, filled: [] };
-  }, []);
 
   const toggleComplete = useCallback(
     (block: Block, set: SetDraft) => {
@@ -458,6 +435,53 @@ export function WorkoutScreen({
     void removeWorkoutExercise(blockId);
   }, []);
 
+  /**
+   * Swap the movement on one block. The server clears the values logged
+   * against the old exercise, so the local block is rebuilt from what it
+   * returns rather than patched — anything kept here would be a number the
+   * database no longer has.
+   */
+  const swapExercise = useCallback(
+    async (blockId: string, exerciseId: string) => {
+      dirty.current = true;
+      setReplaceFor(null);
+      const res = await replaceWorkoutExercise(blockId, exerciseId);
+      if (!res.ok || !res.data) return;
+      const r = res.data;
+      haptic.light();
+      setBlocks((prev) =>
+        prev.map((b) =>
+          b.id !== blockId
+            ? b
+            : {
+                ...b,
+                exerciseId: r.exerciseId,
+                name: r.name,
+                primaryMuscle: r.primaryMuscle,
+                equipment: r.equipment,
+                trackingType: r.trackingType,
+                notes: null,
+                intervalWorkSeconds: null,
+                intervalRestSeconds: null,
+                previous: r.previous,
+                sets: r.setIds.map((id, i) => ({
+                  id,
+                  position: i,
+                  setType: b.sets[i]?.setType ?? ("normal" as SetType),
+                  weightKg: null,
+                  reps: null,
+                  seconds: null,
+                  distanceM: null,
+                  rpe: null,
+                  completed: false,
+                })),
+              },
+        ),
+      );
+    },
+    [],
+  );
+
   const addExercises = useCallback(
     async (ids: string[]) => {
       dirty.current = true;
@@ -539,11 +563,11 @@ export function WorkoutScreen({
    */
   const moveBlock = useCallback(
     (blockId: string, delta: -1 | 1) => {
+      dirty.current = true;
       const from = blocks.findIndex((b) => b.id === blockId);
       const to = from + delta;
       if (from < 0 || to < 0 || to >= blocks.length) return;
 
-      dirty.current = true;
       const next = [...blocks];
       [next[from], next[to]] = [next[to], next[from]];
       haptic.light();
@@ -558,24 +582,23 @@ export function WorkoutScreen({
   );
 
   /**
-   * Drag reorder, from the compact list. Applied on every crossing so the list
-   * under the finger is the truth, but only written once the finger lifts —
-   * dragging past four exercises is four crossings and would be four writes.
+   * Drag reordering, from the compact list. Persists on every drop rather than
+   * on sheet close: the drop is the moment the lifter decided, and a sheet
+   * dismissed by the backdrop or Escape has no close handler to hang it on.
    */
-  const reorderBlocks = useCallback((next: Block[]) => {
-    dirty.current = true;
-    setBlocks(next);
-  }, []);
-
-  const persistOrder = useCallback(
-    (ordered: Block[]) => {
+  const reorderBlocks = useCallback(
+    (ids: string[]) => {
+      dirty.current = true;
+      const byId = new Map(blocks.map((b) => [b.id, b]));
+      const next = ids
+        .map((id) => byId.get(id))
+        .filter((b): b is Block => b != null);
+      if (next.length !== blocks.length) return;
       haptic.light();
-      void reorderWorkoutExercises(
-        workout.id,
-        ordered.map((b) => b.id),
-      );
+      setBlocks(next);
+      void reorderWorkoutExercises(workout.id, ids);
     },
-    [workout.id],
+    [blocks, workout.id],
   );
 
   const setSuperset = useCallback(
@@ -608,6 +631,7 @@ export function WorkoutScreen({
   );
 
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
+  const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const optionsSet =
     (typeMenuFor &&
       blocks
@@ -698,13 +722,8 @@ export function WorkoutScreen({
               onOpenMenu={() => setMenuFor(block.id)}
               onOpenPlate={(kg) => setPlateFor(kg)}
               onRunInterval={() => setIntervalFor(block)}
-              onPatchSet={(setId, patch) => patchSet(block.id, setId, patch)}
-              onValueFocus={beginEdit}
-              onValueDraft={(setId, field, value) =>
-                cascadeValue(block.id, setId, field, value, true)
-              }
-              onValueCommit={(setId, field, value) =>
-                commitValue(block.id, setId, field, value)
+              onPatchSet={(setId, patch, opts) =>
+                patchSet(block.id, setId, patch, opts)
               }
               onToggle={(set) => toggleComplete(block, set)}
               onDeleteSet={(setId) => dropSet(block.id, setId)}
@@ -749,6 +768,21 @@ export function WorkoutScreen({
         alreadyIn={alreadyIn}
       />
 
+      <ExercisePicker
+        open={replaceBlock != null}
+        onClose={() => setReplaceFor(null)}
+        mode="replace"
+        replacing={
+          replaceBlock && {
+            id: replaceBlock.exerciseId,
+            name: replaceBlock.name,
+          }
+        }
+        onConfirm={(ids) => {
+          if (replaceBlock && ids[0]) swapExercise(replaceBlock.id, ids[0]);
+        }}
+      />
+
       <Sheet
         open={menuBlock != null}
         onClose={() => setMenuFor(null)}
@@ -770,31 +804,13 @@ export function WorkoutScreen({
               setMenuFor(null);
               setReordering(true);
             }}
+            onReplace={() => {
+              setMenuFor(null);
+              setReplaceFor(menuBlock.id);
+            }}
             onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
-      </Sheet>
-
-      {/* The compact list: names only. An exercise block is a whole table tall,
-          and dragging one of those past three others on a phone screen is a
-          scroll fight. Stripped to one row each, the whole workout is in the
-          thumb's reach at once. */}
-      <Sheet
-        open={reordering}
-        onClose={() => setReordering(false)}
-        title="Reorder exercises"
-        dragToDismiss={false}
-        footer={
-          <Button block variant="volt" onClick={() => setReordering(false)}>
-            Done
-          </Button>
-        }
-      >
-        <ReorderList
-          blocks={blocks}
-          onReorder={reorderBlocks}
-          onCommit={persistOrder}
-        />
       </Sheet>
 
       <Sheet
@@ -813,6 +829,11 @@ export function WorkoutScreen({
             onSetRpe={(rpe) => {
               if (!typeMenuFor) return;
               patchSet(typeMenuFor.blockId, typeMenuFor.setId, { rpe });
+            }}
+            onDelete={() => {
+              if (!typeMenuFor) return;
+              dropSet(typeMenuFor.blockId, typeMenuFor.setId);
+              setTypeMenuFor(null);
             }}
           />
         )}
@@ -888,7 +909,88 @@ export function WorkoutScreen({
           setConfirmDiscard(true);
         }}
       />
+
+      <Sheet
+        open={reordering}
+        onClose={() => setReordering(false)}
+        title="Reorder exercises"
+        // The rows own the vertical drag. Motion's drag lock goes to whichever
+        // session starts first, and the panel's listener is native and on the
+        // element while a row's runs through React — so the panel always won
+        // and the row simply never moved.
+        dragToDismiss={false}
+        footer={
+          <Button block variant="volt" onClick={() => setReordering(false)}>
+            Done
+          </Button>
+        }
+      >
+        <ReorderList blocks={blocks} onReorder={reorderBlocks} />
+      </Sheet>
     </div>
+  );
+}
+
+/**
+ * The reorder view: just the names, short enough that the whole workout is on
+ * screen at once. Dragging a full exercise block past three others on a phone
+ * is miserable — the block is tall, the list scrolls under you, and the rows
+ * you're aiming for are inputs.
+ */
+function ReorderList({
+  blocks,
+  onReorder,
+}: {
+  blocks: Block[];
+  onReorder: (ids: string[]) => void;
+}) {
+  return (
+    <Reorder.Group
+      axis="y"
+      values={blocks.map((b) => b.id)}
+      onReorder={onReorder}
+      className="divide-hairline divide-y pb-2"
+    >
+      {blocks.map((block) => (
+        <ReorderRow key={block.id} block={block} />
+      ))}
+    </Reorder.Group>
+  );
+}
+
+function ReorderRow({ block }: { block: Block }) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={block.id}
+      dragListener={false}
+      dragControls={controls}
+      className="bg-bg flex items-center gap-3 px-4"
+    >
+      <button
+        // The handle takes the drag, not the row: a row-wide listener would
+        // swallow the flick that scrolls a list longer than the sheet.
+        onPointerDown={(e) => {
+          haptic.light();
+          controls.start(e);
+        }}
+        aria-label={`Drag to reorder ${block.name}`}
+        className="tap text-text-3 -ml-2 grid shrink-0 cursor-grab touch-none place-items-center px-2 active:cursor-grabbing"
+      >
+        <GripVertical className="size-[18px]" />
+      </button>
+      {block.supersetGroup && (
+        <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
+          {block.supersetGroup}
+        </span>
+      )}
+      <span className="min-w-0 flex-1 truncate py-3 text-[15px] font-medium">
+        {block.name}
+      </span>
+      <span className="num text-text-3 shrink-0 text-[12px]">
+        {block.sets.length} set{block.sets.length === 1 ? "" : "s"}
+      </span>
+    </Reorder.Item>
   );
 }
 
@@ -904,9 +1006,6 @@ function ExerciseBlock({
   onOpenPlate,
   onRunInterval,
   onPatchSet,
-  onValueFocus,
-  onValueDraft,
-  onValueCommit,
   onToggle,
   onDeleteSet,
   onAddSet,
@@ -915,23 +1014,24 @@ function ExerciseBlock({
   block: Block;
   unit: "kg" | "lb";
   prFlash: string | null;
-  /** False for a one-exercise workout — there is nothing to reorder against. */
+  /** A single exercise has no order to change — no gesture, no hint. */
   canReorder: boolean;
   onRequestReorder: () => void;
   onOpenMenu: () => void;
   onOpenPlate: (kg: number) => void;
   onRunInterval: () => void;
-  onPatchSet: (setId: string, patch: Partial<SetDraft>) => void;
-  onValueFocus: (setId: string, field: ValueField) => void;
-  onValueDraft: (setId: string, field: ValueField, value: number | null) => void;
-  onValueCommit: (setId: string, field: ValueField, value: number | null) => void;
+  onPatchSet: (
+    setId: string,
+    patch: Partial<SetDraft>,
+    opts?: { fill?: boolean; local?: boolean },
+  ) => void;
   onToggle: (set: SetDraft) => void;
   onDeleteSet: (setId: string) => void;
   onAddSet: () => void;
   onOpenTypeMenu: (setId: string) => void;
 }) {
   const reduce = useReducedMotion();
-  const longPress = useLongPress(onRequestReorder);
+  const longPress = useLongPress(onRequestReorder, { enabled: canReorder });
   const columns = setColumns(block.trackingType);
   const showWeight = columns.includes("weight");
 
@@ -947,6 +1047,8 @@ function ExerciseBlock({
   );
 
   return (
+    // `data-block-id` is what scripts/check-authz.mjs fires the exercise-level
+    // probes at, for the same reason `data-set-id` exists below.
     <motion.section
       // layout="position" and not plain layout: reordering should slide the
       // block, but a set being added inside it must not also resize-animate
@@ -956,17 +1058,14 @@ function ExerciseBlock({
       animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }}
       exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
       transition={LIST_TRANSITION}
-      className="mb-2 overflow-hidden">
-      {/* Hold this row to reorder. `select-none` and `-webkit-touch-callout`
-          because otherwise iOS answers a long press on a link with its own
-          text-selection handles and preview card, on top of ours. */}
+      className="mb-2 overflow-hidden"
+      data-block-id={block.id}
+    >
       <div
-        {...(canReorder ? longPress : {})}
-        style={canReorder ? { WebkitTouchCallout: "none" } : undefined}
-        className={cn(
-          "flex items-center gap-2 px-4 pt-4 pb-2",
-          canReorder && "select-none",
-        )}
+        {...longPress}
+        // select-none so iOS doesn't raise its text-selection handles out of a
+        // hold on the exercise name.
+        className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 select-none"
       >
         {block.supersetGroup && (
           <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
@@ -1034,8 +1133,11 @@ function ExerciseBlock({
           {block.sets.map((set, i) => {
             if (set.setType !== "warmup") workingIndex++;
             return (
+              // `data-set-id` is what scripts/check-authz.mjs fires B's probes
+              // at — the set ids are otherwise only in the flight payload.
               <motion.div
                 key={set.id}
+                data-set-id={set.id}
                 // Height, not y-translate: the rows below have to move out of
                 // the way, and a table where rows slide over each other reads
                 // as a glitch rather than an insertion.
@@ -1053,14 +1155,7 @@ function ExerciseBlock({
                   unit={unit}
                   trackingType={block.trackingType}
                   previous={block.previous[i] ?? null}
-                  onPatch={(patch) => onPatchSet(set.id, patch)}
-                  onValueFocus={(field) => onValueFocus(set.id, field)}
-                  onValueDraft={(field, value) =>
-                    onValueDraft(set.id, field, value)
-                  }
-                  onValueCommit={(field, value) =>
-                    onValueCommit(set.id, field, value)
-                  }
+                  onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
                   onToggleComplete={() => onToggle(set)}
                   onDelete={() => onDeleteSet(set.id)}
                   onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
@@ -1084,94 +1179,6 @@ function ExerciseBlock({
     </motion.section>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-
-/**
- * The reorder list. Hairline rows rather than cards — cards are the social
- * feed's device, and this is a table of contents. Same `Reorder` + explicit
- * `useDragControls` pattern as the routine builder, so the two ordering
- * surfaces in the app feel like one gesture.
- */
-function ReorderList({
-  blocks,
-  onReorder,
-  onCommit,
-}: {
-  blocks: Block[];
-  onReorder: (next: Block[]) => void;
-  onCommit: (ordered: Block[]) => void;
-}) {
-  return (
-    <Reorder.Group axis="y" values={blocks} onReorder={onReorder}>
-      {blocks.map((block, i) => (
-        <ReorderRow
-          key={block.id}
-          block={block}
-          last={i === blocks.length - 1}
-          // Closed over this render's array, which the reorder above has
-          // already rewritten by the time the finger lifts.
-          onCommit={() => onCommit(blocks)}
-        />
-      ))}
-    </Reorder.Group>
-  );
-}
-
-function ReorderRow({
-  block,
-  last,
-  onCommit,
-}: {
-  block: Block;
-  last: boolean;
-  onCommit: () => void;
-}) {
-  const controls = useDragControls();
-  const working = block.sets.filter((s) => s.setType !== "warmup").length;
-
-  return (
-    <Reorder.Item
-      value={block}
-      // Only the handle drags. The row is 44px of thumb, and a whole-row
-      // listener inside a scrolling sheet catches every attempt to scroll it.
-      dragListener={false}
-      dragControls={controls}
-      onDragEnd={onCommit}
-      className={cn(
-        "bg-surface-1 tap relative flex items-center gap-2.5 pr-4",
-        !last && "hairline-b",
-      )}
-    >
-      <button
-        onPointerDown={(e) => {
-          haptic.light();
-          controls.start(e);
-        }}
-        aria-label={`Drag ${block.name} to reorder`}
-        className="text-text-3 tap grid shrink-0 touch-none place-items-center px-3"
-      >
-        <GripVertical className="size-[18px]" />
-      </button>
-
-      {block.supersetGroup && (
-        <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
-          {block.supersetGroup}
-        </span>
-      )}
-
-      <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
-        {block.name}
-      </span>
-
-      <span className="num text-text-3 shrink-0 text-[13px]">
-        {working} {working === 1 ? "set" : "sets"}
-      </span>
-    </Reorder.Item>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 
 /** Gold burst on a new record. Non-blocking — never interrupts the next set. */
 function PrBurst() {
@@ -1206,10 +1213,12 @@ function SetOptions({
   set,
   onSetType,
   onSetRpe,
+  onDelete,
 }: {
   set: SetDraft;
   onSetType: (type: SetType) => void;
   onSetRpe: (rpe: number | null) => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="px-4 pb-5">
@@ -1266,6 +1275,15 @@ function SetOptions({
           to; 8 leaves two in the tank.
         </p>
       </div>
+
+      {/* The swipe is the fast path, but it is a gesture: this is the one that
+          works with the keyboard up, with gloves on, or after a mis-swipe. */}
+      <div className="pt-5">
+        <Button block variant="danger" onClick={onDelete}>
+          <Trash2 className="size-4" />
+          Delete set
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1284,6 +1302,7 @@ function ExerciseOptions({
   canMoveDown,
   canReorder,
   onReorderAll,
+  onReplace,
   onRemove,
 }: {
   block: Block;
@@ -1297,6 +1316,7 @@ function ExerciseOptions({
   canMoveDown: boolean;
   canReorder: boolean;
   onReorderAll: () => void;
+  onReplace: () => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
@@ -1342,16 +1362,20 @@ function ExerciseOptions({
             Move down
           </Button>
         </div>
-        {/* The drag list has no affordance of its own — a long press is
-            invisible. This is where someone looking for "reorder" arrives. */}
         {canReorder && (
           <>
-            <Button block variant="solid" className="mt-2" onClick={onReorderAll}>
+            <Button
+              block
+              variant="ghost"
+              className="mt-2"
+              onClick={onReorderAll}
+            >
               <GripVertical className="size-4" strokeWidth={2.4} />
-              Reorder all
+              Reorder all exercises
             </Button>
-            <p className="text-text-3 mt-2 text-[12px] leading-snug">
-              Or hold any exercise name on the workout screen.
+            {/* A long press is invisible otherwise. */}
+            <p className="text-text-3 mt-1.5 text-center text-[12px]">
+              Or hold an exercise name.
             </p>
           </>
         )}
@@ -1437,10 +1461,21 @@ function ExerciseOptions({
         />
       </div>
 
-      <Button block variant="danger" onClick={onRemove}>
-        <Trash2 className="size-4" />
-        Remove exercise
-      </Button>
+      <div className="space-y-2">
+        <Button block variant="solid" onClick={onReplace}>
+          <Repeat2 className="size-4" strokeWidth={2.4} />
+          Replace exercise
+        </Button>
+        <p className="text-text-3 text-[12px] leading-snug">
+          Keeps the sets and the rest timer. Anything already logged here is
+          cleared — it was performed on a different movement.
+        </p>
+
+        <Button block variant="danger" onClick={onRemove}>
+          <Trash2 className="size-4" />
+          Remove exercise
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1454,6 +1489,43 @@ function SheetLabel({ children }: { children: React.ReactNode }) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/** The value fields a typed cell can carry down the rows below it. */
+const FILLABLE = ["weightKg", "reps", "seconds", "distanceM"] as const;
+
+/**
+ * The sets a freshly typed value should be copied into: the unbroken run of
+ * sets below it that have nothing in that column yet.
+ *
+ * Contiguous rather than "every empty set below" on purpose — the run is what
+ * the user can see stopping. It halts at the first set that already carries a
+ * number (that one was entered deliberately), at a completed set (it happened
+ * as logged), and at a warm-up (a working weight is not a warm-up weight).
+ */
+function fillTargets(
+  blocks: Block[],
+  blockId: string,
+  setId: string,
+  patch: Partial<SetDraft>,
+): string[] {
+  const fields = FILLABLE.filter((f) => patch[f] != null);
+  // A numeric cell commits exactly one field. Anything else — the "previous"
+  // copy button, a set-type change — isn't a fill, and filling on a
+  // multi-field patch could write one field over a value that isn't empty.
+  if (fields.length !== 1) return [];
+  const field = fields[0];
+
+  const block = blocks.find((b) => b.id === blockId);
+  const from = block?.sets.findIndex((s) => s.id === setId) ?? -1;
+  if (!block || from < 0) return [];
+
+  const ids: string[] = [];
+  for (const s of block.sets.slice(from + 1)) {
+    if (s.completed || s.setType === "warmup" || s[field] != null) break;
+    ids.push(s.id);
+  }
+  return ids;
+}
 
 function toBlock(e: FullWorkout["exercises"][number]): Block {
   return {

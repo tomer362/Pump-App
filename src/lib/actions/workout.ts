@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -18,6 +18,7 @@ import {
   type PrKind,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { estimate1RM } from "@/lib/utils";
@@ -383,6 +384,114 @@ export async function removeWorkoutExercise(
   return { ok: true };
 }
 
+/** What the workout screen needs to re-render a block after a swap. */
+export type ReplacedExercise = {
+  exerciseId: string;
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  trackingType: string;
+  /** Sets in order — same rows, emptied. */
+  setIds: string[];
+  previous: PreviousSet[];
+};
+
+/**
+ * Swap the movement on one block, keeping its position, rest, superset letter
+ * and set count.
+ *
+ * The logged values are cleared rather than carried over: they were performed
+ * on a different exercise, and leaving them would attribute someone's pull-up
+ * reps to a lat pulldown in history, in the muscle-volume split and in the
+ * records computed at finish. The set *rows* survive — the user asked for
+ * "3 sets of this instead", not for the block to be rebuilt — and so does the
+ * exercise's own "Previous" column, which is refetched for the new movement.
+ *
+ * Live workouts only. A finished workout's totals are denormalised onto the
+ * row at finish, so mutating its sets here would leave them describing sets
+ * that no longer exist.
+ */
+export async function replaceWorkoutExercise(
+  workoutExerciseId: string,
+  exerciseId: string,
+): Promise<ActionResult<ReplacedExercise>> {
+  const guard = await ownedWorkoutExercise(workoutExerciseId);
+  if ("error" in guard) return { ok: false, error: guard.error };
+  if (guard.workout.endedAt)
+    return { ok: false, error: "This workout is already finished" };
+
+  // Scoped exactly like every picker read: built-ins plus this user's own live
+  // custom entries. An archived or someone else's id resolves to nothing.
+  const [target] = await db
+    .select()
+    .from(exercise)
+    .where(
+      and(
+        eq(exercise.id, exerciseId),
+        isNull(exercise.archivedAt),
+        or(isNull(exercise.ownerId), eq(exercise.ownerId, guard.me.id)),
+      ),
+    )
+    .limit(1);
+  if (!target) return { ok: false, error: "Exercise not found" };
+
+  const setIds = await db.transaction(async (tx) => {
+    await tx
+      .update(workoutExercise)
+      .set({
+        exerciseId: target.id,
+        // Cues, seat heights and machine numbers belong to the old movement.
+        notes: null,
+        // Interval prescriptions are per-movement too, and a work/rest
+        // countdown left running on a barbell lift is worse than no setting.
+        intervalWorkSeconds: null,
+        intervalRestSeconds: null,
+      })
+      .where(eq(workoutExercise.id, workoutExerciseId));
+
+    await tx
+      .update(workoutSet)
+      .set({
+        weightKg: null,
+        reps: null,
+        seconds: null,
+        distanceM: null,
+        rpe: null,
+        estimated1rm: null,
+        completedAt: null,
+      })
+      .where(eq(workoutSet.workoutExerciseId, workoutExerciseId));
+
+    return tx
+      .select({ id: workoutSet.id })
+      .from(workoutSet)
+      .where(eq(workoutSet.workoutExerciseId, workoutExerciseId))
+      .orderBy(asc(workoutSet.position));
+  });
+
+  // Clearing completions changes this participant's live co-op numbers.
+  await bumpCoopProgress(guard.workout.id);
+
+  const previous = await getPreviousSets(guard.me.id, guard.workout.id, [
+    target.id,
+  ]);
+
+  // No revalidate, same as the rest of this section: the screen applies the
+  // returned block to its own state, and a refresh would fight it.
+  return {
+    ok: true,
+    data: {
+      exerciseId: target.id,
+      name: target.name,
+      primaryMuscle: target.primaryMuscle,
+      equipment: target.equipment,
+      trackingType: target.trackingType,
+      setIds: setIds.map((s) => s.id),
+      previous: previous.get(target.id) ?? [],
+    },
+  };
+}
+
 export async function reorderWorkoutExercises(
   workoutId: string,
   orderedIds: string[],
@@ -584,6 +693,78 @@ export async function updateSet(
       isPr,
     },
   };
+}
+
+/**
+ * Write the same values to several sets at once — the fill that carries a
+ * typed weight or rep count down the empty sets below it.
+ *
+ * One call rather than one `updateSet` per row: this fires when a numeric cell
+ * loses focus mid-workout, and four sequential round-trips from a phone on gym
+ * wifi is the difference between instant and noticeably late.
+ *
+ * Deliberately narrower than `updateSet`: it never touches `completedAt` and
+ * runs no PR check. A fill only ever targets sets that are empty and not
+ * completed, so there is no completion to record and nothing that could set a
+ * record — that stays the single-set path, which the checkmark uses.
+ */
+export async function updateSets(
+  setIds: string[],
+  patch: z.input<typeof setPatchSchema>,
+): Promise<ActionResult<{ updated: number }>> {
+  const me = await getCurrentUser();
+  if (!me) return { ok: false, error: "Not signed in" };
+
+  // Bounded: this is a public POST endpoint like every other export here, and
+  // a fill is at most a handful of sets in one exercise.
+  const ids = z.array(z.string().uuid()).min(1).max(20).safeParse(setIds);
+  if (!ids.success) return { ok: false, error: "Invalid set ids" };
+
+  const parsed = setPatchSchema.omit({ completed: true }).safeParse(patch);
+  if (!parsed.success) return { ok: false, error: "Invalid set values" };
+  const p = parsed.data;
+
+  // Same ownership join as `updateSet`. Ids belonging to anyone else simply
+  // don't come back, so they're never written.
+  const rows = await db
+    .select({ id: workoutSet.id, weightKg: workoutSet.weightKg, reps: workoutSet.reps })
+    .from(workoutSet)
+    .innerJoin(
+      workoutExercise,
+      eq(workoutExercise.id, workoutSet.workoutExerciseId),
+    )
+    .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .where(and(inArray(workoutSet.id, ids.data), eq(workout.userId, me.id)));
+  if (!rows.length) return { ok: true, data: { updated: 0 } };
+
+  const columns = {
+    ...(p.weightKg !== undefined ? { weightKg: p.weightKg } : {}),
+    ...(p.reps !== undefined ? { reps: p.reps } : {}),
+    ...(p.seconds !== undefined ? { seconds: p.seconds } : {}),
+    ...(p.distanceM !== undefined ? { distanceM: p.distanceM } : {}),
+    ...(p.rpe !== undefined ? { rpe: p.rpe } : {}),
+    ...(p.setType !== undefined ? { setType: p.setType } : {}),
+  };
+
+  // `estimated_1rm` is per row — it depends on the values the row already had
+  // — but the rows being filled are near-identical, so grouping by the
+  // resulting estimate collapses this to one UPDATE in the normal case.
+  const byEstimate = new Map<number | null, string[]>();
+  for (const r of rows) {
+    const weightKg = p.weightKg !== undefined ? p.weightKg : r.weightKg;
+    const reps = p.reps !== undefined ? p.reps : r.reps;
+    const est = weightKg != null && reps != null ? estimate1RM(weightKg, reps) : null;
+    byEstimate.set(est, [...(byEstimate.get(est) ?? []), r.id]);
+  }
+
+  for (const [estimated1rm, group] of byEstimate) {
+    await db
+      .update(workoutSet)
+      .set({ ...columns, estimated1rm })
+      .where(inArray(workoutSet.id, group));
+  }
+
+  return { ok: true, data: { updated: rows.length } };
 }
 
 export async function updateWorkoutMeta(

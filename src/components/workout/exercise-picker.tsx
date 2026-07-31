@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Plus, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, Loader2, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge, Input, Textarea } from "@/components/ui/primitives";
-import { searchExercisesAction } from "@/lib/actions/exercise-search";
-import { createCustomExercise } from "@/lib/actions/routine";
+import { Badge, Input } from "@/components/ui/primitives";
+import { Chip, ExerciseForm } from "@/components/exercise/exercise-form";
+import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
@@ -18,61 +18,115 @@ export function ExercisePicker({
   open,
   onClose,
   onConfirm,
+  // Opens straight into the create form. The exercise browser's own "Create
+  // custom exercise" button reuses this sheet, and dropping the user into a
+  // search list they didn't ask for was one tap of pure confusion.
+  startCreating = false,
+  // "replace" swaps one movement for another: exactly one row can be selected
+  // and the sheet opens on suggestions for `replacing` rather than on the
+  // whole library, because the exercise you want is nearly always one of them.
+  mode = "add",
+  replacing,
   alreadyIn,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (exerciseIds: string[]) => void;
-  /** Exercise id → how many times it is already in the session being edited.
-      A count, not a flag: repeating an exercise later in the same session is
-      a normal thing to programme, so the marker informs and never blocks. */
+  startCreating?: boolean;
+  mode?: "add" | "replace";
+  /** The exercise being swapped out — its id and name. Replace mode only. */
+  replacing?: { id: string; name: string } | null;
+  /**
+   * Exercise id → how many times it is already on the board. A count, not a
+   * flag: a second block of the same lift is legal, so this marks rather than
+   * blocks, and "×2" says more than a tick would.
+   */
   alreadyIn?: Record<string, number>;
 }) {
+  const single = mode === "replace";
   const [query, setQuery] = useState("");
   const [muscle, setMuscle] = useState<(typeof MUSCLE_FILTERS)[number]>("all");
   const [equipment, setEquipment] =
     useState<(typeof EQUIPMENT_FILTERS)[number]>("all");
   const [selected, setSelected] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreating);
 
-  // Results carry the filter signature they were fetched for, so "loading" is
-  // derived rather than a second state write on every keystroke.
-  const signature = `${query}|${muscle}|${equipment}`;
-  const [fetched, setFetched] = useState<{
-    key: string;
-    rows: ExerciseListItem[];
+  // Rows arrive in scroll-driven batches: the sheet paints on the first one
+  // instead of waiting for the whole library.
+  const { recent, rest, loading, loadingMore, exhausted, sentinelRef, refresh } =
+    useExerciseBatches({ query, muscle, equipment }, { enabled: open });
+
+  // Curated alternatives for the movement being swapped out, then same-muscle
+  // fallbacks. Only ever fetched for the exercise actually being replaced, and
+  // only while that sheet is open.
+  // Kept with the id they were fetched for rather than cleared on the way in:
+  // that way a result that lands after the sheet has moved on to another
+  // exercise is ignored instead of rendered under the wrong heading.
+  const [suggestions, setSuggestions] = useState<{
+    for: string;
+    items: ExerciseListItem[];
   } | null>(null);
-  const items = useMemo(() => fetched?.rows ?? [], [fetched]);
-  const loading = fetched?.key !== signature;
-
-  // Debounce so typing doesn't fire a request per keystroke.
-  const debounce = useRef<number | undefined>(undefined);
+  const replacingId = single && open ? (replacing?.id ?? null) : null;
   useEffect(() => {
-    if (!open) return;
-    window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(async () => {
-      const rows = await searchExercisesAction({ query, muscle, equipment });
-      setFetched({ key: signature, rows });
-    }, 180);
-    return () => window.clearTimeout(debounce.current);
-  }, [open, query, muscle, equipment, signature]);
+    if (!replacingId) return;
+    let live = true;
+    import("@/lib/actions/exercise-search")
+      .then((m) => m.getReplacementSuggestionsAction(replacingId))
+      .then((items) => {
+        if (live) setSuggestions({ for: replacingId, items });
+      });
+    return () => {
+      live = false;
+    };
+  }, [replacingId]);
 
-  // Reset on the way out rather than in an effect keyed on `open`.
-  const close = () => {
+  // Reset on the way out rather than in an effect keyed on `open`. Memoised so
+  // the sheet below gets a stable prop across the re-render per keystroke.
+  const close = useCallback(() => {
     setSelected([]);
     setQuery("");
-    setCreating(false);
+    setCreating(startCreating);
     onClose();
-  };
+  }, [onClose, startCreating]);
 
-  const grouped = useMemo(() => {
-    const recent = items.filter((i) => i.lastPerformedAt);
-    const rest = items.filter((i) => !i.lastPerformedAt);
-    return { recent, rest };
-  }, [items]);
+  // The exercise being replaced is never a candidate to replace itself.
+  const excludeId = single ? (replacing?.id ?? null) : null;
+
+  // Suggestions lead the sheet, so they're subject to the same de-duplication
+  // as "Recent" — and they only make sense while the list is unfiltered; once
+  // the user searches, what they typed is the intent.
+  const filtering =
+    query.trim() !== "" || muscle !== "all" || equipment !== "all";
+  const suggested = useMemo(
+    () =>
+      filtering || !replacingId || suggestions?.for !== replacingId
+        ? []
+        : suggestions.items,
+    [filtering, replacingId, suggestions],
+  );
+
+  const shownRecent = useMemo(() => {
+    const above = new Set(suggested.map((e) => e.id));
+    return recent.filter((e) => e.id !== excludeId && !above.has(e.id));
+  }, [recent, suggested, excludeId]);
+
+  // The alphabetical batches cover the whole library, recent entries included,
+  // so drop the duplicates rather than show a row twice.
+  const others = useMemo(() => {
+    const shown = new Set([
+      ...suggested.map((e) => e.id),
+      ...shownRecent.map((e) => e.id),
+    ]);
+    return rest.filter((e) => e.id !== excludeId && !shown.has(e.id));
+  }, [rest, suggested, shownRecent, excludeId]);
+
+  const empty = recent.length === 0 && rest.length === 0;
 
   function toggle(id: string) {
     haptic.light();
+    // In replace mode the choice is exclusive — tapping another row moves the
+    // selection rather than adding to it.
+    if (single) return setSelected((s) => (s[0] === id ? [] : [id]));
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   }
 
@@ -80,7 +134,13 @@ export function ExercisePicker({
     <Sheet
       open={open}
       onClose={close}
-      title={creating ? "New exercise" : "Add exercises"}
+      title={
+        creating
+          ? "New exercise"
+          : single
+            ? "Replace exercise"
+            : "Add exercises"
+      }
       maxHeight="92dvh"
       footer={
         creating ? undefined : (
@@ -90,24 +150,42 @@ export function ExercisePicker({
             disabled={selected.length === 0}
             onClick={() => onConfirm(selected)}
           >
-            {selected.length === 0
-              ? "Select exercises"
-              : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
+            {single
+              ? selected.length === 0
+                ? "Select a replacement"
+                : "Replace exercise"
+              : selected.length === 0
+                ? "Select exercises"
+                : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
           </Button>
         )
       }
     >
       {creating ? (
-        <CreateExerciseForm
-          onCancel={() => setCreating(false)}
-          onCreated={(id) => {
+        <ExerciseForm
+          // With no list behind it, "Cancel" has to mean "close" — going back
+          // to a search the user never opened would be a dead end.
+          onCancel={() => (startCreating ? close() : setCreating(false))}
+          onSaved={(id) => {
+            if (startCreating) return onConfirm([id]);
             setCreating(false);
             setQuery("");
-            setSelected((s) => [...s, id]);
+            setSelected((s) => (single ? [id] : [...s, id]));
+            // Clearing an already-empty search box is a same-value no-op, so
+            // ask for the opening batch again explicitly — otherwise the
+            // exercise the user just created isn't in the list behind them.
+            refresh();
           }}
         />
       ) : (
         <div>
+          {single && replacing && (
+            <p className="text-text-3 px-4 pb-2 text-[13px] leading-snug">
+              Swapping out{" "}
+              <span className="text-text-2 font-medium">{replacing.name}</span>.
+              The sets stay; the numbers logged against the old movement don&apos;t.
+            </p>
+          )}
           <div className="bg-surface-1 sticky top-0 z-10 px-4 pb-2">
             <div className="relative">
               <Search className="text-text-3 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
@@ -152,9 +230,9 @@ export function ExercisePicker({
             </div>
           </div>
 
-          {loading && items.length === 0 ? (
+          {loading && empty ? (
             <p className="text-text-3 py-10 text-center text-[14px]">Loading…</p>
-          ) : items.length === 0 ? (
+          ) : empty ? (
             <div className="px-4 py-10 text-center">
               <p className="text-text-2 text-[15px]">No exercises match.</p>
               <Button
@@ -168,30 +246,62 @@ export function ExercisePicker({
             </div>
           ) : (
             <>
-              {grouped.recent.length > 0 && (
-                <Group title="Recent">
-                  {grouped.recent.map((e) => (
+              {suggested.length > 0 && (
+                <Group title="Similar exercises">
+                  {suggested.map((e) => (
                     <Row
                       key={e.id}
                       item={e}
                       selected={selected.includes(e.id)}
                       addedCount={alreadyIn?.[e.id] ?? 0}
+                      radio={single}
                       onToggle={() => toggle(e.id)}
                     />
                   ))}
                 </Group>
               )}
-              <Group title={grouped.recent.length ? "All exercises" : undefined}>
-                {grouped.rest.map((e) => (
+              {shownRecent.length > 0 && (
+                <Group title="Recent">
+                  {shownRecent.map((e) => (
+                    <Row
+                      key={e.id}
+                      item={e}
+                      selected={selected.includes(e.id)}
+                      addedCount={alreadyIn?.[e.id] ?? 0}
+                      radio={single}
+                      onToggle={() => toggle(e.id)}
+                    />
+                  ))}
+                </Group>
+              )}
+              <Group
+                title={
+                  suggested.length || shownRecent.length
+                    ? "All exercises"
+                    : undefined
+                }
+              >
+                {others.map((e) => (
                   <Row
                     key={e.id}
                     item={e}
                     selected={selected.includes(e.id)}
                     addedCount={alreadyIn?.[e.id] ?? 0}
+                    radio={single}
                     onToggle={() => toggle(e.id)}
                   />
                 ))}
               </Group>
+
+              {/* Sits above the create button so the next batch is already in
+                  flight while that button is still below the fold. */}
+              {!exhausted && (
+                <div ref={sentinelRef} className="flex justify-center py-4">
+                  {loadingMore && (
+                    <Loader2 className="text-text-3 size-4 animate-spin" />
+                  )}
+                </div>
+              )}
 
               <div className="px-4 py-4">
                 <Button block variant="ghost" onClick={() => setCreating(true)}>
@@ -229,19 +339,25 @@ function Group({
 function Row({
   item,
   selected,
-  addedCount,
   onToggle,
+  addedCount = 0,
+  // A replace picker takes exactly one row, and a checkbox that silently
+  // unticks the last one you tapped reads as a bug.
+  radio = false,
 }: {
   item: ExerciseListItem;
   selected: boolean;
-  addedCount: number;
   onToggle: () => void;
+  addedCount?: number;
+  radio?: boolean;
 }) {
   return (
     <button
       onClick={onToggle}
-      // The marker is a colour *and* a word: volt reads the same as pr-gold to
-      // a deutan eye, so the badge has to survive being greyscale.
+      // Volt and pr-gold are indistinguishable to a colourblind reader, so the
+      // badge below can't be the only carrier — the count goes in the row's
+      // accessible name too. "Added" rather than "in this workout": the routine
+      // builder uses this same picker, where there is no workout yet.
       aria-label={
         addedCount > 0
           ? `${item.name}, already added${addedCount > 1 ? ` ${addedCount} times` : ""}`
@@ -254,7 +370,8 @@ function Row({
     >
       <span
         className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-md border transition-colors",
+          "grid size-6 shrink-0 place-items-center border transition-colors",
+          radio ? "rounded-full" : "rounded-md",
           selected
             ? "border-volt bg-volt text-black"
             : "border-hairline-strong",
@@ -272,8 +389,10 @@ function Row({
       </span>
       {item.isCustom && <Badge className="shrink-0">Custom</Badge>}
       {addedCount > 0 && (
-        // Volt only when the row isn't already tinted for selection — two
-        // accents on one row spends volt on decoration and flattens both.
+        // Neutral once the row is selected: a selected row is already volt-tinted
+        // with a volt checkbox, and a second volt element on the same row spends
+        // the accent on decoration. The marker only needs to shout before you
+        // have touched it.
         <Badge
           tone={selected ? "neutral" : "volt"}
           className="shrink-0 whitespace-nowrap"
@@ -282,166 +401,5 @@ function Row({
         </Badge>
       )}
     </button>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
-        active
-          ? "bg-volt text-black"
-          : "bg-surface-2 text-text-2 hover:text-text-1",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function CreateExerciseForm({
-  onCancel,
-  onCreated,
-}: {
-  onCancel: () => void;
-  onCreated: (id: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [muscle, setMuscle] = useState<string>("chest");
-  const [equipment, setEquipment] = useState<string>("barbell");
-  const [tracking, setTracking] = useState<string>("weight_reps");
-  const [instructions, setInstructions] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    setSaving(true);
-    setError(null);
-    const res = await createCustomExercise({
-      name,
-      primaryMuscle: muscle,
-      equipment,
-      trackingType: tracking,
-      instructions: instructions.trim() || null,
-    });
-    setSaving(false);
-    if (res.ok && res.data) onCreated(res.data.exerciseId);
-    else if (!res.ok) setError(res.error);
-  }
-
-  return (
-    <div className="space-y-5 px-4 pb-6">
-      <div>
-        <Label>Name</Label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Reverse Nordic Curl"
-          autoFocus
-        />
-      </div>
-
-      <div>
-        <Label>Primary muscle</Label>
-        <SelectGrid
-          value={muscle}
-          onChange={setMuscle}
-          options={MUSCLES.map((m) => ({ value: m, label: labelize(m) }))}
-        />
-      </div>
-
-      <div>
-        <Label>Equipment</Label>
-        <SelectGrid
-          value={equipment}
-          onChange={setEquipment}
-          options={EQUIPMENT.map((e) => ({ value: e, label: labelize(e) }))}
-        />
-      </div>
-
-      <div>
-        <Label>How is it measured?</Label>
-        <SelectGrid
-          value={tracking}
-          onChange={setTracking}
-          options={[
-            { value: "weight_reps", label: "Weight & reps" },
-            { value: "reps", label: "Reps only" },
-            { value: "time", label: "Time" },
-            { value: "distance_time", label: "Distance & time" },
-            { value: "weight_time", label: "Weight & time" },
-          ]}
-        />
-      </div>
-
-      <div>
-        <Label>How to do it (optional)</Label>
-        <Textarea
-          rows={3}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          placeholder="Setup, cues, range of motion — whatever you'd forget in six weeks."
-          maxLength={1000}
-        />
-      </div>
-
-      {error && <p className="text-danger text-[13px]">{error}</p>}
-
-      <div className="flex gap-2">
-        <Button variant="ghost" block onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="volt"
-          block
-          onClick={submit}
-          loading={saving}
-          disabled={!name.trim()}
-        >
-          Create
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}
-
-function SelectGrid({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((o) => (
-        <Chip
-          key={o.value}
-          label={o.label}
-          active={value === o.value}
-          onClick={() => onChange(o.value)}
-        />
-      ))}
-    </div>
   );
 }

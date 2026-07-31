@@ -152,6 +152,12 @@ try {
   if (errors.length) {
     console.log("\n⚠️  Browser errors:");
     for (const e of [...new Set(errors)]) console.log(`   ${e}`);
+    // The walkthrough ran to completion without throwing, but a page error
+    // or console error is a real defect regardless — this used to leave the
+    // exit code at 0, so nothing driving this script (CI or otherwise) could
+    // ever learn that anything had gone wrong. Compare the throw branch
+    // below, which already sets this.
+    process.exitCode = 1;
   } else {
     console.log("\n✅ No browser errors.");
   }

@@ -49,8 +49,16 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${archivo.variable} antialiased`}>
-      <body className="bg-bg text-text-1 min-h-screen-d">
-        {children}
+      {/* The document itself never scrolls: it is exactly one viewport tall and
+          clipped. Content scrolls in the container below, whose rubber-band is
+          contained, so an over-scroll can't drag the fixed tab bar out of
+          place or expose a blank strip under the content. `position: fixed`
+          descendants still resolve against the viewport — the scroller sets no
+          transform or filter — so docked chrome needs no change. */}
+      <body className="bg-bg text-text-1 h-screen-d overflow-hidden">
+        <div className="h-full overflow-y-auto overscroll-y-contain">
+          {children}
+        </div>
         <ServiceWorkerRegistrar />
       </body>
     </html>

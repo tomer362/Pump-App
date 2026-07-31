@@ -93,7 +93,15 @@ describe("like and comment counters", () => {
     actingUserId = liker;
     // Ten simultaneous taps of the same button. The counter must agree with
     // the table whatever order they land in.
-    await Promise.all(Array.from({ length: 10 }, () => toggleLike(postId)));
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => toggleLike(postId)),
+    );
+    // Assert every call actually executed before trusting the counts below —
+    // otherwise a rate limit, an auth failure, or any other silent rejection
+    // leaves the DB untouched and the two checks that follow pass on a total
+    // no-op: 0 === 0 and 0 <= 1 are both true whether or not concurrency ever
+    // ran at all.
+    expect(results.every((r) => r.ok)).toBe(true);
     const c = await counts();
     expect(c.likes).toBe(c.actualLikes);
     expect(c.likes).toBeLessThanOrEqual(1);

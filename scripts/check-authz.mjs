@@ -15,6 +15,7 @@
  *   node scripts/check-authz.mjs
  */
 import { chromium, devices } from "playwright";
+import { globSync, readFileSync } from "node:fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const CHROMIUM =
@@ -84,6 +85,75 @@ async function actionIdsByName(page, url) {
   return map;
 }
 
+/**
+ * Whether a given file+export is registered as a Server Action at all, per
+ * Next's own build manifest — the ground truth, not a guess.
+ *
+ * `actionIdsByName` above only finds an id if some client component actually
+ * imports that export, because that's the only case where the id gets
+ * embedded in a shipped JS chunk. But Next assigns every export of a
+ * `"use server"` file a stable id at compile time regardless of whether any
+ * client code references it — and, critically, that id is (by default, with
+ * no `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` set, which this app doesn't set) a
+ * deterministic hash of the file path and export name. Anyone with the source
+ * — which is exactly the threat model for a repo like this one — can compute
+ * it offline without ever seeing it in a bundle. Client-visibility is not the
+ * boundary; the manifest is.
+ *
+ * Verified directly: reverting the `notifyFriends` fix and reading this
+ * manifest showed an id attached to `/notifications`'s bundle (because
+ * `push.ts` is used there via `savePushSubscription`) even though no client
+ * component anywhere imports `notifyFriends` itself — and POSTing that id
+ * executed the action. `actionIdsByName` never found it on any page it scanned.
+ */
+function serverActionExists(relFilename, exportedName) {
+  // Only the dev manifest — this script targets a running `pnpm dev`, and
+  // `.next/server/...` is whatever a *production* build last wrote, which can
+  // easily be stale relative to the server actually being probed.
+  const manifestPaths = globSync(".next/dev/server/server-reference-manifest.json");
+  for (const p of manifestPaths) {
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      continue;
+    }
+    for (const meta of Object.values(raw.node ?? {})) {
+      if (meta.filename === relFilename && meta.exportedName === exportedName) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * The manifest ids for named exports of one `"use server"` file.
+ *
+ * Same ground truth as `serverActionExists`, but returns the id so the export
+ * can actually be POSTed. `actionIdsByName` can't reach these: nothing ships
+ * `archiveCustomExercise` in a client chunk under a resolvable name, yet every
+ * one of them is a live endpoint.
+ */
+function actionIdsFromManifest(relFilename, exportedNames) {
+  const wanted = new Set(exportedNames);
+  const found = new Map();
+  for (const p of globSync(".next/dev/server/server-reference-manifest.json")) {
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      continue;
+    }
+    for (const [id, meta] of Object.entries(raw.node ?? {})) {
+      if (meta.filename === relFilename && wanted.has(meta.exportedName)) {
+        found.set(meta.exportedName, id);
+      }
+    }
+  }
+  return found;
+}
+
 /** POST an action id as this user and return the raw response body. */
 async function postAction(page, url, actionId, args) {
   return page.evaluate(
@@ -107,6 +177,21 @@ function check(label, passed, detail = "") {
   checks++;
   console.log(`  ${passed ? "ok  " : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
   if (!passed) failures.push(label);
+}
+
+/**
+ * Fail loudly and stop, rather than letting a broken fixture make every
+ * downstream check pass vacuously.
+ *
+ * If A's co-op setup silently fails, `coopId` becomes the literal string
+ * `"coop"` (the last path segment of the URL it never left), and every check
+ * built on it goes green having tested nothing: `/coop/coop` 404s like a
+ * genuine non-member probe would, an absent join code makes the "does the
+ * code leak" check vacuously true, and there is no action to probe at all.
+ * This turns that silent pass into a loud, specific failure instead.
+ */
+function requireFixture(condition, message) {
+  if (!condition) throw new Error(`fixture setup failed: ${message}`);
 }
 
 try {
@@ -138,6 +223,12 @@ try {
       .textContent({ timeout: 10000 })
       .catch(() => null)
   )?.trim();
+
+  requireFixture(
+    /^[0-9a-f-]{36}$/.test(coopId ?? ""),
+    `expected a co-op session URL, landed on "${a.page.url()}" instead`,
+  );
+  requireFixture(Boolean(joinCode), "could not read a join code off the room page");
 
   console.log("→ B probes A's resources");
 
@@ -201,17 +292,20 @@ try {
     .first()
     .getAttribute("href")
     .catch(() => null);
-  if (gymLink) {
-    const gymRes = await b.page.goto(`${BASE}${gymLink}`, {
-      waitUntil: "domcontentloaded",
-    });
-    const gymHtml = await b.page.content();
-    check(
-      "gym detail (and its join code) is not readable by a non-member",
-      gymRes.status() === 404 || !/Join code/i.test(gymHtml),
-      `status ${gymRes.status()}`,
-    );
-  }
+  // Previously: `if (gymLink) { check(...) }`. When gym creation silently
+  // failed, this whole check vanished from the summary with no trace — the
+  // final "N of N passed" count just quietly had a smaller N, and nothing in
+  // the output said a gym check was ever supposed to run.
+  requireFixture(Boolean(gymLink), "could not find a gym link on /gyms after creating one");
+  const gymRes = await b.page.goto(`${BASE}${gymLink}`, {
+    waitUntil: "domcontentloaded",
+  });
+  const gymHtml = await b.page.content();
+  check(
+    "gym detail (and its join code) is not readable by a non-member",
+    gymRes.status() === 404 || !/Join code/i.test(gymHtml),
+    `status ${gymRes.status()}`,
+  );
 
   // 5. A's in-progress workout must not be readable.
   await a.page.goto(`${BASE}/start`, { waitUntil: "networkidle" });
@@ -258,6 +352,211 @@ try {
       ran ? "action ran and returned nothing" : "INCONCLUSIVE: action did not run",
     );
   }
+
+  // 7. Custom-exercise mutations take a caller-supplied exercise id. A owns
+  //    one; B fires every mutation at it. Each action scopes its statement
+  //    with `owner_id = me.id`, so a refusal here is the row simply not
+  //    matching — but the whole point is that the check lives in the action
+  //    and not only in the page that renders the controls.
+  await a.page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await a.page.getByRole("button", { name: /create custom exercise/i }).click();
+  await a.page.waitForTimeout(500);
+  const customName = `Authz Custom ${Date.now()}`;
+  await a.page.getByPlaceholder(/reverse nordic curl/i).fill(customName);
+  await a.page.getByRole("button", { name: /^Create$/ }).click();
+  await a.page.waitForTimeout(1200);
+  await a.page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await a.page.getByPlaceholder(/search exercises/i).fill(customName);
+  await a.page.waitForTimeout(900);
+  const customHref = await a.page
+    .locator('a[href^="/exercises/"]')
+    .first()
+    .getAttribute("href")
+    .catch(() => null);
+  requireFixture(
+    Boolean(customHref),
+    "could not find the custom exercise A just created",
+  );
+  const customId = customHref.split("/").pop();
+
+  // B must not even be able to open the detail page for A's custom exercise.
+  const customRes = await b.page.goto(`${BASE}/exercises/${customId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  check(
+    "another user's custom exercise is not readable",
+    customRes.status() === 404 ||
+      !(await b.page.content()).includes(customName),
+    `status ${customRes.status()}`,
+  );
+
+  const exerciseActions = actionIdsFromManifest("src/lib/actions/exercise.ts", [
+    "updateCustomExercise",
+    "archiveCustomExercise",
+    "restoreCustomExercise",
+  ]);
+  requireFixture(
+    exerciseActions.size === 3,
+    `expected 3 exercise action ids in the dev manifest, found ${exerciseActions.size}`,
+  );
+  for (const [name, id] of exerciseActions) {
+    const args =
+      name === "updateCustomExercise"
+        ? [
+            {
+              exerciseId: customId,
+              name: "Hijacked",
+              primaryMuscle: "chest",
+              secondaryMuscles: [],
+              equipment: "barbell",
+              trackingType: "weight_reps",
+            },
+          ]
+        : [customId];
+    const res = await postAction(b.page, `${BASE}/exercises`, id, args);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    // Every one of them returns `{ok:false}` for a row it doesn't own.
+    const refused = /isn't one of your exercises|Not signed in/.test(res.body);
+    check(
+      `${name} refuses another user's exercise`,
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // And A's exercise must still be intact and unarchived afterwards.
+  await a.page.goto(`${BASE}/exercises/${customId}`, { waitUntil: "networkidle" });
+  const afterHtml = await a.page.content();
+  check(
+    "A's custom exercise survived B's probes unchanged",
+    afterHtml.includes(customName) && !afterHtml.includes("Hijacked"),
+  );
+
+  // 8. The set mutations take caller-supplied set ids and are the hot path of
+  //    the workout screen — `updateSets` writes several rows at once, so a
+  //    missing owner scope there would let anyone rewrite a stranger's log in
+  //    one request. A adds an exercise to their live workout; B fires both
+  //    mutations at the resulting set id. Neither returns an error for a row
+  //    it doesn't own (the ownership join simply matches nothing), so the
+  //    check that means anything is that A's set is untouched afterwards.
+  await a.page.goto(`${BASE}/workout/${workoutId}`, { waitUntil: "networkidle" });
+  await a.page.getByRole("button", { name: /^Add exercise$/ }).click();
+  await a.page.waitForTimeout(400);
+  await a.page.getByPlaceholder(/search exercises/i).fill("Bench Press");
+  await a.page.waitForTimeout(900);
+  await a.page.getByRole("button", { name: /Bench Press/ }).first().click();
+  await a.page.getByRole("button", { name: /^Add \d+ exercises?$/ }).click();
+  await a.page.waitForTimeout(1200);
+  const victimSetId = await a.page
+    .locator("[data-set-id]")
+    .first()
+    .getAttribute("data-set-id")
+    .catch(() => null);
+  requireFixture(
+    Boolean(victimSetId),
+    "could not read a set id off A's workout screen",
+  );
+
+  const setActions = actionIdsFromManifest("src/lib/actions/workout.ts", [
+    "updateSet",
+    "updateSets",
+  ]);
+  requireFixture(
+    setActions.size === 2,
+    `expected 2 set-mutation action ids in the dev manifest, found ${setActions.size}`,
+  );
+  for (const [name, id] of setActions) {
+    const args =
+      name === "updateSets"
+        ? [[victimSetId], { weightKg: 999, reps: 99 }]
+        : [victimSetId, { weightKg: 999, reps: 99 }];
+    const res = await postAction(b.page, `${BASE}/feed`, id, args);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      `${name} runs but writes nothing for another user's set`,
+      ran,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // The exercise-level swap takes a caller-supplied workout-exercise id *and*
+  // an exercise id, so it needs both scopes: A's block must not be replaceable
+  // by B, and the replacement itself must come from the library B is allowed
+  // to see. B fires it at A's block with A's private custom exercise.
+  const victimBlockId = await a.page
+    .locator("[data-block-id]")
+    .first()
+    .getAttribute("data-block-id")
+    .catch(() => null);
+  requireFixture(
+    Boolean(victimBlockId),
+    "could not read an exercise-block id off A's workout screen",
+  );
+
+  const [, replaceId] = [
+    ...actionIdsFromManifest("src/lib/actions/workout.ts", [
+      "replaceWorkoutExercise",
+    ]),
+  ][0] ?? [];
+  if (!replaceId) {
+    check(
+      "replaceWorkoutExercise refuses another user's exercise block",
+      false,
+      "INCONCLUSIVE: could not resolve the action id — the probe did not run",
+    );
+  } else {
+    const res = await postAction(b.page, `${BASE}/feed`, replaceId, [
+      victimBlockId,
+      customId,
+    ]);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    const refused = /Not found|Not signed in/.test(res.body);
+    check(
+      "replaceWorkoutExercise refuses another user's exercise block",
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  await a.page.reload({ waitUntil: "networkidle" });
+  check(
+    "A's exercise block survived B's replace probe",
+    (await a.page.content()).includes("Bench Press"),
+  );
+  const setValue = await a.page
+    .locator("[data-set-id]")
+    .first()
+    .locator("input")
+    .first()
+    .inputValue()
+    .catch(() => "");
+  check(
+    "A's set survived B's probes unchanged",
+    setValue !== "999",
+    `set weight reads "${setValue}"`,
+  );
+
+  // 8. `notifyFriends` used to be exported from a "use server" module while
+  //    taking a caller-supplied userId and freeform payload — any signed-in
+  //    user could blast arbitrary push text to any user's entire friend list.
+  //    It never appeared in any client-shipped chunk (nothing client-side
+  //    imports it directly), so a chunk-scraping check would pass whether or
+  //    not it was fixed — verified by reverting the fix and rechecking. The
+  //    only reliable proof is Next's own build manifest: visit a route that
+  //    forces `push.ts` to compile, then check whether the manifest still
+  //    carries an id for this file+export pair at all.
+  await a.page.goto(`${BASE}/notifications`, { waitUntil: "networkidle" });
+  const stillAnAction = serverActionExists(
+    "src/lib/actions/push.ts",
+    "notifyFriends",
+  );
+  check(
+    "notifyFriends is not registered as a Server Action at all",
+    !stillAnAction,
+    stillAnAction
+      ? "found in server-reference-manifest.json — still a live POST endpoint"
+      : "absent from the manifest — moved out of \"use server\" scope",
+  );
 
   await a.ctx.close();
   await b.ctx.close();

@@ -161,6 +161,25 @@ export async function getPost(postId: string, viewerId: string) {
   return rows.length ? toFeedItem(rows[0]) : null;
 }
 
+/**
+ * One person's own posts, for their profile page.
+ *
+ * The profile page used to reuse `getFollowingFeed(viewerId)` and filter the
+ * result to `authorId` — but that feed is capped at the viewer's most recent
+ * posts across everyone they follow, so a viewer who follows a handful of
+ * active people would see this author's own profile render empty even though
+ * the author has posts; it depended on the author's posts happening to be
+ * recent enough to survive the viewer's global limit.
+ */
+export async function getUserFeed(
+  authorId: string,
+  viewerId: string,
+  limit = 10,
+): Promise<FeedItem[]> {
+  const rows = await runFeedQuery(viewerId, eq(post.userId, authorId), limit);
+  return rows.map(toFeedItem);
+}
+
 /** Capped: an unbounded thread lets one spammer make the page un-renderable. */
 export async function getComments(postId: string, limit = 200) {
   return db

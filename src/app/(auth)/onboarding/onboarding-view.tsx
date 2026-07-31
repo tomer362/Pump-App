@@ -85,7 +85,7 @@ export function OnboardingView({
   }
 
   return (
-    <main className="flex min-h-screen-d flex-col px-6 pt-safe pb-safe inset-safe-x">
+    <main className="px-safe-6 flex min-h-screen-d flex-col pt-safe pb-safe">
       <div className="flex-1 pt-10">
         <Wordmark size={24} className="opacity-60" />
         <motion.h1

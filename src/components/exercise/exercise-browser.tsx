@@ -1,28 +1,43 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Plus, Search, X } from "lucide-react";
-import { Badge, Card, Input } from "@/components/ui/primitives";
+import { Archive, ChevronRight, Loader2, Plus, Search, X } from "lucide-react";
+import { Badge, Card, Input, Segmented } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
-import { searchExercisesAction } from "@/lib/actions/exercise-search";
-import type { ExerciseListItem } from "@/lib/queries/exercise";
+import { Chip } from "@/components/exercise/exercise-form";
+import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
+import type { ExerciseBatch } from "@/lib/actions/exercise-search";
+import type { ExerciseScope } from "@/lib/queries/exercise";
+import { MUSCLES } from "@/lib/db/schema";
+import type { Muscle } from "@/lib/db/schema";
 import { labelize } from "@/lib/utils";
 
-export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
-  const [query, setQuery] = useState("");
-  const [items, setItems] = useState(initial);
-  const [creating, setCreating] = useState(false);
-  const debounce = useRef<number | undefined>(undefined);
+const SCOPES = [
+  { value: "available" as const, label: "All" },
+  { value: "mine" as const, label: "Mine" },
+  { value: "archived" as const, label: "Archived" },
+];
 
-  useEffect(() => {
-    window.clearTimeout(debounce.current);
-    debounce.current = window.setTimeout(async () => {
-      setItems(await searchExercisesAction({ query }));
-    }, 200);
-    return () => window.clearTimeout(debounce.current);
-  }, [query]);
+const MUSCLE_FILTERS = ["all", ...MUSCLES] as const;
+
+export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<ExerciseScope>("available");
+  const [muscle, setMuscle] = useState<Muscle | "all">("all");
+  const [creating, setCreating] = useState(false);
+
+  // The first batch is server-rendered, the rest arrive as the user scrolls.
+  const { recent, rest, loadingMore, exhausted, sentinelRef, refresh } =
+    useExerciseBatches({ query, scope, muscle }, { initial });
+
+  // Recent entries are pinned on top and also appear in the alphabetical
+  // batches — show each row once.
+  const items = useMemo(() => {
+    const shown = new Set(recent.map((e) => e.id));
+    return [...recent, ...rest.filter((e) => !shown.has(e.id))];
+  }, [recent, rest]);
 
   return (
     <div className="px-4">
@@ -47,20 +62,44 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
         )}
       </div>
 
-      <Button
-        block
-        variant="ghost"
+      <Segmented
         className="mt-3"
-        onClick={() => setCreating(true)}
-      >
-        <Plus className="size-4" strokeWidth={2.6} />
-        Create custom exercise
-      </Button>
+        value={scope}
+        onChange={setScope}
+        options={SCOPES}
+      />
+
+      <div className="scrollbar-none -mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1">
+        {MUSCLE_FILTERS.map((m) => (
+          <Chip
+            key={m}
+            active={muscle === m}
+            onClick={() => setMuscle(m)}
+            label={m === "all" ? "All muscles" : labelize(m)}
+          />
+        ))}
+      </div>
+
+      {scope !== "archived" && (
+        <Button
+          block
+          variant="ghost"
+          className="mt-3"
+          onClick={() => setCreating(true)}
+        >
+          <Plus className="size-4" strokeWidth={2.6} />
+          Create custom exercise
+        </Button>
+      )}
 
       <Card className="divide-hairline mt-3 divide-y overflow-hidden">
         {items.length === 0 ? (
           <p className="text-text-3 py-8 text-center text-[14px]">
-            No exercises match.
+            {scope === "archived"
+              ? "Nothing archived."
+              : scope === "mine"
+                ? "You haven't created any exercises yet."
+                : "No exercises match."}
           </p>
         ) : (
           items.map((e) => (
@@ -75,23 +114,41 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseListItem[] }) {
                   {labelize(e.primaryMuscle)} · {labelize(e.equipment)}
                 </p>
               </div>
-              {e.isCustom && <Badge>Custom</Badge>}
+              {e.isArchived ? (
+                <Archive className="text-text-3 size-4 shrink-0" />
+              ) : (
+                e.isCustom && <Badge>Custom</Badge>
+              )}
               <ChevronRight className="text-text-3 size-4 shrink-0" />
             </Link>
           ))
         )}
       </Card>
 
-      {/* Reuses the picker's create form; selecting nothing just closes it. */}
+      {/* Requested ~600px before it reaches the viewport, so the next batch is
+          usually already rendered by the time the user scrolls that far. */}
+      {!exhausted && (
+        <div ref={sentinelRef} className="flex justify-center py-4">
+          {loadingMore && <Loader2 className="text-text-3 size-4 animate-spin" />}
+        </div>
+      )}
+
+      {/* Reuses the picker's sheet, opened straight into the create form. */}
       <ExercisePicker
+        startCreating
         open={creating}
         onClose={() => setCreating(false)}
         onConfirm={() => {
           setCreating(false);
           setQuery("");
+          // Refetch explicitly rather than relying on the filter change: when
+          // the search box was already empty (the common case — this is the
+          // default state), setQuery("") is a same-value no-op and the
+          // signature never changes, so a newly created exercise silently
+          // didn't appear until an unrelated reload.
+          refresh();
         }}
       />
     </div>
   );
 }
-

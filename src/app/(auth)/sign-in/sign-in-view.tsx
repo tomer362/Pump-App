@@ -29,7 +29,7 @@ export function SignInView() {
   }
 
   return (
-    <main className="flex min-h-screen-d flex-col px-6 pt-safe pb-safe inset-safe-x">
+    <main className="px-safe-6 flex min-h-screen-d flex-col pt-safe pb-safe">
       {/* A single volt bloom behind the mark — the one decorative flourish in
           the whole app, and it earns its place by being the first screen. */}
       <div
@@ -46,6 +46,7 @@ export function SignInView() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.25, 1, 0.5, 1] }}
+          className="flex flex-col items-center text-center"
         >
           <Wordmark size={52} />
           <h1 className="font-display mt-7 max-w-[12ch] text-[40px] leading-[0.98] font-extrabold tracking-[-0.035em]">
@@ -54,12 +55,15 @@ export function SignInView() {
             <span className="text-volt">Together.</span>
           </h1>
 
-          <ul className="mt-8 space-y-2.5">
+          {/* The list is centred as a block but its rows stay left-aligned, so
+              the volt dots line up instead of raggedly tracking each line's
+              width. `items-center` on the parent shrinks it to its content. */}
+          <ul className="mt-8 space-y-2.5 text-left">
             {LINES.map((line, i) => (
               <motion.li
                 key={line}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
                 transition={{
                   delay: 0.18 + i * 0.08,
                   duration: 0.4,
