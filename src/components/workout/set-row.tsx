@@ -386,9 +386,40 @@ function NumberCell({
   const [local, setLocal] = useState(value);
   const focused = useRef(false);
 
+  // Refs so the teardown effect below can read the latest local value and
+  // callback without listing them as deps — this cell mounts fresh per set,
+  // and re-subscribing the pagehide listener on every keystroke would be silly.
+  const localRef = useRef(local);
+  const valueRef = useRef(value);
+  const onCommitRef = useRef(onCommit);
+
   useEffect(() => {
+    localRef.current = local;
+  }, [local]);
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+  useEffect(() => {
+    valueRef.current = value;
     if (!focused.current) setLocal(value);
   }, [value]);
+
+  // Blur normally commits an edit, but two paths skip it entirely: tapping
+  // the exercise name unmounts this row before the blur handler runs, and
+  // iOS swiping the installed PWA away fires no DOM events at all — only
+  // `pagehide`. Both would otherwise lose whatever the lifter just typed.
+  useEffect(() => {
+    const commitIfDirty = () => {
+      if (focused.current && localRef.current !== valueRef.current) {
+        onCommitRef.current(localRef.current);
+      }
+    };
+    window.addEventListener("pagehide", commitIfDirty);
+    return () => {
+      window.removeEventListener("pagehide", commitIfDirty);
+      commitIfDirty();
+    };
+  }, []);
 
   return (
     <input
