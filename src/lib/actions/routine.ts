@@ -316,11 +316,19 @@ export async function saveWorkoutAsRoutine(
     .where(inArray(workoutSet.workoutExerciseId, weIds))
     .orderBy(asc(workoutSet.position));
 
+  // A workout saved as "unfinished" keeps its skipped sets. The template
+  // should describe what was performed, so those are left out — unless the
+  // exercise was skipped wholesale, in which case its plan is all we have.
   const byWe = new Map<string, typeof sets>();
+  const skippedByWe = new Map<string, typeof sets>();
   for (const s of sets) {
-    const list = byWe.get(s.workoutExerciseId) ?? [];
+    const target = s.completedAt != null ? byWe : skippedByWe;
+    const list = target.get(s.workoutExerciseId) ?? [];
     list.push(s);
-    byWe.set(s.workoutExerciseId, list);
+    target.set(s.workoutExerciseId, list);
+  }
+  for (const [weId, list] of skippedByWe) {
+    if (!byWe.has(weId)) byWe.set(weId, list);
   }
 
   const id = await db.transaction(async (tx) => {

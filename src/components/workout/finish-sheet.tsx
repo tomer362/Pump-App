@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Globe, Lock } from "lucide-react";
+import { Check, CircleDashed, Globe, Lock, Trash2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/primitives";
 import { PhotoInput } from "@/components/ui/photo-input";
 import { WorkoutCelebration } from "./celebration";
-import { finishWorkout, type FinishSummary } from "@/lib/actions/workout";
-import { cn } from "@/lib/utils";
+import {
+  finishWorkout,
+  type FinishSummary,
+  type UnfinishedSetsMode,
+} from "@/lib/actions/workout";
+import { cn, haptic } from "@/lib/utils";
 
 export function FinishSheet({
   open,
@@ -19,8 +23,10 @@ export function FinishSheet({
   defaultNote,
   unit,
   uploadsEnabled,
+  unfinishedCount,
   onNameChange,
   onNoteChange,
+  onDiscard,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,8 +35,11 @@ export function FinishSheet({
   defaultNote: string;
   unit: "kg" | "lb";
   uploadsEnabled: boolean;
+  /** Sets left unticked. Above zero, finishing asks what to do with them. */
+  unfinishedCount: number;
   onNameChange: (v: string) => void;
   onNoteChange: (v: string) => void;
+  onDiscard: () => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(defaultName);
@@ -40,6 +49,9 @@ export function FinishSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<FinishSummary | null>(null);
+  // Defaults to the truthful option: an unticked set was not performed, and
+  // silently promoting it would invent volume and fake a personal record.
+  const [unfinished, setUnfinished] = useState<UnfinishedSetsMode>("keep");
 
   async function submit() {
     setSaving(true);
@@ -48,6 +60,7 @@ export function FinishSheet({
       shareToFeed: share,
       caption: note || null,
       photoUrl,
+      unfinishedSets: unfinishedCount > 0 ? unfinished : "delete",
     });
     setSaving(false);
     if (!res.ok) {
@@ -66,11 +79,48 @@ export function FinishSheet({
         title="Finish workout"
         footer={
           <Button block variant="volt" onClick={submit} loading={saving}>
-            Finish and save
+            {unfinishedCount > 0 && unfinished === "complete"
+              ? "Complete all and save"
+              : "Finish and save"}
           </Button>
         }
       >
         <div className="space-y-5 px-4 pb-4">
+          {unfinishedCount > 0 && (
+            <div>
+              <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+                {unfinishedCount} set{unfinishedCount === 1 ? "" : "s"} not
+                ticked off
+              </p>
+              <div className="space-y-2">
+                <UnfinishedOption
+                  active={unfinished === "complete"}
+                  onClick={() => setUnfinished("complete")}
+                  icon={<Check className="size-4" strokeWidth={2.6} />}
+                  title="Mark them done"
+                  subtitle="You did them and forgot to tick. They count toward volume and records."
+                />
+                <UnfinishedOption
+                  active={unfinished === "keep"}
+                  onClick={() => setUnfinished("keep")}
+                  icon={<CircleDashed className="size-4" strokeWidth={2.4} />}
+                  title="Leave them unfinished"
+                  subtitle="Saved as skipped. They stay in the log but count for nothing."
+                />
+              </div>
+              <button
+                onClick={() => {
+                  haptic.light();
+                  onDiscard();
+                }}
+                className="press text-danger tap mt-2 flex w-full items-center justify-center gap-1.5 text-[13px] font-semibold"
+              >
+                <Trash2 className="size-4" />
+                Discard the whole workout
+              </button>
+            </div>
+          )}
+
           <div>
             <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
               Workout name
@@ -155,6 +205,58 @@ export function FinishSheet({
         />
       )}
     </>
+  );
+}
+
+/**
+ * Full-width rather than side-by-side: the difference between these two is the
+ * difference between a real record and an invented one, and the subtitle is
+ * what carries that — it has to be readable, not squeezed into half a row.
+ */
+function UnfinishedOption({
+  active,
+  onClick,
+  icon,
+  title,
+  subtitle,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "press rounded-field flex w-full items-start gap-2.5 border p-3 text-left transition-colors",
+        active ? "border-volt bg-volt-fade" : "border-hairline bg-surface-2",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-px shrink-0",
+          active ? "text-volt" : "text-text-3",
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span
+          className={cn(
+            "block text-[14px] font-semibold",
+            active ? "text-volt" : "text-text-1",
+          )}
+        >
+          {title}
+        </span>
+        <span className="text-text-3 mt-0.5 block text-[12px] leading-snug">
+          {subtitle}
+        </span>
+      </span>
+    </button>
   );
 }
 

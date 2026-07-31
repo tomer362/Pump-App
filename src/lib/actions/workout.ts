@@ -651,7 +651,29 @@ export type FinishSummary = {
 };
 
 /**
- * Close out the workout: drop unticked sets, roll up totals, detect records,
+ * What to do with sets the lifter planned but never ticked off.
+ *
+ * `delete` — they were noise; forget they existed. The historical default.
+ * `complete` — the lifter did them but forgot to tick; count them for real.
+ * `keep`     — they were genuinely skipped; record that the session was left
+ *              unfinished rather than pretending the plan was the performance.
+ */
+export type UnfinishedSetsMode = "delete" | "complete" | "keep";
+
+/**
+ * A planned set only becomes a real one if it actually records something.
+ * Promoting an empty row would write a 0×0 set into the log.
+ */
+function recordsSomething(s: {
+  reps: number | null;
+  seconds: number | null;
+  distanceM: number | null;
+}) {
+  return (s.reps ?? 0) > 0 || (s.seconds ?? 0) > 0 || (s.distanceM ?? 0) > 0;
+}
+
+/**
+ * Close out the workout: settle unticked sets, roll up totals, detect records,
  * grant achievements and publish to the feed. Everything the celebration
  * screen needs comes back in one payload so it can animate immediately.
  */
@@ -661,6 +683,7 @@ export async function finishWorkout(
     shareToFeed?: boolean;
     caption?: string | null;
     photoUrl?: string | null;
+    unfinishedSets?: UnfinishedSetsMode;
   } = {},
 ): Promise<ActionResult<FinishSummary>> {
   const guard = await ownedWorkout(workoutId);
@@ -686,16 +709,32 @@ export async function finishWorkout(
         .where(inArray(workoutSet.workoutExerciseId, weIds))
     : [];
 
-  const completed = sets.filter((s) => s.completedAt != null);
-  if (!completed.length) {
-    return { ok: false, error: "Log at least one set before finishing" };
-  }
-
   const endedAt = new Date();
   const durationSeconds = Math.max(
     1,
     Math.round((endedAt.getTime() - w.startedAt.getTime()) / 1000),
   );
+
+  // Settle the unticked sets before anything is counted, so totals, records
+  // and the celebration all agree on what was actually performed.
+  const mode: UnfinishedSetsMode = opts.unfinishedSets ?? "delete";
+  const unticked = sets.filter((s) => s.completedAt == null);
+  const promoted = mode === "complete" ? unticked.filter(recordsSomething) : [];
+  // Empty rows are dropped even in "complete" mode — there is nothing to log.
+  const abandoned =
+    mode === "complete"
+      ? unticked.filter((s) => !recordsSomething(s))
+      : mode === "delete"
+        ? unticked
+        : [];
+
+  const completed = [
+    ...sets.filter((s) => s.completedAt != null),
+    ...promoted.map((s) => ({ ...s, completedAt: endedAt })),
+  ];
+  if (!completed.length) {
+    return { ok: false, error: "Log at least one set before finishing" };
+  }
 
   // Warm-ups are excluded from volume — counting them inflates every stat.
   const scoring = completed.filter((s) => s.setType !== "warmup");
@@ -711,10 +750,26 @@ export async function finishWorkout(
     opts.photoUrl && isBlobUrl(opts.photoUrl) ? opts.photoUrl : null;
 
   await db.transaction(async (tx) => {
-    // Unticked sets are noise: they were planned but not performed.
-    const abandoned = sets.filter((s) => s.completedAt == null).map((s) => s.id);
     if (abandoned.length) {
-      await tx.delete(workoutSet).where(inArray(workoutSet.id, abandoned));
+      await tx.delete(workoutSet).where(
+        inArray(
+          workoutSet.id,
+          abandoned.map((s) => s.id),
+        ),
+      );
+    }
+
+    // Handful of rows in practice, and each needs its own 1RM, so a loop beats
+    // building a CASE expression.
+    for (const s of promoted) {
+      await tx
+        .update(workoutSet)
+        .set({
+          completedAt: endedAt,
+          estimated1rm:
+            s.estimated1rm ?? estimate1RM(s.weightKg ?? 0, s.reps ?? 0),
+        })
+        .where(eq(workoutSet.id, s.id));
     }
 
     // Best candidate per exercise per record kind.

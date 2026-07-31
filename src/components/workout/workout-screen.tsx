@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowDown,
   ArrowUp,
@@ -53,6 +53,16 @@ import { cn, estimate1RM, formatDuration, formatWeight, haptic } from "@/lib/uti
 import type { SetType } from "@/lib/db/schema";
 
 type ExerciseDraft = FullWorkout["exercises"][number] & { sets: never };
+
+/**
+ * Rows and exercises appearing and leaving. Duration-based rather than a
+ * spring: these animate `height`, and a spring's overshoot on a collapsing row
+ * makes the table below it bounce. 200 ms is the house speed for the routine.
+ */
+const LIST_TRANSITION = {
+  duration: 0.2,
+  ease: [0.25, 1, 0.5, 1],
+} as const;
 
 type Block = {
   id: string;
@@ -111,14 +121,19 @@ export function WorkoutScreen({
   const totals = useMemo(() => {
     let volume = 0;
     let sets = 0;
+    let unfinished = 0;
     for (const b of blocks) {
       for (const s of b.sets) {
-        if (!s.completed || s.setType === "warmup") continue;
+        if (!s.completed) {
+          unfinished++;
+          continue;
+        }
+        if (s.setType === "warmup") continue;
         sets++;
         volume += (s.weightKg ?? 0) * (s.reps ?? 0);
       }
     }
-    return { volume, sets };
+    return { volume, sets, unfinished };
   }, [blocks]);
 
   /* ---------------------------------------------------------------------- */
@@ -511,24 +526,28 @@ export function WorkoutScreen({
       </header>
 
       <main className="pb-40">
-        {blocks.map((block) => (
-          <ExerciseBlock
-            key={block.id}
-            block={block}
-            unit={unit}
-            prFlash={prFlash}
-            onOpenMenu={() => setMenuFor(block.id)}
-            onOpenPlate={(kg) => setPlateFor(kg)}
-            onRunInterval={() => setIntervalFor(block)}
-            onPatchSet={(setId, patch) => patchSet(block.id, setId, patch)}
-            onToggle={(set) => toggleComplete(block, set)}
-            onDeleteSet={(setId) => dropSet(block.id, setId)}
-            onAddSet={() => appendSet(block)}
-            onOpenTypeMenu={(setId) =>
-              setTypeMenuFor({ blockId: block.id, setId })
-            }
-          />
-        ))}
+        {/* initial={false} — the exercises already on screen at mount are the
+            plan, not an event. Only what the lifter adds mid-session animates. */}
+        <AnimatePresence initial={false}>
+          {blocks.map((block) => (
+            <ExerciseBlock
+              key={block.id}
+              block={block}
+              unit={unit}
+              prFlash={prFlash}
+              onOpenMenu={() => setMenuFor(block.id)}
+              onOpenPlate={(kg) => setPlateFor(kg)}
+              onRunInterval={() => setIntervalFor(block)}
+              onPatchSet={(setId, patch) => patchSet(block.id, setId, patch)}
+              onToggle={(set) => toggleComplete(block, set)}
+              onDeleteSet={(setId) => dropSet(block.id, setId)}
+              onAddSet={() => appendSet(block)}
+              onOpenTypeMenu={(setId) =>
+                setTypeMenuFor({ blockId: block.id, setId })
+              }
+            />
+          ))}
+        </AnimatePresence>
 
         <div className="space-y-2 px-4 py-5">
           <Button block variant="solid" onClick={() => setPicking(true)}>
@@ -659,6 +678,7 @@ export function WorkoutScreen({
         defaultNote={note}
         unit={unit}
         uploadsEnabled={uploadsEnabled}
+        unfinishedCount={totals.unfinished}
         onNameChange={(v) => {
           setName(v);
           saveMeta({ name: v });
@@ -666,6 +686,11 @@ export function WorkoutScreen({
         onNoteChange={(v) => {
           setNote(v);
           saveMeta({ note: v || null });
+        }}
+        onDiscard={() => {
+          // Hand off to the existing confirmation — discarding is never one tap.
+          setFinishing(false);
+          setConfirmDiscard(true);
         }}
       />
     </div>
@@ -699,6 +724,7 @@ function ExerciseBlock({
   onAddSet: () => void;
   onOpenTypeMenu: (setId: string) => void;
 }) {
+  const reduce = useReducedMotion();
   const columns = setColumns(block.trackingType);
   const showWeight = columns.includes("weight");
 
@@ -714,7 +740,16 @@ function ExerciseBlock({
   );
 
   return (
-    <section className="mb-2">
+    <motion.section
+      // layout="position" and not plain layout: reordering should slide the
+      // block, but a set being added inside it must not also resize-animate
+      // the whole exercise — that reads as the page breathing.
+      layout={reduce ? false : "position"}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+      animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }}
+      exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+      transition={LIST_TRANSITION}
+      className="mb-2 overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-4 pb-2">
         {block.supersetGroup && (
           <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
@@ -778,27 +813,41 @@ function ExerciseBlock({
       </div>
 
       <div className="divide-hairline divide-y">
-        {block.sets.map((set, i) => {
-          if (set.setType !== "warmup") workingIndex++;
-          return (
-            <div key={set.id} className="relative">
-              <SetRow
-                set={set}
-                index={workingIndex}
-                unit={unit}
-                trackingType={block.trackingType}
-                previous={block.previous[i] ?? null}
-                onPatch={(patch) => onPatchSet(set.id, patch)}
-                onToggleComplete={() => onToggle(set)}
-                onDelete={() => onDeleteSet(set.id)}
-                onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
-              />
-              <AnimatePresence>
-                {prFlash === set.id && <PrBurst />}
-              </AnimatePresence>
-            </div>
-          );
-        })}
+        <AnimatePresence initial={false}>
+          {block.sets.map((set, i) => {
+            if (set.setType !== "warmup") workingIndex++;
+            return (
+              <motion.div
+                key={set.id}
+                // Height, not y-translate: the rows below have to move out of
+                // the way, and a table where rows slide over each other reads
+                // as a glitch rather than an insertion.
+                initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                animate={
+                  reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }
+                }
+                exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                transition={LIST_TRANSITION}
+                className="relative overflow-hidden"
+              >
+                <SetRow
+                  set={set}
+                  index={workingIndex}
+                  unit={unit}
+                  trackingType={block.trackingType}
+                  previous={block.previous[i] ?? null}
+                  onPatch={(patch) => onPatchSet(set.id, patch)}
+                  onToggleComplete={() => onToggle(set)}
+                  onDelete={() => onDeleteSet(set.id)}
+                  onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
+                />
+                <AnimatePresence>
+                  {prFlash === set.id && <PrBurst />}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </div>
 
       <button
@@ -808,7 +857,7 @@ function ExerciseBlock({
         <Plus className="size-4" strokeWidth={2.6} />
         Add set
       </button>
-    </section>
+    </motion.section>
   );
 }
 
