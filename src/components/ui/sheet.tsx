@@ -16,6 +16,7 @@ export function Sheet({
   /** Sheet grows to content by default; set to cap it and scroll inside. */
   maxHeight = "88dvh",
   footer,
+  dragToDismiss = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -23,6 +24,15 @@ export function Sheet({
   children: React.ReactNode;
   maxHeight?: string;
   footer?: React.ReactNode;
+  /**
+   * Set false when the content owns the vertical drag itself. Motion arbitrates
+   * two overlapping y-drags with a single global lock claimed by whichever pan
+   * crosses its threshold first — and that is this panel, whose native listener
+   * on the element beats a child's controls started from a delegated React
+   * handler. The child would silently never move. Sheets that turn this off
+   * still close by backdrop, Escape and their own footer button.
+   */
+  dragToDismiss?: boolean;
 }) {
   const reduce = useReducedMotion();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -136,7 +146,7 @@ export function Sheet({
                 ? { duration: 0.15 }
                 : { type: "spring", stiffness: 420, damping: 38, mass: 0.9 }
             }
-            drag={reduce ? false : "y"}
+            drag={reduce || !dragToDismiss ? false : "y"}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={(_, info) => {

@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  Reorder,
+  motion,
+  useDragControls,
+  useReducedMotion,
+} from "motion/react";
 import {
   ArrowDown,
   ArrowUp,
@@ -12,6 +18,7 @@ import {
   Clock,
   Ellipsis,
   Gauge,
+  GripVertical,
   Plus,
   Timer,
   Trash2,
@@ -36,6 +43,7 @@ import { IntervalRunner } from "./interval-runner";
 import { FinishSheet } from "./finish-sheet";
 import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useLongPress } from "@/hooks/use-long-press";
 import {
   addSet,
   addExercisesToWorkout,
@@ -143,6 +151,7 @@ export function WorkoutScreen({
   const [finishing, setFinishing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [typeMenuFor, setTypeMenuFor] = useState<{ blockId: string; setId: string } | null>(null);
   const [plateFor, setPlateFor] = useState<number | null>(null);
   const [intervalFor, setIntervalFor] = useState<Block | null>(null);
@@ -445,6 +454,27 @@ export function WorkoutScreen({
     [blocks, workout.id],
   );
 
+  /**
+   * Drag reorder, from the compact list. Applied on every crossing so the list
+   * under the finger is the truth, but only written once the finger lifts —
+   * dragging past four exercises is four crossings and would be four writes.
+   */
+  const reorderBlocks = useCallback((next: Block[]) => {
+    dirty.current = true;
+    setBlocks(next);
+  }, []);
+
+  const persistOrder = useCallback(
+    (ordered: Block[]) => {
+      haptic.light();
+      void reorderWorkoutExercises(
+        workout.id,
+        ordered.map((b) => b.id),
+      );
+    },
+    [workout.id],
+  );
+
   const setSuperset = useCallback(
     (blockId: string, supersetGroup: string | null) => {
       dirty.current = true;
@@ -560,6 +590,8 @@ export function WorkoutScreen({
               block={block}
               unit={unit}
               prFlash={prFlash}
+              canReorder={blocks.length > 1}
+              onRequestReorder={() => setReordering(true)}
               onOpenMenu={() => setMenuFor(block.id)}
               onOpenPlate={(kg) => setPlateFor(kg)}
               onRunInterval={() => setIntervalFor(block)}
@@ -622,9 +654,36 @@ export function WorkoutScreen({
             onMove={(delta) => moveBlock(menuBlock.id, delta)}
             canMoveUp={blocks[0]?.id !== menuBlock.id}
             canMoveDown={blocks[blocks.length - 1]?.id !== menuBlock.id}
+            canReorder={blocks.length > 1}
+            onReorderAll={() => {
+              setMenuFor(null);
+              setReordering(true);
+            }}
             onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
+      </Sheet>
+
+      {/* The compact list: names only. An exercise block is a whole table tall,
+          and dragging one of those past three others on a phone screen is a
+          scroll fight. Stripped to one row each, the whole workout is in the
+          thumb's reach at once. */}
+      <Sheet
+        open={reordering}
+        onClose={() => setReordering(false)}
+        title="Reorder exercises"
+        dragToDismiss={false}
+        footer={
+          <Button block variant="volt" onClick={() => setReordering(false)}>
+            Done
+          </Button>
+        }
+      >
+        <ReorderList
+          blocks={blocks}
+          onReorder={reorderBlocks}
+          onCommit={persistOrder}
+        />
       </Sheet>
 
       <Sheet
@@ -728,6 +787,8 @@ function ExerciseBlock({
   block,
   unit,
   prFlash,
+  canReorder,
+  onRequestReorder,
   onOpenMenu,
   onOpenPlate,
   onRunInterval,
@@ -740,6 +801,9 @@ function ExerciseBlock({
   block: Block;
   unit: "kg" | "lb";
   prFlash: string | null;
+  /** False for a one-exercise workout — there is nothing to reorder against. */
+  canReorder: boolean;
+  onRequestReorder: () => void;
   onOpenMenu: () => void;
   onOpenPlate: (kg: number) => void;
   onRunInterval: () => void;
@@ -750,6 +814,7 @@ function ExerciseBlock({
   onOpenTypeMenu: (setId: string) => void;
 }) {
   const reduce = useReducedMotion();
+  const longPress = useLongPress(onRequestReorder);
   const columns = setColumns(block.trackingType);
   const showWeight = columns.includes("weight");
 
@@ -775,7 +840,17 @@ function ExerciseBlock({
       exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
       transition={LIST_TRANSITION}
       className="mb-2 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+      {/* Hold this row to reorder. `select-none` and `-webkit-touch-callout`
+          because otherwise iOS answers a long press on a link with its own
+          text-selection handles and preview card, on top of ours. */}
+      <div
+        {...(canReorder ? longPress : {})}
+        style={canReorder ? { WebkitTouchCallout: "none" } : undefined}
+        className={cn(
+          "flex items-center gap-2 px-4 pt-4 pb-2",
+          canReorder && "select-none",
+        )}
+      >
         {block.supersetGroup && (
           <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
             {block.supersetGroup}
@@ -886,6 +961,94 @@ function ExerciseBlock({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The reorder list. Hairline rows rather than cards — cards are the social
+ * feed's device, and this is a table of contents. Same `Reorder` + explicit
+ * `useDragControls` pattern as the routine builder, so the two ordering
+ * surfaces in the app feel like one gesture.
+ */
+function ReorderList({
+  blocks,
+  onReorder,
+  onCommit,
+}: {
+  blocks: Block[];
+  onReorder: (next: Block[]) => void;
+  onCommit: (ordered: Block[]) => void;
+}) {
+  return (
+    <Reorder.Group axis="y" values={blocks} onReorder={onReorder}>
+      {blocks.map((block, i) => (
+        <ReorderRow
+          key={block.id}
+          block={block}
+          last={i === blocks.length - 1}
+          // Closed over this render's array, which the reorder above has
+          // already rewritten by the time the finger lifts.
+          onCommit={() => onCommit(blocks)}
+        />
+      ))}
+    </Reorder.Group>
+  );
+}
+
+function ReorderRow({
+  block,
+  last,
+  onCommit,
+}: {
+  block: Block;
+  last: boolean;
+  onCommit: () => void;
+}) {
+  const controls = useDragControls();
+  const working = block.sets.filter((s) => s.setType !== "warmup").length;
+
+  return (
+    <Reorder.Item
+      value={block}
+      // Only the handle drags. The row is 44px of thumb, and a whole-row
+      // listener inside a scrolling sheet catches every attempt to scroll it.
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={onCommit}
+      className={cn(
+        "bg-surface-1 tap relative flex items-center gap-2.5 pr-4",
+        !last && "hairline-b",
+      )}
+    >
+      <button
+        onPointerDown={(e) => {
+          haptic.light();
+          controls.start(e);
+        }}
+        aria-label={`Drag ${block.name} to reorder`}
+        className="text-text-3 tap grid shrink-0 touch-none place-items-center px-3"
+      >
+        <GripVertical className="size-[18px]" />
+      </button>
+
+      {block.supersetGroup && (
+        <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
+          {block.supersetGroup}
+        </span>
+      )}
+
+      <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
+        {block.name}
+      </span>
+
+      <span className="num text-text-3 shrink-0 text-[13px]">
+        {working} {working === 1 ? "set" : "sets"}
+      </span>
+    </Reorder.Item>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
 /** Gold burst on a new record. Non-blocking — never interrupts the next set. */
 function PrBurst() {
   return (
@@ -995,6 +1158,8 @@ function ExerciseOptions({
   onMove,
   canMoveUp,
   canMoveDown,
+  canReorder,
+  onReorderAll,
   onRemove,
 }: {
   block: Block;
@@ -1006,6 +1171,8 @@ function ExerciseOptions({
   onMove: (delta: -1 | 1) => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  canReorder: boolean;
+  onReorderAll: () => void;
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
@@ -1051,6 +1218,19 @@ function ExerciseOptions({
             Move down
           </Button>
         </div>
+        {/* The drag list has no affordance of its own — a long press is
+            invisible. This is where someone looking for "reorder" arrives. */}
+        {canReorder && (
+          <>
+            <Button block variant="solid" className="mt-2" onClick={onReorderAll}>
+              <GripVertical className="size-4" strokeWidth={2.4} />
+              Reorder all
+            </Button>
+            <p className="text-text-3 mt-2 text-[12px] leading-snug">
+              Or hold any exercise name on the workout screen.
+            </p>
+          </>
+        )}
       </div>
 
       <div>
