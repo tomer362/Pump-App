@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
 import {
@@ -16,6 +16,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Textarea, Segmented } from "@/components/ui/primitives";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
 import {
+  cascadeBelow,
   columnLabel,
   setColumns,
   type SetColumn,
@@ -53,16 +54,15 @@ type DraftExercise = {
 let keySeq = 0;
 const nextKey = () => `k${++keySeq}`;
 
-/** Column key → the `DraftSet` field it edits. Weight is handled separately
-    because it needs unit conversion on the way in and out. */
+/** Column key → the `DraftSet` field it edits. */
 const TARGET_FIELD = {
+  weight: "targetWeightKg",
   reps: "targetReps",
   seconds: "targetSeconds",
   distance: "targetDistanceM",
-} as const satisfies Record<
-  Exclude<SetColumn, "weight">,
-  keyof DraftSet
->;
+} as const satisfies Record<SetColumn, keyof DraftSet>;
+
+type TargetField = (typeof TARGET_FIELD)[SetColumn];
 
 /** A new set inherits the previous one's targets — programmes repeat. */
 function cloneTargets(last: DraftSet | undefined) {
@@ -118,6 +118,14 @@ export function RoutineBuilder({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** The cascade in progress — see `editTarget`. Reset on every cell focus. */
+  const cascade = useRef<{
+    setKey: string;
+    field: TargetField;
+    typed: boolean;
+    filled: string[];
+  } | null>(null);
 
   const addExercises = useCallback(
     async (ids: string[]) => {
@@ -184,6 +192,51 @@ export function RoutineBuilder({
             },
       ),
     );
+  }
+
+  /**
+   * Type a target into one set and the empty sets under it take the same
+   * number, live. Programmes are written as "4×8 @ 60" far more often than as
+   * four different prescriptions, so the sets below are what you'd have typed
+   * next; anything you've already filled in yourself is left alone.
+   */
+  function editTarget(
+    exKey: string,
+    setKey: string,
+    field: TargetField,
+    value: number | null,
+    typed: boolean,
+  ) {
+    const item = items.find((it) => it.key === exKey);
+    const from = item?.sets.findIndex((s) => s.key === setKey) ?? -1;
+    if (!item || from < 0) return;
+
+    const run =
+      cascade.current?.setKey === setKey && cascade.current.field === field
+        ? cascade.current
+        : (cascade.current = { setKey, field, typed: false, filled: [] });
+    run.typed ||= typed;
+
+    const edited = item.sets.map((s) =>
+      s.key === setKey ? { ...s, [field]: value } : s,
+    );
+
+    // Focusing a cell to read it and moving on isn't a prescription.
+    if (!run.typed) {
+      patchExercise(exKey, { sets: edited });
+      return;
+    }
+
+    const { sets, filled } = cascadeBelow({
+      sets: edited,
+      from,
+      field,
+      value,
+      keyOf: (s) => s.key,
+      owned: new Set(run.filled),
+    });
+    run.filled = filled;
+    patchExercise(exKey, { sets });
   }
 
   async function save() {
@@ -304,6 +357,12 @@ export function RoutineBuilder({
             unit={unit}
             onOpenMenu={() => setMenuFor(item.key)}
             onPatchSet={(setKey, patch) => patchSet(item.key, setKey, patch)}
+            onTargetFocus={(setKey, field) => {
+              cascade.current = { setKey, field, typed: false, filled: [] };
+            }}
+            onTargetEdit={(setKey, field, value, typed) =>
+              editTarget(item.key, setKey, field, value, typed)
+            }
             onAddSet={() =>
               patchExercise(item.key, {
                 sets: [
@@ -365,6 +424,8 @@ function ExerciseCard({
   unit,
   onOpenMenu,
   onPatchSet,
+  onTargetFocus,
+  onTargetEdit,
   onAddSet,
   onRemoveSet,
 }: {
@@ -372,6 +433,14 @@ function ExerciseCard({
   unit: "kg" | "lb";
   onOpenMenu: () => void;
   onPatchSet: (setKey: string, patch: Partial<DraftSet>) => void;
+  onTargetFocus: (setKey: string, field: TargetField) => void;
+  /** `typed` separates a keystroke from a blur that changed nothing. */
+  onTargetEdit: (
+    setKey: string,
+    field: TargetField,
+    value: number | null,
+    typed: boolean,
+  ) => void;
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
 }) {
@@ -466,53 +535,41 @@ function ExerciseCard({
                     : "F"}
             </button>
 
-            {columns.map((column) =>
-              column === "weight" ? (
+            {columns.map((column) => {
+              const field = TARGET_FIELD[column];
+              const isWeight = column === "weight";
+              const current = s[field];
+
+              // Shared by both channels so the number a keystroke cascades is
+              // the number the blur settles on.
+              const parse = (raw: string) => {
+                if (raw === "") return null;
+                const n = isWeight ? Number(raw) : Math.round(Number(raw));
+                if (!Number.isFinite(n)) return null;
+                return isWeight && unit === "lb" ? lbToKg(n) : n;
+              };
+
+              return (
                 <TargetInput
                   key={column}
                   value={
-                    s.targetWeightKg == null
+                    current == null
                       ? ""
-                      : String(
-                          Math.round(
-                            (unit === "kg"
-                              ? s.targetWeightKg
-                              : kgToLb(s.targetWeightKg)) * 100,
-                          ) / 100,
-                        )
+                      : isWeight
+                        ? String(
+                            Math.round(
+                              (unit === "kg" ? current : kgToLb(current)) * 100,
+                            ) / 100,
+                          )
+                        : String(current)
                   }
                   placeholder="—"
-                  onCommit={(raw) => {
-                    const n = raw === "" ? null : Number(raw);
-                    onPatchSet(s.key, {
-                      targetWeightKg:
-                        n == null || !Number.isFinite(n)
-                          ? null
-                          : unit === "kg"
-                            ? n
-                            : lbToKg(n),
-                    });
-                  }}
+                  onFocus={() => onTargetFocus(s.key, field)}
+                  onDraft={(raw) => onTargetEdit(s.key, field, parse(raw), true)}
+                  onCommit={(raw) => onTargetEdit(s.key, field, parse(raw), false)}
                 />
-              ) : (
-                <TargetInput
-                  key={column}
-                  value={
-                    s[TARGET_FIELD[column]] == null
-                      ? ""
-                      : String(s[TARGET_FIELD[column]])
-                  }
-                  placeholder="—"
-                  onCommit={(raw) => {
-                    const n = raw === "" ? null : Math.round(Number(raw));
-                    onPatchSet(s.key, {
-                      [TARGET_FIELD[column]]:
-                        n == null || !Number.isFinite(n) ? null : n,
-                    });
-                  }}
-                />
-              ),
-            )}
+              );
+            })}
 
             <button
               onClick={() => onRemoveSet(s.key)}
@@ -537,24 +594,51 @@ function ExerciseCard({
   );
 }
 
+/**
+ * Commits on blur/Enter so re-renders can't fight the user's typing; `onDraft`
+ * is the separate live channel the cascade rides on. The effect only accepts an
+ * outside value while the cell is unfocused, which is how a row filled by the
+ * cell above it updates without the focused source ever being written back to.
+ */
 function TargetInput({
   value,
   placeholder,
+  onFocus,
+  onDraft,
   onCommit,
 }: {
   value: string;
   placeholder: string;
+  onFocus?: () => void;
+  onDraft?: (raw: string) => void;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setLocal(value);
+  }, [value]);
+
   return (
     <input
       value={local}
       inputMode="decimal"
       placeholder={placeholder}
-      onFocus={(e) => requestAnimationFrame(() => e.target.select())}
-      onChange={(e) => setLocal(e.target.value.replace(/[^0-9.]/g, ""))}
-      onBlur={() => onCommit(local)}
+      onFocus={(e) => {
+        focused.current = true;
+        onFocus?.();
+        requestAnimationFrame(() => e.target.select());
+      }}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^0-9.]/g, "");
+        setLocal(raw);
+        onDraft?.(raw);
+      }}
+      onBlur={() => {
+        focused.current = false;
+        onCommit(local);
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}

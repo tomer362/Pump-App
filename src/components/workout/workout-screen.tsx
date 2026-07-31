@@ -24,10 +24,12 @@ import { Sheet } from "@/components/ui/sheet";
 import { Badge, Textarea } from "@/components/ui/primitives";
 import {
   SetRow,
+  cascadeBelow,
   columnLabel,
   setColumns,
   setGridTemplate,
   type SetDraft,
+  type ValueField,
 } from "./set-row";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { ExercisePicker } from "./exercise-picker";
@@ -108,6 +110,18 @@ export function WorkoutScreen({
 
   const bestByExercise = useRef(current1rm);
 
+  /**
+   * The cascade currently in progress: which cell is driving it, and which sets
+   * it has filled so far. Reset whenever a value cell takes focus, so a set the
+   * lifter has since corrected by hand stops being ours to overwrite.
+   */
+  const cascade = useRef<{
+    setId: string;
+    field: ValueField;
+    typed: boolean;
+    filled: string[];
+  } | null>(null);
+
   const totals = useMemo(() => {
     let volume = 0;
     let sets = 0;
@@ -125,7 +139,7 @@ export function WorkoutScreen({
   /* Mutations — optimistic locally, persisted in the background.            */
   /* ---------------------------------------------------------------------- */
 
-  const patchSet = useCallback(
+  const writeSet = useCallback(
     (blockId: string, setId: string, patch: Partial<SetDraft>) => {
       setBlocks((prev) =>
         prev.map((b) =>
@@ -137,6 +151,13 @@ export function WorkoutScreen({
               },
         ),
       );
+    },
+    [],
+  );
+
+  const patchSet = useCallback(
+    (blockId: string, setId: string, patch: Partial<SetDraft>) => {
+      writeSet(blockId, setId, patch);
       startTransition(async () => {
         await updateSet(setId, {
           weightKg: patch.weightKg,
@@ -148,8 +169,83 @@ export function WorkoutScreen({
         });
       });
     },
-    [],
+    [writeSet],
   );
+
+  /**
+   * Write a value cell and carry it down the empty sets beneath it. The index
+   * the cascade starts from is read off the block's own `sets` — a row shouldn't
+   * have to be told where it sits, and threading a position through the props
+   * would go stale the moment a set is added or deleted.
+   *
+   * Returns the sets it filled, so the commit path knows what to persist.
+   */
+  const cascadeValue = useCallback(
+    (
+      blockId: string,
+      setId: string,
+      field: ValueField,
+      value: number | null,
+      typed: boolean,
+    ) => {
+      const block = blocks.find((b) => b.id === blockId);
+      const from = block?.sets.findIndex((s) => s.id === setId) ?? -1;
+      if (!block || from < 0) return [];
+
+      const run =
+        cascade.current?.setId === setId && cascade.current.field === field
+          ? cascade.current
+          : (cascade.current = { setId, field, typed: false, filled: [] });
+      run.typed ||= typed;
+
+      // Focusing a set to read it and moving on isn't a prescription — only a
+      // cell that was actually typed into cascades.
+      if (!run.typed) {
+        writeSet(blockId, setId, { [field]: value } as Partial<SetDraft>);
+        return [];
+      }
+
+      const { sets, filled } = cascadeBelow({
+        sets: block.sets.map((s) =>
+          s.id === setId ? { ...s, [field]: value } : s,
+        ),
+        from,
+        field,
+        value,
+        keyOf: (s) => s.id,
+        owned: new Set(run.filled),
+        // A ticked set is a record of something performed, not a plan.
+        locked: (s) => s.completed,
+      });
+      run.filled = filled;
+
+      setBlocks((prev) =>
+        prev.map((b) => (b.id === blockId ? { ...b, sets } : b)),
+      );
+      return filled;
+    },
+    [blocks, writeSet],
+  );
+
+  /**
+   * Blur or Enter. One round trip per set the cascade actually reached — every
+   * one of them holds the same number as the source, so they share a patch, and
+   * a keystroke on the way here cost nothing.
+   */
+  const commitValue = useCallback(
+    (blockId: string, setId: string, field: ValueField, value: number | null) => {
+      const filled = cascadeValue(blockId, setId, field, value, false);
+      const patch = { [field]: value } as Partial<Record<ValueField, number | null>>;
+      startTransition(async () => {
+        await Promise.all([setId, ...filled].map((id) => updateSet(id, patch)));
+      });
+    },
+    [cascadeValue],
+  );
+
+  const beginEdit = useCallback((setId: string, field: ValueField) => {
+    cascade.current = { setId, field, typed: false, filled: [] };
+  }, []);
 
   const toggleComplete = useCallback(
     (block: Block, set: SetDraft) => {
@@ -521,6 +617,13 @@ export function WorkoutScreen({
             onOpenPlate={(kg) => setPlateFor(kg)}
             onRunInterval={() => setIntervalFor(block)}
             onPatchSet={(setId, patch) => patchSet(block.id, setId, patch)}
+            onValueFocus={beginEdit}
+            onValueDraft={(setId, field, value) =>
+              cascadeValue(block.id, setId, field, value, true)
+            }
+            onValueCommit={(setId, field, value) =>
+              commitValue(block.id, setId, field, value)
+            }
             onToggle={(set) => toggleComplete(block, set)}
             onDeleteSet={(setId) => dropSet(block.id, setId)}
             onAddSet={() => appendSet(block)}
@@ -682,6 +785,9 @@ function ExerciseBlock({
   onOpenPlate,
   onRunInterval,
   onPatchSet,
+  onValueFocus,
+  onValueDraft,
+  onValueCommit,
   onToggle,
   onDeleteSet,
   onAddSet,
@@ -694,6 +800,9 @@ function ExerciseBlock({
   onOpenPlate: (kg: number) => void;
   onRunInterval: () => void;
   onPatchSet: (setId: string, patch: Partial<SetDraft>) => void;
+  onValueFocus: (setId: string, field: ValueField) => void;
+  onValueDraft: (setId: string, field: ValueField, value: number | null) => void;
+  onValueCommit: (setId: string, field: ValueField, value: number | null) => void;
   onToggle: (set: SetDraft) => void;
   onDeleteSet: (setId: string) => void;
   onAddSet: () => void;
@@ -789,6 +898,11 @@ function ExerciseBlock({
                 trackingType={block.trackingType}
                 previous={block.previous[i] ?? null}
                 onPatch={(patch) => onPatchSet(set.id, patch)}
+                onValueFocus={(field) => onValueFocus(set.id, field)}
+                onValueDraft={(field, value) => onValueDraft(set.id, field, value)}
+                onValueCommit={(field, value) =>
+                  onValueCommit(set.id, field, value)
+                }
                 onToggleComplete={() => onToggle(set)}
                 onDelete={() => onDeleteSet(set.id)}
                 onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
