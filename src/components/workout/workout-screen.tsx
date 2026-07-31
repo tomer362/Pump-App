@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -96,7 +96,6 @@ export function WorkoutScreen({
   uploadsEnabled: boolean;
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
   const keyboardInset = useKeyboardInset();
   // Scoped to this workout so a stale timer from another session is ignored.
   const timer = useRestTimer(workout.id);
@@ -106,6 +105,39 @@ export function WorkoutScreen({
   );
   const [name, setName] = useState(workout.name);
   const [note, setNote] = useState(workout.note ?? "");
+
+  // `workout` is the RSC payload from whichever load produced this mount.
+  // None of the per-set actions call `revalidatePath` (see the comment on
+  // `addExercisesToWorkout` below), so the Router Cache keeps serving the
+  // payload from first load even after the DB has moved on. Tapping the
+  // exercise name navigates away and back, remounting this component with
+  // that same stale `workout` — which would otherwise re-seed `blocks` over
+  // whatever the lifter just typed. `seededFrom` is the payload useState()
+  // already seeded from; `reseeded` caps the correction to once per mount so
+  // a second navigation can't seed twice; `dirty` refuses the correction
+  // entirely once the user has touched anything, so a slow refresh landing
+  // after they've resumed editing doesn't clobber the new edits with the
+  // stale ones it fetched.
+  const seededFrom = useRef(workout);
+  const reseeded = useRef(false);
+  const dirty = useRef(false);
+
+  // Ask Next for a fresh RSC payload the moment this screen mounts. This is
+  // the only re-seed trigger — see the ref block above.
+  useEffect(() => {
+    router.refresh();
+  }, [router]);
+
+  useEffect(() => {
+    if (workout === seededFrom.current || reseeded.current || dirty.current) {
+      return;
+    }
+    reseeded.current = true;
+    seededFrom.current = workout;
+    setBlocks(workout.exercises.map(toBlock));
+    setName(workout.name);
+    setNote(workout.note ?? "");
+  }, [workout]);
 
   const [picking, setPicking] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -142,6 +174,7 @@ export function WorkoutScreen({
 
   const patchSet = useCallback(
     (blockId: string, setId: string, patch: Partial<SetDraft>) => {
+      dirty.current = true;
       setBlocks((prev) =>
         prev.map((b) =>
           b.id !== blockId
@@ -152,15 +185,16 @@ export function WorkoutScreen({
               },
         ),
       );
-      startTransition(async () => {
-        await updateSet(setId, {
-          weightKg: patch.weightKg,
-          reps: patch.reps,
-          seconds: patch.seconds,
-          distanceM: patch.distanceM,
-          rpe: patch.rpe,
-          setType: patch.setType,
-        });
+      // Fired directly, not inside startTransition: tapping the exercise name
+      // unmounts this component to navigate, and React is free to abandon an
+      // in-flight transition on unmount — which would silently drop the write.
+      void updateSet(setId, {
+        weightKg: patch.weightKg,
+        reps: patch.reps,
+        seconds: patch.seconds,
+        distanceM: patch.distanceM,
+        rpe: patch.rpe,
+        setType: patch.setType,
       });
     },
     [],
@@ -168,6 +202,7 @@ export function WorkoutScreen({
 
   const toggleComplete = useCallback(
     (block: Block, set: SetDraft) => {
+      dirty.current = true;
       const next = !set.completed;
 
       setBlocks((prev) =>
@@ -224,14 +259,13 @@ export function WorkoutScreen({
         if (workout.coopSessionId) void setCoopResting(workout.coopSessionId, null);
       }
 
-      startTransition(async () => {
-        await updateSet(set.id, { completed: next });
-      });
+      void updateSet(set.id, { completed: next });
     },
     [blocks, defaultRestSeconds, timer, workout.coopSessionId],
   );
 
   const appendSet = useCallback(async (block: Block) => {
+    dirty.current = true;
     haptic.light();
     const res = await addSet(block.id);
     if (!res.ok || !res.data) return;
@@ -269,6 +303,7 @@ export function WorkoutScreen({
    */
   const completeIntervalRound = useCallback(
     (blockId: string, setIndex: number, seconds: number) => {
+      dirty.current = true;
       let setId: string | undefined;
 
       setBlocks((prev) =>
@@ -287,15 +322,13 @@ export function WorkoutScreen({
       );
 
       if (!setId) return;
-      const id = setId;
-      startTransition(async () => {
-        await updateSet(id, { seconds, completed: true });
-      });
+      void updateSet(setId, { seconds, completed: true });
     },
     [],
   );
 
   const dropSet = useCallback((blockId: string, setId: string) => {
+    dirty.current = true;
     setBlocks((prev) =>
       prev.map((b) =>
         b.id !== blockId
@@ -303,21 +336,19 @@ export function WorkoutScreen({
           : { ...b, sets: b.sets.filter((s) => s.id !== setId) },
       ),
     );
-    startTransition(async () => {
-      await removeSet(setId);
-    });
+    void removeSet(setId);
   }, []);
 
   const dropExercise = useCallback((blockId: string) => {
+    dirty.current = true;
     setBlocks((prev) => prev.filter((b) => b.id !== blockId));
     setMenuFor(null);
-    startTransition(async () => {
-      await removeWorkoutExercise(blockId);
-    });
+    void removeWorkoutExercise(blockId);
   }, []);
 
   const addExercises = useCallback(
     async (ids: string[]) => {
+      dirty.current = true;
       setPicking(false);
       if (!ids.length) return;
       const res = await addExercisesToWorkout(workout.id, ids);
@@ -363,32 +394,29 @@ export function WorkoutScreen({
 
   const saveMeta = useCallback(
     (patch: { name?: string; note?: string | null }) => {
-      startTransition(async () => {
-        await updateWorkoutMeta(workout.id, patch);
-      });
+      dirty.current = true;
+      void updateWorkoutMeta(workout.id, patch);
     },
     [workout.id],
   );
 
   const setRest = useCallback(
     (blockId: string, seconds: number | null) => {
+      dirty.current = true;
       setBlocks((prev) =>
         prev.map((b) => (b.id === blockId ? { ...b, restSeconds: seconds } : b)),
       );
-      startTransition(async () => {
-        await updateWorkoutExerciseSettings(blockId, { restSeconds: seconds });
-      });
+      void updateWorkoutExerciseSettings(blockId, { restSeconds: seconds });
     },
     [],
   );
 
   const setBlockNotes = useCallback((blockId: string, notes: string | null) => {
+    dirty.current = true;
     setBlocks((prev) =>
       prev.map((b) => (b.id === blockId ? { ...b, notes } : b)),
     );
-    startTransition(async () => {
-      await updateWorkoutExerciseSettings(blockId, { notes });
-    });
+    void updateWorkoutExerciseSettings(blockId, { notes });
   }, []);
 
   /**
@@ -403,35 +431,34 @@ export function WorkoutScreen({
       const to = from + delta;
       if (from < 0 || to < 0 || to >= blocks.length) return;
 
+      dirty.current = true;
       const next = [...blocks];
       [next[from], next[to]] = [next[to], next[from]];
       haptic.light();
       setMenuFor(null);
       setBlocks(next);
-      startTransition(async () => {
-        await reorderWorkoutExercises(
-          workout.id,
-          next.map((b) => b.id),
-        );
-      });
+      void reorderWorkoutExercises(
+        workout.id,
+        next.map((b) => b.id),
+      );
     },
     [blocks, workout.id],
   );
 
   const setSuperset = useCallback(
     (blockId: string, supersetGroup: string | null) => {
+      dirty.current = true;
       setBlocks((prev) =>
         prev.map((b) => (b.id === blockId ? { ...b, supersetGroup } : b)),
       );
-      startTransition(async () => {
-        await updateWorkoutExerciseSettings(blockId, { supersetGroup });
-      });
+      void updateWorkoutExerciseSettings(blockId, { supersetGroup });
     },
     [],
   );
 
   const setInterval = useCallback(
     (blockId: string, work: number | null, rest: number | null) => {
+      dirty.current = true;
       setBlocks((prev) =>
         prev.map((b) =>
           b.id === blockId
@@ -439,11 +466,9 @@ export function WorkoutScreen({
             : b,
         ),
       );
-      startTransition(async () => {
-        await updateWorkoutExerciseSettings(blockId, {
-          intervalWorkSeconds: work,
-          intervalRestSeconds: rest,
-        });
+      void updateWorkoutExerciseSettings(blockId, {
+        intervalWorkSeconds: work,
+        intervalRestSeconds: rest,
       });
     },
     [],
