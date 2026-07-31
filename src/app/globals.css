@@ -33,6 +33,18 @@
   --color-danger: #ff453a;
   --color-danger-fade: #ff453a1f;
 
+  /* --- Folder rails. Identification, not accent: these are deliberately
+     desaturated and low-contrast so a shelf of folders never competes with a
+     completed set or a PR. They appear as a 2px rail beside a folder name and
+     nowhere else, and the name is always present — colour is never the only
+     thing telling two folders apart. */
+  --color-folder-slate: #6b7280;
+  --color-folder-sand: #a8935f;
+  --color-folder-clay: #b07a63;
+  --color-folder-moss: #6f8f6a;
+  --color-folder-sky: #6685a8;
+  --color-folder-plum: #8c6f96;
+
   /* --- Type. System stack first so iPhones render genuine SF Pro and the app
      reads as native; Archivo carries display + numerals. */
   --font-sans:

@@ -3,10 +3,12 @@ import Link from "next/link";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Badge } from "@/components/ui/primitives";
 import { requireUser } from "@/lib/session";
-import { getFullRoutine } from "@/lib/queries/routine";
+import { getFullRoutine, getFolders } from "@/lib/queries/routine";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { RoutineActions } from "./routine-actions";
-import { formatWeight, labelize } from "@/lib/utils";
+import { RoutineLikeButton } from "@/components/routine/routine-like-button";
+import { folderRail } from "@/lib/folder-color";
+import { cn, formatWeight, labelize } from "@/lib/utils";
 
 export default async function RoutineDetailPage(
   props: PageProps<"/routines/[id]">,
@@ -14,13 +16,16 @@ export default async function RoutineDetailPage(
   const { id } = await props.params;
   const me = await requireUser();
 
-  const routine = await getFullRoutine(id);
+  const routine = await getFullRoutine(id, me.id);
   if (!routine) notFound();
   // Private routines are owner-only.
   if (routine.userId !== me.id && !routine.isPublic) notFound();
 
-  const active = await getActiveWorkoutSummary(me.id);
   const isOwner = routine.userId === me.id;
+  const [active, folders] = await Promise.all([
+    getActiveWorkoutSummary(me.id),
+    isOwner ? getFolders(me.id) : Promise.resolve([]),
+  ]);
 
   const totalSets = routine.exercises.reduce((n, e) => n + e.sets.length, 0);
 
@@ -51,8 +56,17 @@ export default async function RoutineDetailPage(
           </p>
         )}
 
-        {routine.folder && (
-          <Badge className="mb-3">{routine.folder}</Badge>
+        {routine.folderName && routine.folderColor && (
+          <span className="mb-3 inline-flex items-center gap-2">
+            <span
+              aria-hidden
+              className={cn(
+                "h-3.5 w-[3px] rounded-full",
+                folderRail(routine.folderColor),
+              )}
+            />
+            <span className="text-text-2 text-[13px]">{routine.folderName}</span>
+          </span>
         )}
 
         {routine.notes && (
@@ -61,11 +75,36 @@ export default async function RoutineDetailPage(
           </p>
         )}
 
+        {/* Reactions sit above the actions: they're about the routine, whereas
+            the buttons below are about what you do with it. */}
+        <div className="border-hairline mb-4 flex items-center gap-1 border-y py-1">
+          <div className="-ml-2.5">
+            <RoutineLikeButton
+              routineId={routine.id}
+              initialLiked={routine.likedByMe}
+              initialCount={routine.likeCount}
+            />
+          </div>
+          {routine.saveCount > 0 && (
+            <span className="text-text-3 num text-[13px]">
+              {routine.saveCount} save{routine.saveCount === 1 ? "" : "s"}
+            </span>
+          )}
+          {isOwner && (
+            <span className="text-text-3 ml-auto text-[12px]">
+              {routine.isPublic ? "Listed in Discover" : "Private"}
+            </span>
+          )}
+        </div>
+
         <RoutineActions
           routineId={routine.id}
           routineName={routine.name}
           isOwner={isOwner}
+          isPublic={routine.isPublic}
           hasActiveWorkout={active != null}
+          folders={folders}
+          currentFolderId={routine.folderId}
         />
 
         <div className="mt-6 space-y-5">

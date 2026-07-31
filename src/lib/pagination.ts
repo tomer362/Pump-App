@@ -6,6 +6,7 @@
  */
 export const FEED_PAGE_SIZE = 20;
 export const HISTORY_PAGE_SIZE = 30;
+export const DISCOVER_PAGE_SIZE = 20;
 
 /**
  * The exercise library is a few hundred rows and every picker used to pull all

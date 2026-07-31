@@ -129,6 +129,36 @@ const cases: [string, () => Promise<unknown>][] = [
   ],
   ["routine.getRoutines", () => routineQ.getRoutines(uid)],
   ["routine.getFollowedRoutines", () => routineQ.getFollowedRoutines(uid)],
+  ["routine.getFolders", () => routineQ.getFolders(uid)],
+  [
+    "routine.getDiscoverRoutines(popular)",
+    () => routineQ.getDiscoverRoutines(uid, { sort: "popular" }),
+  ],
+  [
+    "routine.getDiscoverRoutines(new)",
+    () => routineQ.getDiscoverRoutines(uid, { sort: "new" }),
+  ],
+  // The cursor branch is a different SQL shape (row-value comparison against a
+  // uuid cast) and would otherwise only ever run on page two, in production.
+  [
+    "routine.getDiscoverRoutines(popular, cursor)",
+    () =>
+      routineQ.getDiscoverRoutines(uid, {
+        sort: "popular",
+        cursor: { value: 5, id: "00000000-0000-0000-0000-000000000000" },
+      }),
+  ],
+  [
+    "routine.getDiscoverRoutines(new, cursor)",
+    () =>
+      routineQ.getDiscoverRoutines(uid, {
+        sort: "new",
+        cursor: {
+          value: new Date().toISOString(),
+          id: "00000000-0000-0000-0000-000000000000",
+        },
+      }),
+  ],
   ["social.getFollowingFeed", () => socialQ.getFollowingFeed(uid)],
   ["social.getDiscoveryFeed", () => socialQ.getDiscoveryFeed(uid)],
   ["social.getUserFeed", () => socialQ.getUserFeed(uid, uid)],

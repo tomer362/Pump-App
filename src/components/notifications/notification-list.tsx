@@ -3,6 +3,7 @@
 import { useEffect, useTransition } from "react";
 import Link from "next/link";
 import {
+  Bookmark,
   Heart,
   MessageCircle,
   Trophy,
@@ -29,6 +30,8 @@ const ICONS: Record<
   friend_accepted: { icon: UserCheck, tone: "text-volt" },
   gym_presence: { icon: Radio, tone: "text-volt" },
   achievement: { icon: Trophy, tone: "text-pr" },
+  routine_like: { icon: Heart, tone: "text-volt" },
+  routine_save: { icon: Bookmark, tone: "text-text-2" },
 };
 
 export function NotificationList({ items }: { items: NotificationItem[] }) {
