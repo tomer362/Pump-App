@@ -18,10 +18,15 @@ export function ExercisePicker({
   open,
   onClose,
   onConfirm,
+  alreadyIn,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (exerciseIds: string[]) => void;
+  /** Exercise id → how many times it is already in the session being edited.
+      A count, not a flag: repeating an exercise later in the same session is
+      a normal thing to programme, so the marker informs and never blocks. */
+  alreadyIn?: Record<string, number>;
 }) {
   const [query, setQuery] = useState("");
   const [muscle, setMuscle] = useState<(typeof MUSCLE_FILTERS)[number]>("all");
@@ -170,6 +175,7 @@ export function ExercisePicker({
                       key={e.id}
                       item={e}
                       selected={selected.includes(e.id)}
+                      addedCount={alreadyIn?.[e.id] ?? 0}
                       onToggle={() => toggle(e.id)}
                     />
                   ))}
@@ -181,6 +187,7 @@ export function ExercisePicker({
                     key={e.id}
                     item={e}
                     selected={selected.includes(e.id)}
+                    addedCount={alreadyIn?.[e.id] ?? 0}
                     onToggle={() => toggle(e.id)}
                   />
                 ))}
@@ -222,15 +229,24 @@ function Group({
 function Row({
   item,
   selected,
+  addedCount,
   onToggle,
 }: {
   item: ExerciseListItem;
   selected: boolean;
+  addedCount: number;
   onToggle: () => void;
 }) {
   return (
     <button
       onClick={onToggle}
+      // The marker is a colour *and* a word: volt reads the same as pr-gold to
+      // a deutan eye, so the badge has to survive being greyscale.
+      aria-label={
+        addedCount > 0
+          ? `${item.name}, already added${addedCount > 1 ? ` ${addedCount} times` : ""}`
+          : undefined
+      }
       className={cn(
         "press flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
         selected && "bg-volt-fade",
@@ -254,7 +270,17 @@ function Row({
           {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
         </span>
       </span>
-      {item.isCustom && <Badge>Custom</Badge>}
+      {item.isCustom && <Badge className="shrink-0">Custom</Badge>}
+      {addedCount > 0 && (
+        // Volt only when the row isn't already tinted for selection — two
+        // accents on one row spends volt on decoration and flattens both.
+        <Badge
+          tone={selected ? "neutral" : "volt"}
+          className="shrink-0 whitespace-nowrap"
+        >
+          Added{addedCount > 1 && <span className="num">×{addedCount}</span>}
+        </Badge>
+      )}
     </button>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
 import {
@@ -164,6 +164,14 @@ export function RoutineBuilder({
     },
     [defaultRestSeconds],
   );
+
+  // Same signal the workout screen gives: the picker marks what the draft
+  // already contains, without stopping you programming it twice.
+  const alreadyIn = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const it of items) counts[it.exerciseId] = (counts[it.exerciseId] ?? 0) + 1;
+    return counts;
+  }, [items]);
 
   function patchExercise(key: string, patch: Partial<DraftExercise>) {
     setItems((prev) =>
@@ -336,6 +344,7 @@ export function RoutineBuilder({
         open={picking}
         onClose={() => setPicking(false)}
         onConfirm={addExercises}
+        alreadyIn={alreadyIn}
       />
 
       <Sheet
