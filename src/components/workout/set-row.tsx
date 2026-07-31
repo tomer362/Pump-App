@@ -46,6 +46,59 @@ export function setColumns(trackingType: string): SetColumn[] {
   }
 }
 
+/** The `SetDraft` field each value column edits. */
+export type ValueField = "weightKg" | "reps" | "seconds" | "distanceM";
+
+const COLUMN_FIELD: Record<SetColumn, ValueField> = {
+  weight: "weightKg",
+  reps: "reps",
+  seconds: "seconds",
+  distance: "distanceM",
+};
+
+/**
+ * Push `value` down the sets below `from`, so filling in the first set of an
+ * exercise prescribes the rest of it — the common case is four sets of the
+ * same thing, and typing it four times is four times the work.
+ *
+ * A set the lifter has already given a number of its own is left alone and the
+ * run continues past it; `locked` sets (completed ones on the workout screen)
+ * are records of work performed, not a plan, so they're never rewritten.
+ * `owned` is what an earlier keystroke of this same run filled: those follow
+ * the source cell, otherwise typing "100" would strand the sets below on the
+ * "1" and clearing the field would leave them stuck.
+ */
+export function cascadeBelow<S, K extends keyof S>({
+  sets,
+  from,
+  field,
+  value,
+  keyOf,
+  owned,
+  locked,
+}: {
+  sets: S[];
+  from: number;
+  field: K;
+  value: S[K];
+  keyOf: (set: S) => string;
+  owned: ReadonlySet<string>;
+  locked?: (set: S) => boolean;
+}): { sets: S[]; filled: string[] } {
+  const filled: string[] = [];
+
+  const next = sets.map((set, i) => {
+    if (i <= from || locked?.(set)) return set;
+    const key = keyOf(set);
+    // Nothing to give an untouched set when the source itself is empty.
+    if (!owned.has(key) && (set[field] != null || value == null)) return set;
+    filled.push(key);
+    return set[field] === value ? set : { ...set, [field]: value };
+  });
+
+  return { sets: filled.length ? next : sets, filled };
+}
+
 export function setGridTemplate(columns: SetColumn[]) {
   return `28px minmax(46px, 0.9fr) ${columns
     .map(() => "minmax(56px, 1fr)")
@@ -86,6 +139,9 @@ export function SetRow({
   trackingType,
   previous,
   onPatch,
+  onValueFocus,
+  onValueDraft,
+  onValueCommit,
   onToggleComplete,
   onDelete,
   onOpenTypeMenu,
@@ -102,6 +158,12 @@ export function SetRow({
     distanceM?: number | null;
   } | null;
   onPatch: (patch: Partial<SetDraft>) => void;
+  /** A value cell took focus — the start of a fresh cascade run. */
+  onValueFocus: (field: ValueField) => void;
+  /** Every keystroke, local only. */
+  onValueDraft: (field: ValueField, value: number | null) => void;
+  /** Blur or Enter — the point at which the value reaches the server. */
+  onValueCommit: (field: ValueField, value: number | null) => void;
   onToggleComplete: () => void;
   onDelete: () => void;
   onOpenTypeMenu: () => void;
@@ -221,7 +283,9 @@ export function SetRow({
               set={set}
               previous={previous}
               unit={unit}
-              onPatch={onPatch}
+              onFocus={onValueFocus}
+              onDraft={onValueDraft}
+              onCommit={onValueCommit}
             />
           ))}
 
@@ -311,56 +375,54 @@ function ValueCell({
   set,
   previous,
   unit,
-  onPatch,
+  onFocus,
+  onDraft,
+  onCommit,
 }: {
   column: SetColumn;
   set: SetDraft;
   previous: Previous;
   unit: "kg" | "lb";
-  onPatch: (patch: Partial<SetDraft>) => void;
+  onFocus: (field: ValueField) => void;
+  onDraft: (field: ValueField, value: number | null) => void;
+  onCommit: (field: ValueField, value: number | null) => void;
 }) {
-  if (column === "weight") {
-    return (
-      <NumberCell
-        value={
-          set.weightKg == null
-            ? ""
-            : String(
-                Math.round(
-                  (unit === "kg" ? set.weightKg : kgToLb(set.weightKg)) * 100,
-                ) / 100,
-              )
-        }
-        placeholder={
-          previous?.weightKg != null ? formatWeight(previous.weightKg, unit) : "0"
-        }
-        completed={set.completed}
-        onCommit={(raw) => {
-          const n = raw === "" ? null : Number(raw);
-          if (n != null && !Number.isFinite(n)) return;
-          onPatch({
-            weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n),
-          });
-        }}
-      />
-    );
-  }
-
-  const field = column === "reps" ? "reps" : column === "seconds" ? "seconds" : "distanceM";
+  const field = COLUMN_FIELD[column];
+  const isWeight = field === "weightKg";
   const current = set[field];
   const prior = previous?.[field] ?? null;
 
+  // One parse for both channels. The value a keystroke cascades downward has to
+  // be the same number the blur then persists, or the row would settle onto
+  // something other than what the sets below were given.
+  const relay =
+    (to: (field: ValueField, value: number | null) => void) => (raw: string) => {
+      if (raw === "") return to(field, null);
+      const n = isWeight ? Number(raw) : Math.round(Number(raw));
+      if (!Number.isFinite(n)) return;
+      to(field, isWeight && unit === "lb" ? lbToKg(n) : n);
+    };
+
   return (
     <NumberCell
-      value={current == null ? "" : String(current)}
-      placeholder={prior != null ? String(prior) : "0"}
+      value={
+        current == null
+          ? ""
+          : isWeight
+            ? String(
+                Math.round((unit === "kg" ? current : kgToLb(current)) * 100) /
+                  100,
+              )
+            : String(current)
+      }
+      placeholder={
+        prior == null ? "0" : isWeight ? formatWeight(prior, unit) : String(prior)
+      }
       completed={set.completed}
-      integer
-      onCommit={(raw) => {
-        const n = raw === "" ? null : Math.round(Number(raw));
-        if (n != null && !Number.isFinite(n)) return;
-        onPatch({ [field]: n } as Partial<SetDraft>);
-      }}
+      integer={!isWeight}
+      onFocus={() => onFocus(field)}
+      onDraft={relay(onDraft)}
+      onCommit={relay(onCommit)}
     />
   );
 }
@@ -369,18 +431,28 @@ function ValueCell({
  * A numeric cell that only commits on blur/Enter, so re-renders can't fight
  * the user's typing, and shows the previous session's value as a placeholder
  * — that's what makes an unchanged set a single tap.
+ *
+ * `onDraft` is the separate live channel the cascade rides on. It reports what
+ * has been typed without disturbing `local`, so the commit guard above stays
+ * exactly as strict as it was: this cell is still the only writer of its own
+ * text, and a cascade landing on a *different* row's `value` reaches that row
+ * through the unfocused branch of the effect below.
  */
 function NumberCell({
   value,
   placeholder,
   completed,
   integer,
+  onFocus,
+  onDraft,
   onCommit,
 }: {
   value: string;
   placeholder: string;
   completed: boolean;
   integer?: boolean;
+  onFocus: () => void;
+  onDraft: (raw: string) => void;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
@@ -429,10 +501,15 @@ function NumberCell({
       placeholder={placeholder}
       onFocus={(e) => {
         focused.current = true;
+        onFocus();
         // Select-all means overwriting is one tap, not tap-then-clear.
         requestAnimationFrame(() => e.target.select());
       }}
-      onChange={(e) => setLocal(e.target.value.replace(/[^0-9.]/g, ""))}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^0-9.]/g, "");
+        setLocal(raw);
+        onDraft(raw);
+      }}
       onBlur={() => {
         focused.current = false;
         onCommit(local);
