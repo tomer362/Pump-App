@@ -1190,7 +1190,9 @@ async function bumpCoopProgress(workoutId: string) {
   const res = await db.execute<{
     sets: number;
     volume: number;
-    last_at: Date | null;
+    // A raw `db.execute` bypasses drizzle's column mapping, so this arrives as
+    // the driver's own representation — a string on `pg` — never a Date.
+    last_at: string | Date | null;
   }>(sql`
     SELECT
       COUNT(*)::int AS sets,
@@ -1209,7 +1211,11 @@ async function bumpCoopProgress(workoutId: string) {
     .set({
       setsCompleted: agg?.sets ?? 0,
       volumeKg: agg?.volume ?? 0,
-      lastSetAt: agg?.last_at ?? null,
+      // Drizzle calls `.toISOString()` on whatever it's handed here, so the
+      // string the driver returned has to become a Date first — without this
+      // every completed set in a co-op session threw, and the write that
+      // publishes your progress to the room never landed.
+      lastSetAt: agg?.last_at ? new Date(agg.last_at) : null,
     })
     .where(
       and(

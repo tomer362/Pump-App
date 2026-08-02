@@ -131,6 +131,53 @@ over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
 no transform or filter — so docked chrome needs no change. Route shells use
 `min-h-full`, never a second `min-h-screen-d`.
 
+**Scrolling the workout never loses your place.** A phone shows about one
+exercise at a time, so the active workout screen keeps three things pinned as
+you move (`hooks/use-scroll-watch.ts`, one rAF-throttled measure pass over
+`[data-block-title]` and the next set's `[data-set-id]`):
+
+- The header's second line **cross-fades** from session totals to the exercise
+  currently under it, with that exercise's own `done/total`. Fixed-height box —
+  a row that grew and shrank would shift the table under a thumb aiming at a
+  checkmark. It swaps on the *name row* crossing, not the block, so the header
+  never repeats a title that's still on screen.
+- A 2 px volt **progress rail** on the header's hairline: completed sets over
+  planned. The only thing on the screen that answers "how much longer".
+- The rest bar carries a **"Next"** row — exercise, set number and the numbers
+  to hit, from what's typed or from last session. When nothing is resting and
+  that set has scrolled off, the same target becomes a **jump pill** docked at
+  the bottom; tapping either scrolls the row to centre and tints it
+  `bg-surface-2` for 1.6 s. Neutral, not volt: the row is one you still owe,
+  and volt on a set row means completed.
+- Each exercise's **column headers are sticky**, so a long lift never leaves
+  you reading unlabelled numbers.
+- The meta row carries **`{muscle} · N sets this week`** — the 7-day figure from
+  finished workouts, plus this session's sets counted on the client so it moves
+  as you train.
+- In a co-op session the header gains a **presence strip**: each other lifter's
+  set count, or their rest clock counting down locally between polls.
+
+**"Next" is superset-aware.** A superset rotates, so after a set on A1 the next
+thing to do is A2, not A1's second set — `findNextTarget` starts its search at
+the member after whichever exercise was ticked last and wraps. That position is
+seeded from the logged `completedAt` times, so a reload mid-rotation doesn't
+forget which half you're on. Because a superset starts no rest timer, there is
+no rest bar to name the partner: completing one shows the jump pill for seven
+seconds reading "Straight into …", on screen or not.
+
+**`overflow: hidden` and `position: sticky` can't share the exercise section.**
+A clipping ancestor becomes the sticky element's scroll container, so the column
+headers would stick to a box the size of their own exercise and never move. The
+clip only exists to stop content spilling while the height animates in or out,
+so `ExerciseBlock` applies it for exactly those moments: 260 ms after mount, and
+again while `useIsPresent()` reports the block is exiting.
+
+`scroll` doesn't bubble, so the watcher listens in the **capture** phase — that
+reaches the single scroller in the root layout without a ref to it. It measures
+rects rather than using an IntersectionObserver because both questions are
+thresholds on a live position, and an observer's numbers are stale between
+threshold crossings.
+
 **Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
 area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
 sit above it (`CommentThread` composer, `z-50`). The active workout screen lives

@@ -235,15 +235,30 @@ async function playChime() {
   }
 }
 
+/** What the rest is for: the set the lifter stands up and does next. */
+export type NextUp = {
+  /** Exercise name. */
+  name: string;
+  /** Superset letter, when the next set belongs to a group. */
+  supersetGroup?: string | null;
+  /** "Set 3", or "Warm-up". */
+  setLabel: string;
+  /** The numbers to hit — "52.5 kg × 8". Null when nothing is known yet. */
+  target: string | null;
+  onJump: () => void;
+};
+
 export function RestTimerBar({
   state,
   remaining,
+  nextUp,
   onStop,
   onAdjust,
   onSetDuration,
 }: {
   state: RestTimerState;
   remaining: number;
+  nextUp?: NextUp | null;
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
@@ -357,6 +372,59 @@ export function RestTimerBar({
                   <X className="size-5" strokeWidth={2.4} />
                 </button>
               </div>
+
+              {/* The two minutes of rest are the one stretch of the session
+                  where the lifter is looking at the screen with nothing to do,
+                  so the bar says what the rest is *for*. Tapping it scrolls the
+                  row into place, which is otherwise a scroll hunt with a
+                  countdown running. */}
+              {nextUp && (
+                <button
+                  onClick={nextUp.onJump}
+                  className={cn(
+                    "press relative flex w-full items-center gap-2 px-3 py-2 text-left",
+                    done ? "border-t border-black/15" : "hairline-t",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "shrink-0 text-[10px] font-bold tracking-[0.1em] uppercase",
+                      done ? "text-black/60" : "text-text-3",
+                    )}
+                  >
+                    Next
+                  </span>
+                  {nextUp.supersetGroup && (
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold",
+                        done
+                          ? "border-black/40 text-black/70"
+                          : "text-volt border-volt/50",
+                      )}
+                    >
+                      {nextUp.supersetGroup}
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                      done ? "text-black" : "text-text-1",
+                    )}
+                  >
+                    {nextUp.name}
+                  </span>
+                  <span
+                    className={cn(
+                      "num shrink-0 text-[12px]",
+                      done ? "text-black/70" : "text-text-2",
+                    )}
+                  >
+                    {nextUp.setLabel}
+                    {nextUp.target && ` · ${nextUp.target}`}
+                  </span>
+                </button>
+              )}
 
               {expanded && !done && (
                 <div className="hairline-t relative flex gap-2 px-3 py-2.5">

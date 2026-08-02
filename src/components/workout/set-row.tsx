@@ -87,6 +87,7 @@ export function SetRow({
   unit,
   trackingType,
   previous,
+  flash,
   onPatch,
   onToggleComplete,
   onDelete,
@@ -103,6 +104,8 @@ export function SetRow({
     seconds: number | null;
     distanceM?: number | null;
   } | null;
+  /** Just jumped to from elsewhere on the screen — tinted so it's findable. */
+  flash?: boolean;
   onPatch: (
     patch: Partial<SetDraft>,
     opts?: { fill?: boolean; local?: boolean },
@@ -205,9 +208,11 @@ export function SetRow({
           else animate(x, 0, { type: "spring", stiffness: 500, damping: 40 });
         }}
         className={cn(
-          "relative px-3 py-1.5 transition-colors",
+          "relative px-3 py-1.5 transition-colors duration-500",
           // Completed rows tint volt — the single strongest state signal.
-          set.completed ? "bg-volt-fade" : "bg-bg",
+          // The jump flash is deliberately neutral: it marks a row you still
+          // owe, and volt here would read as "already done".
+          set.completed ? "bg-volt-fade" : flash ? "bg-surface-2" : "bg-bg",
         )}
       >
         {/* Columns: set · previous · values… · check. Built as an inline grid
@@ -303,7 +308,9 @@ export function SetRow({
                 visually too. Un-ticking is a correction, so it stays silent. */}
             {pop > 0 && !reduce && (
               <motion.span
-                key={pop}
+                // Distinct from the checkmark's key below — they are siblings,
+                // and sharing `pop` made every tick a duplicate-key warning.
+                key={`ring-${pop}`}
                 initial={{ opacity: 0.85, scale: 0.7 }}
                 animate={{ opacity: 0, scale: 1.85 }}
                 transition={{ duration: 0.42, ease: [0.25, 1, 0.5, 1] }}
@@ -311,7 +318,7 @@ export function SetRow({
               />
             )}
             <motion.span
-              key={pop}
+              key={`check-${pop}`}
               // No entrance on mount or on un-ticking — only on the flip to done.
               initial={pop === 0 || reduce ? false : { scale: 0.45 }}
               animate={{ scale: 1 }}
