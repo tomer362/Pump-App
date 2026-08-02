@@ -10,7 +10,7 @@ import {
   routineSet,
   user,
 } from "@/lib/db/schema";
-import type { FolderColor } from "@/lib/db/schema";
+import type { FolderColor, Muscle } from "@/lib/db/schema";
 
 export type RoutineListItem = {
   id: string;
@@ -196,6 +196,15 @@ export type FullRoutine = {
     primaryMuscle: string;
     equipment: string;
     trackingType: string;
+    /**
+     * The next three exist for the JSON export (`lib/routine-transfer.ts`),
+     * which has to write a portable description of every exercise the routine
+     * uses. `slug` is the cross-database identity of a built-in — null for a
+     * custom, which is what tells the exporter to embed the definition instead.
+     */
+    slug: string | null;
+    secondaryMuscles: Muscle[];
+    instructions: string | null;
     sets: {
       id: string;
       position: number;
@@ -256,8 +265,15 @@ export async function getFullRoutine(
       primaryMuscle: exercise.primaryMuscle,
       equipment: exercise.equipment,
       trackingType: exercise.trackingType,
+      slug: exercise.slug,
+      secondaryMuscles: exercise.secondaryMuscles,
+      instructions: exercise.instructions,
     })
     .from(routineExercise)
+    // No owner filter, deliberately. Routines copied before clone-on-import
+    // landed still reference the author's own custom exercise row, and adding
+    // one here would make those exercises vanish from the routine between
+    // deploy and the backfill in 0010.
     .innerJoin(exercise, eq(exercise.id, routineExercise.exerciseId))
     .where(eq(routineExercise.routineId, routineId))
     .orderBy(asc(routineExercise.position));

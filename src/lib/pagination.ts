@@ -24,3 +24,14 @@ export const EXERCISE_PAGE_SIZE = 40;
  * its own small query now, so it never grows with the library.
  */
 export const EXERCISE_RECENT_LIMIT = 12;
+
+/**
+ * How many hidden imported exercises the inline reveal will offer before it
+ * gives up counting and points at the Imported scope instead.
+ *
+ * Small on purpose. The reveal exists so a search that should have matched
+ * something isn't a dead end — not as a second way to browse the library. In
+ * practice nobody has 25 imported exercises matching one search; the cap is
+ * what stops the hint from lying when someone does.
+ */
+export const IMPORTED_HINT_LIMIT = 25;

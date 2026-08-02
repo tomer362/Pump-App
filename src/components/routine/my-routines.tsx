@@ -10,9 +10,11 @@ import {
   FolderCog,
   Play,
   Repeat,
+  Upload,
 } from "lucide-react";
 import { RoutineCard } from "./routine-card";
 import { FolderManagerSheet } from "./folder-manager-sheet";
+import { ImportRoutineButton } from "./routine-transfer-sheets";
 import { useCollapsedFolders } from "@/hooks/use-collapsed-folders";
 import { reorderRoutinesInFolder } from "@/lib/actions/routine-folder";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
@@ -45,7 +47,11 @@ export function MyRoutines({
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex items-center justify-end gap-4">
+        <ImportRoutineButton className="press tap text-text-3 hover:text-text-1 flex items-center gap-1.5 py-2 text-[13px] font-semibold">
+          <Upload className="size-4" strokeWidth={2.2} />
+          Import
+        </ImportRoutineButton>
         <button
           onClick={() => {
             haptic.light();

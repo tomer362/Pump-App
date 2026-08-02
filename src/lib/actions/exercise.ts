@@ -109,6 +109,11 @@ export async function updateCustomExercise(
       equipment: parsed.data.equipment,
       trackingType: parsed.data.trackingType,
       instructions: parsed.data.instructions ?? null,
+      // Editing an exercise that arrived with someone's routine is as strong a
+      // claim on it as pressing "Add to my library". Without this, a person
+      // renames the thing to what they call it and then can't work out why it
+      // still won't come up in search.
+      importedAt: null,
     })
     .where(and(eq(exercise.id, parsedId.data), eq(exercise.ownerId, me.id)))
     .returning({ id: exercise.id });
@@ -141,6 +146,39 @@ export async function restoreCustomExercise(
   exerciseId: string,
 ): Promise<ActionResult> {
   return setArchived(exerciseId, false);
+}
+
+/**
+ * Take an exercise that arrived with an imported routine into the library
+ * proper, so it turns up in search like anything you wrote yourself.
+ *
+ * `sourceExerciseId` is deliberately left alone. Provenance is a fact about
+ * where the row came from; visibility is a preference about where it shows.
+ * Collapsing the two into one column would mean adopting an exercise also
+ * forgets that a later copy of the same source should reuse it.
+ */
+export async function adoptImportedExercise(
+  exerciseId: string,
+): Promise<ActionResult> {
+  const me = await getCurrentUser();
+  if (!me) return { ok: false, error: "Not signed in" };
+
+  const parsedId = z.string().uuid().safeParse(exerciseId);
+  if (!parsedId.success) return { ok: false, error: "Unknown exercise" };
+
+  const updated = await db
+    .update(exercise)
+    .set({ importedAt: null })
+    .where(and(eq(exercise.id, parsedId.data), eq(exercise.ownerId, me.id)))
+    .returning({ id: exercise.id });
+
+  if (!updated.length) {
+    return { ok: false, error: "That isn't one of your exercises" };
+  }
+
+  revalidatePath("/exercises");
+  revalidatePath(`/exercises/${parsedId.data}`);
+  return { ok: true };
 }
 
 async function setArchived(

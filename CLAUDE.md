@@ -31,7 +31,7 @@ Translated from the original Hebrew note; all of it is implemented.
 | 7 | Accounts | Google OAuth only (`lib/auth.ts`) |
 | 8 | Friends | `/friends`, mutual + explicit |
 | 9 | Follow people and their programs | `follow` table, `/routines` "programs you follow" |
-| 10 | Share a routine | `copyRoutine`, share sheet on `/routines/[id]` |
+| 10 | Share a routine | `copyRoutine`, share sheet on `/routines/[id]`, JSON export/import (`lib/routine-transfer.ts`) |
 | 11 | "I'm at the gym" broadcast | `gym_presence` TTL row, feed presence strip |
 | 12 | Register your gym (gym = group) | `/gyms`, join codes |
 | 13 | Achievements | `lib/actions/achievements.ts`, profile grid |
@@ -219,6 +219,39 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
 - **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.
 - **A custom exercise is archived, never deleted.** `DELETE` cascades through `workout_exercise` to every set logged against it, rewriting finished sessions and dropping the records computed from them — so the "delete" control sets `exercise.archived_at`. Archived rows drop out of `searchExercises` (and therefore every picker) but still resolve by id, because history links to them. `lib/actions/exercise.ts` owns create/update/archive/restore and scopes every statement with `owner_id = me.id`, which is also what makes the built-in library read-only by construction.
+- **A routine never points at an exercise its owner doesn't own.** Both ways of
+  taking someone's routine — `copyRoutine` and the JSON import — run every
+  incoming exercise through `resolveExercisesForUser` (`lib/routine-write.ts`),
+  which binds it to a built-in by `slug`, to one of your rows by
+  `source_exercise_id` or case-insensitive name, or to a fresh clone. Copying
+  the ids verbatim is what the old code did: it rendered, and then 404'd on the
+  detail page, vanished from the picker, wrote PRs against a row you don't own,
+  and cascaded away when the author deleted their account. `0010` backfills the
+  rows that predate the fix; it deliberately leaves `workout_exercise` alone,
+  and says why in its header.
+- **An exercise that arrived with someone's routine is hidden from search until
+  adopted.** `exercise.imported_at` is the flag and `filterWhere` is the only
+  gate that reads it, so the `available` and `mine` scopes mean "built-in plus
+  what you authored". An import can mint 50 rows named by a stranger; joining
+  every picker unasked would make their naming your problem. The one exemption
+  is `getRecentExercises`, which passes `includeImported` — Recent is "what you
+  have trained", and hiding something you have actually done would be a bug.
+  The picker offers an inline reveal when a *narrowed* search has hidden
+  matches; `adoptImportedExercise` (or any edit) clears the flag for good.
+- **The export format carries no ids and nothing the app treats as vetted.**
+  `lib/routine-transfer.ts` is pure and `.strict()` at every level, which is
+  what makes the exclusions enforceable rather than aspirational: no uuids
+  (per-database, and an `exercise.id` in a file invites trusting it), no
+  `sourceRoutineId` (a crafted document could otherwise drive `saveCount` on
+  any routine it named — an import credits nobody), no `videoUrl`, no `slug` on
+  a custom, no author identity. Weights are `targetWeightKg` and there is no
+  `unit` field, which would only invite converting twice.
+- **`<a download>` is not the primary export path.** Blob-URL downloads are
+  unreliable in an installed iOS PWA and can bounce the user out of the app, so
+  `navigator.share({files})` leads, the anchor is the desktop/Android fallback,
+  and the clipboard sits behind both. On the import side, never branch on
+  `file.type` — iOS reports `""` for a `.json` out of Files — and put the
+  extension first in `accept`, because the Files picker filters by UTI.
 - **Only curated YouTube ids reach `videoUrl`; everything else falls back to a search** built from the exercise name, and the UI labels the two differently (`lib/exercise-video.ts`). Never present a search results page as a vetted demonstration.
 - **Correlated subqueries:** in a drizzle `.select()` with no joins, `${table.id}` renders as a bare `"id"` and resolves against the subquery's own FROM. Write the outer column qualified via `sql.raw('"table"."col"')`, or use `db.execute` with raw SQL. `pnpm check:queries` catches this.
 - **`DISTINCT ON` inside a `UNION`** needs each branch parenthesised — an unbracketed `ORDER BY` binds to the whole union and it's a syntax error (`lib/records.ts`).

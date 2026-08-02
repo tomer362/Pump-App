@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Badge, Input } from "@/components/ui/primitives";
 import { Chip, ExerciseForm } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
+import {
+  ImportedReveal,
+  importedRevealState,
+} from "@/components/exercise/imported-reveal";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
@@ -50,11 +54,20 @@ export function ExercisePicker({
     useState<(typeof EQUIPMENT_FILTERS)[number]>("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [creating, setCreating] = useState(startCreating);
+  const [showImported, setShowImported] = useState(false);
 
   // Rows arrive in scroll-driven batches: the sheet paints on the first one
   // instead of waiting for the whole library.
-  const { recent, rest, loading, loadingMore, exhausted, sentinelRef, refresh } =
-    useExerciseBatches({ query, muscle, equipment }, { enabled: open });
+  const {
+    recent,
+    rest,
+    imported,
+    loading,
+    loadingMore,
+    exhausted,
+    sentinelRef,
+    refresh,
+  } = useExerciseBatches({ query, muscle, equipment }, { enabled: open });
 
   // Curated alternatives for the movement being swapped out, then same-muscle
   // fallbacks. Only ever fetched for the exercise actually being replaced, and
@@ -86,6 +99,12 @@ export function ExercisePicker({
     setSelected([]);
     setQuery("");
     setCreating(startCreating);
+    // Revealing imported exercises is intent for this search, not a setting.
+    // It survives keystrokes within one open sheet and nothing beyond that —
+    // the Imported scope in the library and "Add to my library" are where a
+    // lasting preference belongs, and a hidden per-device copy of it would
+    // eventually disagree with them for no visible reason.
+    setShowImported(false);
     onClose();
   }, [onClose, startCreating]);
 
@@ -121,6 +140,39 @@ export function ExercisePicker({
   }, [rest, suggested, shownRecent, excludeId]);
 
   const empty = recent.length === 0 && rest.length === 0;
+
+  // The hint is gated on the same `filtering` predicate as the suggestions
+  // group: unfiltered browsing shows the library as it is. The server only
+  // probes for these under the same condition, so an unfiltered sheet doesn't
+  // pay for a list it would refuse to render.
+  const reveal = importedRevealState(
+    filtering ? imported.filter((e) => e.id !== excludeId) : [],
+  );
+
+  const revealBlock = reveal.show ? (
+    <>
+      <ImportedReveal
+        count={reveal.count}
+        capped={reveal.capped}
+        open={showImported}
+        onToggle={() => setShowImported((v) => !v)}
+      />
+      {showImported && (
+        <Group title="From imported routines">
+          {reveal.rows.map((e) => (
+            <Row
+              key={e.id}
+              item={e}
+              selected={selected.includes(e.id)}
+              addedCount={alreadyIn?.[e.id] ?? 0}
+              radio={single}
+              onToggle={() => toggle(e.id)}
+            />
+          ))}
+        </Group>
+      )}
+    </>
+  ) : null;
 
   function toggle(id: string) {
     haptic.light();
@@ -233,16 +285,22 @@ export function ExercisePicker({
           {loading && empty ? (
             <p className="text-text-3 py-10 text-center text-[14px]">Loading…</p>
           ) : empty ? (
-            <div className="px-4 py-10 text-center">
-              <p className="text-text-2 text-[15px]">No exercises match.</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => setCreating(true)}
-              >
-                <Plus className="size-4" />
-                Create &ldquo;{query || "custom exercise"}&rdquo;
-              </Button>
+            <div>
+              {/* Same rule as below — the reveal goes last. With nothing in
+                  scope, last is also the top, so a search that only matches
+                  an imported exercise isn't a dead end. */}
+              {revealBlock}
+              <div className="px-4 py-10 text-center">
+                <p className="text-text-2 text-[15px]">No exercises match.</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => setCreating(true)}
+                >
+                  <Plus className="size-4" />
+                  Create &ldquo;{query || "custom exercise"}&rdquo;
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -292,6 +350,10 @@ export function ExercisePicker({
                   />
                 ))}
               </Group>
+
+              {/* Out-of-scope material never pushes in-scope material down the
+                  screen, so the reveal comes after every group. */}
+              {revealBlock}
 
               {/* Sits above the create button so the next batch is already in
                   flight while that button is still below the fold. */}
@@ -387,7 +449,13 @@ function Row({
           {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
         </span>
       </span>
-      {item.isCustom && <Badge className="shrink-0">Custom</Badge>}
+      {/* Every imported exercise is custom too, so the more specific label
+          wins rather than stacking two badges that say one thing twice. */}
+      {item.isImported ? (
+        <Badge className="shrink-0">Imported</Badge>
+      ) : (
+        item.isCustom && <Badge className="shrink-0">Custom</Badge>
+      )}
       {addedCount > 0 && (
         // Neutral once the row is selected: a selected row is already volt-tinted
         // with a volt checkbox, and a second volt element on the same row spends

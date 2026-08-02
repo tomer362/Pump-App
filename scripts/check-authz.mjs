@@ -381,6 +381,97 @@ try {
     likeRan ? "" : "INCONCLUSIVE: action did not run",
   );
 
+  // 3c-ii. Export is the one action that returns a routine's entire contents
+  //        as a string, so it is the newest and sharpest read surface here.
+  //        Import is the matching write: a document is attacker-authored, and
+  //        the strict schema is what stops it writing fields of its choosing.
+  const transferActions = actionIdsFromManifest(
+    "src/lib/actions/routine-transfer.ts",
+    ["exportRoutineFile", "previewRoutineImport", "importRoutine"],
+  );
+  requireFixture(
+    transferActions.size === 3,
+    `expected 3 routine-transfer action ids in the dev manifest, found ${transferActions.size}`,
+  );
+
+  for (const name of ["exportRoutineFile"]) {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines`,
+      transferActions.get(name),
+      [routineId],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      `${name} refuses another user's private routine`,
+      ran &&
+        /That routine is private|Routine not found/.test(res.body) &&
+        // The refusal is worthless if the payload came back anyway.
+        !res.body.includes("Authz private"),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // A document that names another user as the owner of the exercise it
+  // creates. `.strict()` should reject it outright rather than ignore the key.
+  const hostileDoc = JSON.stringify({
+    format: "pump.routine",
+    formatVersion: 1,
+    exportedAt: new Date().toISOString(),
+    routine: {
+      name: "Authz smuggled",
+      notes: null,
+      exercises: [
+        {
+          exercise: {
+            slug: null,
+            name: "Authz Smuggled Lift",
+            primaryMuscle: "chest",
+            secondaryMuscles: [],
+            equipment: "barbell",
+            trackingType: "weight_reps",
+            instructions: null,
+            // The value is irrelevant — `.strict()` rejects the key itself,
+            // which is what makes "we excluded ownerId" enforceable rather
+            // than a comment in the schema.
+            ownerId: "some-other-user",
+            videoUrl: "https://example.invalid/not-vetted",
+          },
+          notes: null,
+          restSeconds: null,
+          supersetGroup: null,
+          intervalWorkSeconds: null,
+          intervalRestSeconds: null,
+          sets: [],
+        },
+      ],
+    },
+  });
+
+  for (const name of ["previewRoutineImport", "importRoutine"]) {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines`,
+      transferActions.get(name),
+      [hostileDoc],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      `${name} refuses a document carrying ownerId and videoUrl`,
+      ran && !/"ok"\s*:\s*true/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // And the smuggled exercise must not exist for either user afterwards.
+  await a.page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await a.page.getByPlaceholder(/search exercises/i).fill("Authz Smuggled");
+  await a.page.waitForTimeout(900);
+  check(
+    "the smuggled exercise was never created",
+    !(await a.page.content()).includes("Authz Smuggled Lift"),
+  );
+
   // 3d. A folder id also reaches the database through the routine editor,
   //     which writes whatever folderId it is handed.
   const createRoutineAction = actionIdsFromManifest(
@@ -528,10 +619,11 @@ try {
     "updateCustomExercise",
     "archiveCustomExercise",
     "restoreCustomExercise",
+    "adoptImportedExercise",
   ]);
   requireFixture(
-    exerciseActions.size === 3,
-    `expected 3 exercise action ids in the dev manifest, found ${exerciseActions.size}`,
+    exerciseActions.size === 4,
+    `expected 4 exercise action ids in the dev manifest, found ${exerciseActions.size}`,
   );
   for (const [name, id] of exerciseActions) {
     const args =

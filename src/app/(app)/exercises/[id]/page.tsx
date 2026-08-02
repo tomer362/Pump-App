@@ -3,6 +3,7 @@ import { Archive } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
 import { ManageExercise } from "./manage-exercise";
+import { AdoptImported } from "./adopt-imported";
 import { requireUser } from "@/lib/session";
 import {
   getExercise,
@@ -39,6 +40,8 @@ export default async function ExerciseDetailPage(
 
   const mine = exercise.ownerId === me.id;
   const archived = exercise.archivedAt != null;
+  // Archived says the same thing more strongly, so only one strip shows.
+  const imported = mine && !archived && exercise.importedAt != null;
 
   return (
     <div className="pb-8">
@@ -58,6 +61,8 @@ export default async function ExerciseDetailPage(
             </p>
           </div>
         )}
+
+        {imported && <AdoptImported exerciseId={exercise.id} />}
 
         <ExerciseDetailTabs
           unit={me.unit}
