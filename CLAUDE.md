@@ -131,6 +131,31 @@ over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
 no transform or filter — so docked chrome needs no change. Route shells use
 `min-h-full`, never a second `min-h-screen-d`.
 
+**Scrolling the workout never loses your place.** A phone shows about one
+exercise at a time, so the active workout screen keeps three things pinned as
+you move (`hooks/use-scroll-watch.ts`, one rAF-throttled measure pass over
+`[data-block-title]` and the next set's `[data-set-id]`):
+
+- The header's second line **cross-fades** from session totals to the exercise
+  currently under it, with that exercise's own `done/total`. Fixed-height box —
+  a row that grew and shrank would shift the table under a thumb aiming at a
+  checkmark. It swaps on the *name row* crossing, not the block, so the header
+  never repeats a title that's still on screen.
+- A 2 px volt **progress rail** on the header's hairline: completed sets over
+  planned. The only thing on the screen that answers "how much longer".
+- The rest bar carries a **"Next"** row — exercise, set number and the numbers
+  to hit, from what's typed or from last session. When nothing is resting and
+  that set has scrolled off, the same target becomes a **jump pill** docked at
+  the bottom; tapping either scrolls the row to centre and tints it
+  `bg-surface-2` for 1.6 s. Neutral, not volt: the row is one you still owe,
+  and volt on a set row means completed.
+
+`scroll` doesn't bubble, so the watcher listens in the **capture** phase — that
+reaches the single scroller in the root layout without a ref to it. It measures
+rects rather than using an IntersectionObserver because both questions are
+thresholds on a live position, and an observer's numbers are stale between
+threshold crossings.
+
 **Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
 area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
 sit above it (`CommentThread` composer, `z-50`). The active workout screen lives

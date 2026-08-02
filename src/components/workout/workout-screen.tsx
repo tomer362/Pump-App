@@ -38,6 +38,7 @@ import {
   type SetDraft,
 } from "./set-row";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
+import { useScrollWatch } from "@/hooks/use-scroll-watch";
 import { ExercisePicker } from "./exercise-picker";
 import { PlateCalculator } from "./plate-calculator";
 import { IntervalRunner } from "./interval-runner";
@@ -177,18 +178,49 @@ export function WorkoutScreen({
     let volume = 0;
     let sets = 0;
     let unfinished = 0;
+    let planned = 0;
+    let done = 0;
     for (const b of blocks) {
       for (const s of b.sets) {
+        planned++;
         if (!s.completed) {
           unfinished++;
           continue;
         }
+        done++;
         if (s.setType === "warmup") continue;
         sets++;
         volume += (s.weightKg ?? 0) * (s.reps ?? 0);
       }
     }
-    return { volume, sets, unfinished };
+    return { volume, sets, unfinished, planned, done };
+  }, [blocks]);
+
+  /**
+   * The set the lifter owes next: the first unfinished one, in the order the
+   * workout is written. Everything that points somewhere — the rest bar's
+   * "next", the jump pill — points here, so they can never disagree.
+   */
+  const nextTarget = useMemo(() => {
+    let found: {
+      block: Block;
+      set: SetDraft;
+      index: number;
+      position: number;
+    } | null = null;
+    for (const block of blocks) {
+      let working = 0;
+      for (let position = 0; position < block.sets.length; position++) {
+        const set = block.sets[position];
+        if (set.setType !== "warmup") working++;
+        if (!set.completed) {
+          found = { block, set, index: working, position };
+          break;
+        }
+      }
+      if (found) break;
+    }
+    return found;
   }, [blocks]);
 
   // Feeds the picker so a lift already on the board says so before you add it
@@ -630,6 +662,48 @@ export function WorkoutScreen({
     [],
   );
 
+  /* ---------------------------------------------------------------------- */
+  /* Orientation while scrolling.                                            */
+  /* ---------------------------------------------------------------------- */
+
+  const reduce = useReducedMotion();
+  const headerRef = useRef<HTMLElement>(null);
+  const [flashSetId, setFlashSetId] = useState<string | null>(null);
+
+  const { activeBlockId, targetAway } = useScrollWatch({
+    headerRef,
+    // Roughly the rest bar: below that line a row is behind the chrome.
+    bottomInset: 88,
+    targetSetId: nextTarget?.set.id ?? null,
+  });
+
+  const activeBlock = blocks.find((b) => b.id === activeBlockId) ?? null;
+
+  /**
+   * Scroll a row back into the middle of the screen and tint it for a beat.
+   * Landing somewhere with no confirmation of *what* you landed on is the part
+   * that makes a jump feel like a glitch.
+   */
+  const jumpToSet = useCallback(
+    (setId: string) => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-set-id="${CSS.escape(setId)}"]`,
+      );
+      if (!el) return;
+      haptic.light();
+      el.scrollIntoView({
+        behavior: reduce ? "auto" : "smooth",
+        block: "center",
+      });
+      setFlashSetId(setId);
+      window.setTimeout(
+        () => setFlashSetId((v) => (v === setId ? null : v)),
+        1600,
+      );
+    },
+    [reduce],
+  );
+
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
   const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const optionsSet =
@@ -653,7 +727,10 @@ export function WorkoutScreen({
       {/* Solid, not translucent. This is the screen you read at arm's length
           between sets — a blurred bar buys nothing and any device that fails
           to composite the blur would let exercise names ghost through it. */}
-      <header className="bg-bg hairline-b sticky top-0 z-30 pt-safe inset-safe-x">
+      <header
+        ref={headerRef}
+        className="bg-bg hairline-b sticky top-0 z-30 pt-safe inset-safe-x"
+      >
         <div className="flex h-12 items-center gap-1 px-2">
           <IconButton
             label="Back"
@@ -684,27 +761,86 @@ export function WorkoutScreen({
           </Button>
         </div>
 
-        <div className="text-text-3 flex items-center justify-center gap-4 px-4 pb-2 text-[12px]">
-          <span className="num">
-            <span className="text-text-1 font-semibold">{totals.sets}</span> sets
-          </span>
-          <span className="bg-hairline h-3 w-px" />
-          <span className="num">
-            <span className="text-text-1 font-semibold">
-              {formatWeight(totals.volume, unit)}
-            </span>{" "}
-            {unit} volume
-          </span>
-          {workout.loadMultiplier !== 1 && (
-            <>
-              <span className="bg-hairline h-3 w-px" />
-              <Badge tone="volt">
-                {workout.loadMultiplier > 1 ? "+" : ""}
-                {Math.round((workout.loadMultiplier - 1) * 100)}%
-              </Badge>
-            </>
-          )}
+        {/* One row, two readings. At the top of the workout it's the session
+            summary — sets and volume. The moment an exercise passes under the header
+            it becomes that exercise, because a phone screen shows about one
+            block at a time and the name has already scrolled off. Cross-faded
+            in a fixed-height box: a row that grows and shrinks would shift the
+            table under a thumb that's aiming at a checkmark. */}
+        <div className="relative h-[26px]">
+          <motion.div
+            animate={{ opacity: activeBlock ? 0 : 1 }}
+            transition={{ duration: 0.15 }}
+            aria-hidden={activeBlock != null}
+            className={cn(
+              "text-text-3 absolute inset-0 flex items-center justify-center gap-4 px-4 text-[12px]",
+              activeBlock && "pointer-events-none",
+            )}
+          >
+            <span className="num">
+              <span className="text-text-1 font-semibold">{totals.sets}</span> sets
+            </span>
+            <span className="bg-hairline h-3 w-px" />
+            <span className="num">
+              <span className="text-text-1 font-semibold">
+                {formatWeight(totals.volume, unit)}
+              </span>{" "}
+              {unit} volume
+            </span>
+            {workout.loadMultiplier !== 1 && (
+              <>
+                <span className="bg-hairline h-3 w-px" />
+                <Badge tone="volt">
+                  {workout.loadMultiplier > 1 ? "+" : ""}
+                  {Math.round((workout.loadMultiplier - 1) * 100)}%
+                </Badge>
+              </>
+            )}
+          </motion.div>
+
+          <motion.div
+            animate={{ opacity: activeBlock ? 1 : 0 }}
+            transition={{ duration: 0.15 }}
+            aria-hidden={activeBlock == null}
+            className={cn(
+              "absolute inset-0 flex items-center justify-center gap-2 px-4",
+              !activeBlock && "pointer-events-none",
+            )}
+          >
+            {activeBlock && (
+              <>
+                {activeBlock.supersetGroup && (
+                  <span className="text-volt border-volt/50 grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold">
+                    {activeBlock.supersetGroup}
+                  </span>
+                )}
+                <span className="truncate text-[13px] font-semibold">
+                  {activeBlock.name}
+                </span>
+                <span className="bg-hairline h-3 w-px shrink-0" />
+                <span className="num text-text-3 shrink-0 text-[12px]">
+                  <span className="text-text-1 font-semibold">
+                    {activeBlock.sets.filter((s) => s.completed).length}
+                  </span>
+                  /{activeBlock.sets.length} sets
+                </span>
+              </>
+            )}
+          </motion.div>
         </div>
+
+        {/* How much of the session is behind you, on the header's own hairline.
+            Volt because it is progress, not decoration — and it's the one thing
+            on this screen that answers "how much longer" without arithmetic. */}
+        {totals.planned > 0 && (
+          <div
+            className="bg-volt absolute inset-x-0 bottom-0 h-[2px] origin-left"
+            style={{
+              transform: `scaleX(${totals.done / totals.planned})`,
+              transition: "transform 300ms var(--ease-out-quart)",
+            }}
+          />
+        )}
       </header>
 
       <main className="pb-40">
@@ -717,6 +853,7 @@ export function WorkoutScreen({
               block={block}
               unit={unit}
               prFlash={prFlash}
+              flashSetId={flashSetId}
               canReorder={blocks.length > 1}
               onRequestReorder={() => setReordering(true)}
               onOpenMenu={() => setMenuFor(block.id)}
@@ -754,10 +891,57 @@ export function WorkoutScreen({
       <RestTimerBar
         state={timer.state}
         remaining={timer.remaining}
+        nextUp={
+          nextTarget && {
+            name: nextTarget.block.name,
+            setLabel: setLabel(nextTarget.set, nextTarget.index),
+            target: targetLabel(
+              nextTarget.block,
+              nextTarget.set,
+              nextTarget.position,
+              unit,
+            ),
+            onJump: () => jumpToSet(nextTarget.set.id),
+          }
+        }
         onStop={timer.stop}
         onAdjust={timer.adjust}
         onSetDuration={timer.setDuration}
       />
+
+      {/* The way back to work. Once the set you owe has left the screen — you
+          scrolled off to check a later lift, or to add one — this is the only
+          thing on screen that knows where it went. It stands down while the
+          rest bar is up (which carries the same target, on its own row) and
+          while the keyboard is up, where a docked pill would be buried. */}
+      <AnimatePresence>
+        {nextTarget && targetAway && !timer.state && keyboardInset === 0 && (
+          <motion.div
+            initial={{ y: 28, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 28, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+            className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 mb-safe"
+          >
+            <button
+              onClick={() => jumpToSet(nextTarget.set.id)}
+              className="press tap bg-surface-2 border-hairline text-text-1 pointer-events-auto flex max-w-full items-center gap-2 rounded-full border py-2.5 pr-4 pl-3.5"
+            >
+              {targetAway === "down" ? (
+                <ArrowDown className="text-text-3 size-4 shrink-0" strokeWidth={2.6} />
+              ) : (
+                <ArrowUp className="text-text-3 size-4 shrink-0" strokeWidth={2.6} />
+              )}
+              <span className="min-w-0 truncate text-[13px] font-semibold">
+                {nextTarget.block.name}
+              </span>
+              <span className="num text-text-3 shrink-0 text-[12px]">
+                {setLabel(nextTarget.set, nextTarget.index)}
+              </span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* --- Sheets --- */}
 
@@ -1000,6 +1184,7 @@ function ExerciseBlock({
   block,
   unit,
   prFlash,
+  flashSetId,
   canReorder,
   onRequestReorder,
   onOpenMenu,
@@ -1014,6 +1199,8 @@ function ExerciseBlock({
   block: Block;
   unit: "kg" | "lb";
   prFlash: string | null;
+  /** A row just jumped to, tinted for a beat so the landing is obvious. */
+  flashSetId: string | null;
   /** A single exercise has no order to change — no gesture, no hint. */
   canReorder: boolean;
   onRequestReorder: () => void;
@@ -1063,6 +1250,9 @@ function ExerciseBlock({
     >
       <div
         {...longPress}
+        // `data-block-title` is the row the header watches: once this has
+        // scrolled under the header, the header names the exercise instead.
+        data-block-title={block.id}
         // select-none so iOS doesn't raise its text-selection handles out of a
         // hold on the exercise name.
         className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 select-none"
@@ -1155,6 +1345,7 @@ function ExerciseBlock({
                   unit={unit}
                   trackingType={block.trackingType}
                   previous={block.previous[i] ?? null}
+                  flash={flashSetId === set.id}
                   onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
                   onToggleComplete={() => onToggle(set)}
                   onDelete={() => onDeleteSet(set.id)}
@@ -1489,6 +1680,56 @@ function SheetLabel({ children }: { children: React.ReactNode }) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/** "Set 3", or "Warm-up" — warm-ups don't carry a number anywhere else either. */
+function setLabel(set: SetDraft, index: number) {
+  return set.setType === "warmup" ? "Warm-up" : `Set ${index}`;
+}
+
+/**
+ * The numbers to hit on a set that hasn't happened yet: what's already typed
+ * into the row, falling back to what was done on this set last session — the
+ * same two sources the row itself shows. Null when neither knows anything,
+ * which is the first time a lift is ever performed.
+ */
+function targetLabel(
+  block: Block,
+  set: SetDraft,
+  position: number,
+  unit: "kg" | "lb",
+): string | null {
+  const prev = block.previous[position] ?? null;
+  const weightKg = set.weightKg ?? prev?.weightKg ?? null;
+  const reps = set.reps ?? prev?.reps ?? null;
+  const seconds = set.seconds ?? prev?.seconds ?? null;
+  const distanceM = set.distanceM ?? null;
+  const columns = setColumns(block.trackingType);
+
+  // The one combination lifters read as a single quantity, so it keeps the
+  // "×" rather than being listed like unrelated fields.
+  if (
+    columns.includes("weight") &&
+    columns.includes("reps") &&
+    weightKg != null &&
+    reps != null
+  ) {
+    return `${formatWeight(weightKg, unit)} ${unit} × ${reps}`;
+  }
+
+  const parts: string[] = [];
+  for (const column of columns) {
+    if (column === "weight" && weightKg != null) {
+      parts.push(`${formatWeight(weightKg, unit)} ${unit}`);
+    } else if (column === "reps" && reps != null) {
+      parts.push(`${reps} reps`);
+    } else if (column === "seconds" && seconds != null) {
+      parts.push(formatDuration(seconds));
+    } else if (column === "distance" && distanceM != null) {
+      parts.push(`${distanceM} m`);
+    }
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
 
 /** The value fields a typed cell can carry down the rows below it. */
 const FILLABLE = ["weightKg", "reps", "seconds", "distanceM"] as const;
