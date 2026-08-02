@@ -52,15 +52,32 @@ export function useScrollWatch({
       const top = headerRef.current?.getBoundingClientRect().bottom ?? 0;
       const floor = window.innerHeight - bottomInset;
 
-      // The *name row*, not the whole block: while an exercise's own title is
-      // still on screen the header has nothing to add, and repeating it there
-      // would just print the same words twice. Document order, so the last
-      // title to have gone under the header is the one being read — break
-      // early, everything after it is further down the page.
+      // The exercise being read is the one whose *name row* has gone under the
+      // header while the block itself is still on screen. Both halves matter:
+      // while a title is visible the header has nothing to add and would just
+      // print the same words twice, and once a block has scrolled away
+      // entirely it is no longer what you're looking at — that gap between two
+      // exercises is a legitimate "nothing", and the header falls back to the
+      // session summary for it.
       let activeBlockId: string | null = null;
-      for (const el of document.querySelectorAll<HTMLElement>("[data-block-title]")) {
-        if (el.getBoundingClientRect().bottom > top) break;
-        activeBlockId = el.dataset.blockTitle ?? null;
+      let activeBottom = 0;
+      for (const section of document.querySelectorAll<HTMLElement>("[data-block-id]")) {
+        const title = section.querySelector<HTMLElement>("[data-block-title]");
+        if (!title) break;
+        if (title.getBoundingClientRect().bottom > top) {
+          // This exercise's title is still on screen, so it hasn't taken over
+          // yet — unless the one before it has left entirely, in which case
+          // this is what you're arriving at. Handing over here rather than
+          // dropping to "nothing" matters: the gap between two exercises is
+          // only ~40px of scrolling, and falling back to the session summary
+          // for it would flash the header on every boundary.
+          if (activeBlockId && activeBottom <= top) {
+            activeBlockId = section.dataset.blockId ?? null;
+          }
+          break;
+        }
+        activeBlockId = section.dataset.blockId ?? null;
+        activeBottom = section.getBoundingClientRect().bottom;
       }
 
       let targetAway: ScrollWatch["targetAway"] = null;

@@ -239,6 +239,8 @@ async function playChime() {
 export type NextUp = {
   /** Exercise name. */
   name: string;
+  /** Superset letter, when the next set belongs to a group. */
+  supersetGroup?: string | null;
   /** "Set 3", or "Warm-up". */
   setLabel: string;
   /** The numbers to hit — "52.5 kg × 8". Null when nothing is known yet. */
@@ -392,6 +394,18 @@ export function RestTimerBar({
                   >
                     Next
                   </span>
+                  {nextUp.supersetGroup && (
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold",
+                        done
+                          ? "border-black/40 text-black/70"
+                          : "text-volt border-volt/50",
+                      )}
+                    >
+                      {nextUp.supersetGroup}
+                    </span>
+                  )}
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-[13px] font-semibold",

@@ -149,6 +149,28 @@ you move (`hooks/use-scroll-watch.ts`, one rAF-throttled measure pass over
   the bottom; tapping either scrolls the row to centre and tints it
   `bg-surface-2` for 1.6 s. Neutral, not volt: the row is one you still owe,
   and volt on a set row means completed.
+- Each exercise's **column headers are sticky**, so a long lift never leaves
+  you reading unlabelled numbers.
+- The meta row carries **`{muscle} · N sets this week`** — the 7-day figure from
+  finished workouts, plus this session's sets counted on the client so it moves
+  as you train.
+- In a co-op session the header gains a **presence strip**: each other lifter's
+  set count, or their rest clock counting down locally between polls.
+
+**"Next" is superset-aware.** A superset rotates, so after a set on A1 the next
+thing to do is A2, not A1's second set — `findNextTarget` starts its search at
+the member after whichever exercise was ticked last and wraps. That position is
+seeded from the logged `completedAt` times, so a reload mid-rotation doesn't
+forget which half you're on. Because a superset starts no rest timer, there is
+no rest bar to name the partner: completing one shows the jump pill for seven
+seconds reading "Straight into …", on screen or not.
+
+**`overflow: hidden` and `position: sticky` can't share the exercise section.**
+A clipping ancestor becomes the sticky element's scroll container, so the column
+headers would stick to a box the size of their own exercise and never move. The
+clip only exists to stop content spilling while the height animates in or out,
+so `ExerciseBlock` applies it for exactly those moments: 260 ms after mount, and
+again while `useIsPresent()` reports the block is exiting.
 
 `scroll` doesn't bubble, so the watcher listens in the **capture** phase — that
 reaches the single scroller in the root layout without a ref to it. It measures

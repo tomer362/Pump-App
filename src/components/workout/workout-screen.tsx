@@ -8,6 +8,7 @@ import {
   Reorder,
   motion,
   useDragControls,
+  useIsPresent,
   useReducedMotion,
 } from "motion/react";
 import {
@@ -43,6 +44,8 @@ import { ExercisePicker } from "./exercise-picker";
 import { PlateCalculator } from "./plate-calculator";
 import { IntervalRunner } from "./interval-runner";
 import { FinishSheet } from "./finish-sheet";
+import { CoopStrip } from "./coop-strip";
+import type { CoopSnapshot } from "@/lib/actions/coop";
 import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useLongPress } from "@/hooks/use-long-press";
@@ -95,15 +98,27 @@ type Block = {
 export function WorkoutScreen({
   workout,
   unit,
+  currentUserId,
   defaultRestSeconds,
   current1rm,
+  muscleWeekSets,
+  coop,
   uploadsEnabled,
 }: {
   workout: FullWorkout;
   unit: "kg" | "lb";
+  currentUserId: string;
   defaultRestSeconds: number;
   /** Existing 1RM per exercise, so a PR can be flagged the instant it happens. */
   current1rm: Record<string, number>;
+  /**
+   * Sets per muscle over the last 7 days, from finished workouts only. What
+   * this session adds is counted on the client, so the number moves as sets
+   * land instead of being a figure from before the warm-up.
+   */
+  muscleWeekSets: Record<string, number>;
+  /** The co-op roster, when this workout is part of a session. */
+  coop: CoopSnapshot | null;
   /** False when the deployment has no Blob store — then no photo control. */
   uploadsEnabled: boolean;
 }) {
@@ -117,6 +132,15 @@ export function WorkoutScreen({
   );
   const [name, setName] = useState(workout.name);
   const [note, setNote] = useState(workout.note ?? "");
+
+  /**
+   * The exercise whose set was ticked most recently — see `nextTarget`. Seeded
+   * from the logged times rather than starting empty, so a mid-superset reload
+   * doesn't forget which half of the rotation you're on.
+   */
+  const [lastBlockId, setLastBlockId] = useState<string | null>(() =>
+    lastWorkedBlock(workout),
+  );
 
   // `workout` is the RSC payload from whichever load produced this mount.
   // None of the per-set actions call `revalidatePath` (see the comment on
@@ -146,6 +170,7 @@ export function WorkoutScreen({
     }
     reseeded.current = true;
     seededFrom.current = workout;
+    setLastBlockId(lastWorkedBlock(workout));
     setBlocks(workout.exercises.map(toBlock));
     setName(workout.name);
     setNote(workout.note ?? "");
@@ -197,31 +222,25 @@ export function WorkoutScreen({
   }, [blocks]);
 
   /**
-   * The set the lifter owes next: the first unfinished one, in the order the
-   * workout is written. Everything that points somewhere — the rest bar's
-   * "next", the jump pill — points here, so they can never disagree.
+   * The set the lifter owes next. Everything that points somewhere — the rest
+   * bar's "next", the jump pill — points here, so they can never disagree.
+   *
+   * Document order, except inside a superset: those exercises are performed in
+   * rotation, so after a set on A1 the next thing to do is A2's set, not A1's
+   * second. `lastBlockId` is which exercise was ticked last, which is the only
+   * way to know where in the rotation we are.
    */
-  const nextTarget = useMemo(() => {
-    let found: {
-      block: Block;
-      set: SetDraft;
-      index: number;
-      position: number;
-    } | null = null;
-    for (const block of blocks) {
-      let working = 0;
-      for (let position = 0; position < block.sets.length; position++) {
-        const set = block.sets[position];
-        if (set.setType !== "warmup") working++;
-        if (!set.completed) {
-          found = { block, set, index: working, position };
-          break;
-        }
-      }
-      if (found) break;
-    }
-    return found;
-  }, [blocks]);
+  const nextTarget = useMemo(
+    () => findNextTarget(blocks, lastBlockId),
+    [blocks, lastBlockId],
+  );
+
+  /**
+   * A superset hands you straight to the partner with no rest, so there is no
+   * rest bar to say where to go — this flags the seconds right after such a
+   * set, when the pill should show even though the row is on screen.
+   */
+  const [supersetCue, setSupersetCue] = useState(false);
 
   // Feeds the picker so a lift already on the board says so before you add it
   // a second time. Counted, because a second block of the same lift is legal.
@@ -350,10 +369,21 @@ export function WorkoutScreen({
             b.sets.some((s) => s.setType !== "warmup" && !s.completed),
         );
 
+      // Where we are in a superset rotation is "who was ticked last".
+      if (next) setLastBlockId(block.id);
+      // Any tick answers the previous cue, whatever it pointed at.
+      setSupersetCue(false);
+
       // Completing a working set starts the rest clock — Strong's key behaviour.
       if (next && set.setType !== "warmup") {
         const restSeconds = block.restSeconds ?? defaultRestSeconds;
-        if (!partnerPending) {
+        if (partnerPending) {
+          // No rest means no rest bar, so nothing would otherwise name the
+          // partner you're supposed to walk straight to. Surface the pill for
+          // a few seconds even though its row may be in view.
+          setSupersetCue(true);
+          window.setTimeout(() => setSupersetCue(false), 7000);
+        } else {
           timer.start(restSeconds);
 
           // In a co-op session, publish the rest so the others see you're
@@ -670,6 +700,33 @@ export function WorkoutScreen({
   const headerRef = useRef<HTMLElement>(null);
   const [flashSetId, setFlashSetId] = useState<string | null>(null);
 
+  // Where each exercise's column headers come to rest when they stick. Measured
+  // rather than hard-coded: the header carries a safe-area inset and, in a
+  // co-op session, a whole extra row.
+  const [headerH, setHeaderH] = useState(0);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const read = () => setHeaderH(el.getBoundingClientRect().height);
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /** Working sets logged in *this* session, per muscle. Added to the 7-day
+   *  figure from the server so the number moves while you train. */
+  const liveMuscleSets = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const b of blocks) {
+      for (const s of b.sets) {
+        if (!s.completed || s.setType === "warmup") continue;
+        counts[b.primaryMuscle] = (counts[b.primaryMuscle] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [blocks]);
+
   const { activeBlockId, targetAway } = useScrollWatch({
     headerRef,
     // Roughly the rest bar: below that line a row is behind the chrome.
@@ -829,6 +886,10 @@ export function WorkoutScreen({
           </motion.div>
         </div>
 
+        {/* The room, if there is one. Pinned here rather than left on /coop:
+            this is the screen a participant actually spends the session on. */}
+        {coop && <CoopStrip initial={coop} currentUserId={currentUserId} />}
+
         {/* How much of the session is behind you, on the header's own hairline.
             Volt because it is progress, not decoration — and it's the one thing
             on this screen that answers "how much longer" without arithmetic. */}
@@ -854,6 +915,11 @@ export function WorkoutScreen({
               unit={unit}
               prFlash={prFlash}
               flashSetId={flashSetId}
+              stickyTop={headerH}
+              weekSets={
+                (muscleWeekSets[block.primaryMuscle] ?? 0) +
+                (liveMuscleSets[block.primaryMuscle] ?? 0)
+              }
               canReorder={blocks.length > 1}
               onRequestReorder={() => setReordering(true)}
               onOpenMenu={() => setMenuFor(block.id)}
@@ -894,6 +960,7 @@ export function WorkoutScreen({
         nextUp={
           nextTarget && {
             name: nextTarget.block.name,
+            supersetGroup: nextTarget.block.supersetGroup,
             setLabel: setLabel(nextTarget.set, nextTarget.index),
             target: targetLabel(
               nextTarget.block,
@@ -911,36 +978,54 @@ export function WorkoutScreen({
 
       {/* The way back to work. Once the set you owe has left the screen — you
           scrolled off to check a later lift, or to add one — this is the only
-          thing on screen that knows where it went. It stands down while the
-          rest bar is up (which carries the same target, on its own row) and
-          while the keyboard is up, where a docked pill would be buried. */}
+          thing on screen that knows where it went. It also shows for a few
+          seconds after a superset set, on screen or not: that hand-off has no
+          rest bar to name the partner. It stands down while the rest bar is up
+          (which carries the same target, on its own row) and while the keyboard
+          is up, where a docked pill would be buried. */}
       <AnimatePresence>
-        {nextTarget && targetAway && !timer.state && keyboardInset === 0 && (
-          <motion.div
-            initial={{ y: 28, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 28, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 420, damping: 36 }}
-            className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 mb-safe"
-          >
-            <button
-              onClick={() => jumpToSet(nextTarget.set.id)}
-              className="press tap bg-surface-2 border-hairline text-text-1 pointer-events-auto flex max-w-full items-center gap-2 rounded-full border py-2.5 pr-4 pl-3.5"
+        {nextTarget &&
+          (targetAway || supersetCue) &&
+          !timer.state &&
+          keyboardInset === 0 && (
+            <motion.div
+              initial={{ y: 28, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 28, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 420, damping: 36 }}
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 mb-safe"
             >
-              {targetAway === "down" ? (
-                <ArrowDown className="text-text-3 size-4 shrink-0" strokeWidth={2.6} />
-              ) : (
-                <ArrowUp className="text-text-3 size-4 shrink-0" strokeWidth={2.6} />
-              )}
-              <span className="min-w-0 truncate text-[13px] font-semibold">
-                {nextTarget.block.name}
-              </span>
-              <span className="num text-text-3 shrink-0 text-[12px]">
-                {setLabel(nextTarget.set, nextTarget.index)}
-              </span>
-            </button>
-          </motion.div>
-        )}
+              <button
+                onClick={() => jumpToSet(nextTarget.set.id)}
+                className="press tap bg-surface-2 border-hairline text-text-1 pointer-events-auto flex max-w-full items-center gap-2 rounded-full border py-2.5 pr-4 pl-3.5"
+              >
+                {supersetCue && !targetAway ? (
+                  <Link2 className="text-volt size-4 shrink-0" strokeWidth={2.6} />
+                ) : targetAway === "down" ? (
+                  <ArrowDown
+                    className="text-text-3 size-4 shrink-0"
+                    strokeWidth={2.6}
+                  />
+                ) : (
+                  <ArrowUp
+                    className="text-text-3 size-4 shrink-0"
+                    strokeWidth={2.6}
+                  />
+                )}
+                {supersetCue && (
+                  <span className="text-text-3 shrink-0 text-[12px]">
+                    Straight into
+                  </span>
+                )}
+                <span className="min-w-0 truncate text-[13px] font-semibold">
+                  {nextTarget.block.name}
+                </span>
+                <span className="num text-text-3 shrink-0 text-[12px]">
+                  {setLabel(nextTarget.set, nextTarget.index)}
+                </span>
+              </button>
+            </motion.div>
+          )}
       </AnimatePresence>
 
       {/* --- Sheets --- */}
@@ -1185,6 +1270,8 @@ function ExerciseBlock({
   unit,
   prFlash,
   flashSetId,
+  stickyTop,
+  weekSets,
   canReorder,
   onRequestReorder,
   onOpenMenu,
@@ -1201,6 +1288,10 @@ function ExerciseBlock({
   prFlash: string | null;
   /** A row just jumped to, tinted for a beat so the landing is obvious. */
   flashSetId: string | null;
+  /** Height of the sticky workout header — where these columns come to rest. */
+  stickyTop: number;
+  /** Sets on this muscle over the last 7 days, this session included. */
+  weekSets: number;
   /** A single exercise has no order to change — no gesture, no hint. */
   canReorder: boolean;
   onRequestReorder: () => void;
@@ -1221,6 +1312,22 @@ function ExerciseBlock({
   const longPress = useLongPress(onRequestReorder, { enabled: canReorder });
   const columns = setColumns(block.trackingType);
   const showWeight = columns.includes("weight");
+
+  /**
+   * `overflow: hidden` and `position: sticky` can't both be on this section: an
+   * ancestor that clips becomes the sticky element's scroll container, and the
+   * column headers below would then stick to a box the size of their own
+   * exercise — i.e. never move. The clip is only needed while the height is
+   * animating, which is a block being added or removed, so it is applied for
+   * exactly those moments: 260 ms after mount (one tick longer than the 200 ms
+   * transition) and again for as long as this block is on its way out.
+   */
+  const present = useIsPresent();
+  const [entering, setEntering] = useState(true);
+  useEffect(() => {
+    const id = window.setTimeout(() => setEntering(false), 260);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const isInterval =
     block.intervalWorkSeconds != null && block.intervalWorkSeconds > 0;
@@ -1245,7 +1352,7 @@ function ExerciseBlock({
       animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }}
       exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
       transition={LIST_TRANSITION}
-      className="mb-2 overflow-hidden"
+      className={cn("mb-2", (entering || !present) && "overflow-hidden")}
       data-block-id={block.id}
     >
       <div
@@ -1294,19 +1401,38 @@ function ExerciseBlock({
         </p>
       )}
 
-      {block.restSeconds != null && block.restSeconds > 0 && (
-        <div className="text-text-3 flex items-center gap-1.5 px-4 pb-2 text-[12px]">
-          <Clock className="size-3.5" strokeWidth={2.2} />
-          <span className="num">
-            Rest {formatDuration(block.restSeconds)}
+      {/* Rest on the left, and on the right how much this muscle has had in the
+          last seven days — the one number that changes what you'd do next and
+          that you would otherwise have to leave the workout to look up. It
+          counts this session's sets as they land, so it is never stale. */}
+      <div className="text-text-3 flex items-center gap-3 px-4 pb-2 text-[12px]">
+        {block.restSeconds != null && block.restSeconds > 0 && (
+          <span className="flex items-center gap-1.5">
+            <Clock className="size-3.5" strokeWidth={2.2} />
+            <span className="num">Rest {formatDuration(block.restSeconds)}</span>
           </span>
-        </div>
-      )}
+        )}
+        {weekSets > 0 && (
+          <span className="num ml-auto truncate">
+            <span className="capitalize">{block.primaryMuscle}</span>{" "}
+            <span className="text-text-2 font-semibold">
+              {formatSetCount(weekSets)}
+            </span>{" "}
+            {weekSets === 1 ? "set" : "sets"} this week
+          </span>
+        )}
+      </div>
 
-      {/* Column headers — this is a data table, not a card list. */}
+      {/* Column headers — this is a data table, not a card list. Sticky, so a
+          long exercise doesn't leave you reading a row of unlabelled numbers;
+          they come to rest under the workout header and ride up with the block
+          when the next exercise arrives. */}
       <div
-        className="text-text-3 grid items-center gap-1.5 px-3 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase"
-        style={{ gridTemplateColumns: setGridTemplate(columns) }}
+        className="text-text-3 bg-bg sticky z-20 grid items-center gap-1.5 px-3 pt-1 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase"
+        style={{
+          gridTemplateColumns: setGridTemplate(columns),
+          top: stickyTop,
+        }}
       >
         <span className="text-center">Set</span>
         <span className="text-center">Previous</span>
@@ -1680,6 +1806,70 @@ function SheetLabel({ children }: { children: React.ReactNode }) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+type NextTarget = {
+  block: Block;
+  set: SetDraft;
+  /** Display number among this exercise's working sets. */
+  index: number;
+  /** Index into `block.sets`, which is also the index into `block.previous`. */
+  position: number;
+};
+
+/** Which exercise the most recent completed set belongs to, if any. */
+function lastWorkedBlock(workout: FullWorkout): string | null {
+  let bestId: string | null = null;
+  let bestAt = -Infinity;
+  for (const e of workout.exercises) {
+    for (const s of e.sets) {
+      const at = s.completedAt ? s.completedAt.getTime() : null;
+      if (at != null && at > bestAt) {
+        bestAt = at;
+        bestId = e.id;
+      }
+    }
+  }
+  return bestId;
+}
+
+/** The first unfinished set in one exercise, or null if it's done. */
+function firstUnfinished(block: Block): NextTarget | null {
+  let working = 0;
+  for (let position = 0; position < block.sets.length; position++) {
+    const set = block.sets[position];
+    if (set.setType !== "warmup") working++;
+    if (!set.completed) return { block, set, index: working, position };
+  }
+  return null;
+}
+
+/**
+ * What to do next. Document order, except that a superset rotates: after a set
+ * on the exercise `lastBlockId` names, the search starts at the *next* member
+ * of its group and wraps, so A1 → A2 → A1 rather than A1 → A1 → A1. Falls
+ * through to document order once the group is finished.
+ */
+function findNextTarget(blocks: Block[], lastBlockId: string | null) {
+  const last = blocks.find((b) => b.id === lastBlockId);
+  if (last?.supersetGroup) {
+    const group = blocks.filter((b) => b.supersetGroup === last.supersetGroup);
+    const from = group.indexOf(last);
+    for (let i = 1; i <= group.length; i++) {
+      const found = firstUnfinished(group[(from + i) % group.length]);
+      if (found) return found;
+    }
+  }
+  for (const block of blocks) {
+    const found = firstUnfinished(block);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Set counts carry a half for a secondary muscle, so they aren't integers. */
+function formatSetCount(n: number) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
 
 /** "Set 3", or "Warm-up" — warm-ups don't carry a number anywhere else either. */
 function setLabel(set: SetDraft, index: number) {
