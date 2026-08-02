@@ -88,7 +88,7 @@ async function MinePanel({ userId }: { userId: string }) {
                 only on a screen you reach by already having a routine. */}
             <ImportRoutineButton className="press tap text-text-3 hover:text-text-1 flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold">
               <Upload className="size-4" strokeWidth={2.2} />
-              Import a file
+              Import
             </ImportRoutineButton>
           </div>
         }

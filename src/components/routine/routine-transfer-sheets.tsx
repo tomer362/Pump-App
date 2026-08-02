@@ -2,16 +2,27 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileJson, Link2, Upload } from "lucide-react";
+import {
+  ChevronLeft,
+  ClipboardPaste,
+  Download,
+  FileJson,
+  Link2,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/primitives";
+import { Badge, Textarea } from "@/components/ui/primitives";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import {
   exportRoutineFile,
   importRoutine,
   previewRoutineImport,
   type ImportPreview,
 } from "@/lib/actions/routine-transfer";
+import { buildRoutinePrompt } from "@/lib/routine-prompt";
+import { MAX_IMPORT_BYTES } from "@/lib/routine-transfer";
 import { haptic, labelize } from "@/lib/utils";
 
 /**
@@ -24,9 +35,6 @@ import { haptic, labelize } from "@/lib/utils";
  * on a home screen, the native share sheet leads and the anchor is the
  * desktop/Android fallback, with the clipboard behind both.
  */
-
-/** Bigger than any routine this app can produce; rejected before it is read. */
-const MAX_FILE_BYTES = 512 * 1024;
 
 type Delivery = "shared" | "downloaded" | "copied";
 
@@ -131,13 +139,21 @@ export function ShareRoutineSheet({
 }
 
 /**
- * Import: pick a file, read what it would do, then commit.
+ * Import: choose how the document arrives, read what it would do, then commit.
+ *
+ * The button used to open the file picker outright, which only ever helped
+ * someone who had been handed a file. The other way a routine gets written is
+ * by asking a model for one — and that answer lands on the clipboard, never in
+ * Files, so a paste path is what makes the prompt worth copying. Hence a menu:
+ * file, paste, or copy the prompt that produces something the parser accepts.
  *
  * The preview is not ceremony. An import writes rows into a library that can
  * only ever be archived, never deleted, so "this creates 2 new exercises" is
  * something a person should get to read before it happens rather than
  * discover afterwards.
  */
+type ImportView = "menu" | "paste" | "preview";
+
 export function ImportRoutineButton({
   className,
   children,
@@ -147,16 +163,46 @@ export function ImportRoutineButton({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const keyboardInset = useKeyboardInset();
+  const [view, setView] = useState<ImportView | null>(null);
   const [json, setJson] = useState<string | null>(null);
+  const [pasted, setPasted] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [promptText, setPromptText] = useState<string | null>(null);
 
   function reset() {
+    setView(null);
     setJson(null);
+    setPasted("");
     setPreview(null);
     setError(null);
     setBusy(false);
+    setCopied(false);
+    setPromptText(null);
+  }
+
+  /** Shared tail of both arrival paths: preview it, or say why not. */
+  async function review(text: string) {
+    if (text.length > MAX_IMPORT_BYTES) {
+      setPreview(null);
+      setError("That file is too large to be a routine");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await previewRoutineImport(text);
+    setBusy(false);
+    if (!res.ok) {
+      setPreview(null);
+      setError(res.error);
+      return;
+    }
+    setJson(text);
+    setPreview(res.data!);
+    setView("preview");
   }
 
   async function pick(file: File | undefined) {
@@ -164,26 +210,30 @@ export function ImportRoutineButton({
     // Files or a Messages attachment. The format discriminator inside the
     // document is what identifies it, and the server checks that.
     if (!file) return;
-    if (file.size > MAX_FILE_BYTES) {
+    // The same cap the parser enforces. A larger one here only buys a round
+    // trip that comes back with this very sentence.
+    if (file.size > MAX_IMPORT_BYTES) {
       setError("That file is too large to be a routine");
       setPreview(null);
-      setJson("");
       return;
     }
+    await review(await file.text());
+  }
 
-    setBusy(true);
+  async function copyPrompt() {
+    const text = buildRoutinePrompt();
     setError(null);
-    const text = await file.text();
-    const res = await previewRoutineImport(text);
-    setBusy(false);
-    if (!res.ok) {
-      setJson("");
-      setPreview(null);
-      setError(res.error);
-      return;
+    try {
+      await navigator.clipboard.writeText(text);
+      haptic.light();
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard writes are refused outside a secure context and in a few
+      // in-app browsers. Show the prompt rather than a dead end — selecting it
+      // by hand still gets it where it is going.
+      setPromptText(text);
     }
-    setJson(text);
-    setPreview(res.data!);
   }
 
   async function commit() {
@@ -202,8 +252,6 @@ export function ImportRoutineButton({
     router.refresh();
   }
 
-  const open = json !== null;
-
   return (
     <>
       <input
@@ -221,21 +269,42 @@ export function ImportRoutineButton({
       />
       <button
         type="button"
-        onClick={() => inputRef.current?.click()}
+        onClick={() => {
+          setView("menu");
+        }}
         className={className}
       >
         {children}
       </button>
 
       <Sheet
-        open={open}
+        open={view !== null}
         onClose={reset}
-        title={preview ? "Import routine" : "Import"}
+        title={
+          view === "preview"
+            ? "Import routine"
+            : view === "paste"
+              ? "Paste JSON"
+              : "Import"
+        }
+        // A drag anywhere on the panel wins over a child's, so scrolling a
+        // screenful of pasted JSON would otherwise dismiss the sheet.
+        dragToDismiss={view !== "paste"}
         footer={
-          preview ? (
+          view === "preview" && preview ? (
             <Button block variant="volt" loading={busy} onClick={commit}>
               <Upload className="size-4" />
               Import routine
+            </Button>
+          ) : view === "paste" ? (
+            <Button
+              block
+              variant="volt"
+              loading={busy}
+              disabled={!pasted.trim()}
+              onClick={() => void review(pasted.trim())}
+            >
+              Preview import
             </Button>
           ) : undefined
         }
@@ -244,8 +313,92 @@ export function ImportRoutineButton({
             routines EmptyState, which centres its action slot, and the sheet
             renders in that subtree — so the same preview came out centred from
             one button and left-aligned from the other. */}
-        <div className="px-4 pb-5 text-left">
-          {error ? (
+        <div
+          className="px-4 pb-5 text-left"
+          style={{
+            paddingBottom: keyboardInset ? keyboardInset + 20 : undefined,
+          }}
+        >
+          {view === "menu" ? (
+            <div className="space-y-2">
+              <Button
+                block
+                variant="solid"
+                loading={busy}
+                onClick={() => inputRef.current?.click()}
+              >
+                <FileJson className="size-4" />
+                Choose a file
+              </Button>
+              <Button
+                block
+                variant="solid"
+                onClick={() => {
+                  setError(null);
+                  setPromptText(null);
+                  setView("paste");
+                }}
+              >
+                <ClipboardPaste className="size-4" />
+                Paste JSON
+              </Button>
+              <Button block variant="solid" onClick={() => void copyPrompt()}>
+                <Sparkles className="size-4" />
+                {copied ? "Prompt copied" : "Copy AI prompt"}
+              </Button>
+              <p className="text-text-3 pt-1 text-[13px] leading-relaxed">
+                No file? Copy the prompt into ChatGPT or Claude, describe the
+                routine you want, then bring its answer back here with Paste
+                JSON.
+              </p>
+
+              {promptText && (
+                <Textarea
+                  readOnly
+                  rows={6}
+                  value={promptText}
+                  onFocus={(e) => e.currentTarget.select()}
+                  // Monospace, but never below 16px: iOS zooms the page in on
+                  // focusing a smaller field and does not zoom back out.
+                  className="mt-2 font-mono"
+                />
+              )}
+
+              {error && (
+                <p className="text-danger pt-1 text-[13px] leading-relaxed">
+                  {error}
+                </p>
+              )}
+            </div>
+          ) : view === "paste" ? (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setView("menu");
+                }}
+                className="press tap text-text-3 hover:text-text-1 -ml-1 flex items-center gap-1 py-1 text-[13px] font-semibold"
+              >
+                <ChevronLeft className="size-4" />
+                Back
+              </button>
+              <Textarea
+                rows={8}
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+                placeholder="Paste the routine JSON here"
+                className="font-mono"
+              />
+              {/* The text stays put on a rejection — retyping a model's answer
+                  is not a reasonable ask. */}
+              {error && (
+                <p className="text-danger text-[13px] leading-relaxed">
+                  {error}
+                </p>
+              )}
+            </div>
+          ) : error ? (
             <p className="text-danger text-[14px] leading-relaxed">{error}</p>
           ) : !preview ? (
             <p className="text-text-3 py-6 text-center text-[14px]">
