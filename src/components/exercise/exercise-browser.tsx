@@ -8,8 +8,12 @@ import { Button } from "@/components/ui/button";
 import { ExercisePicker } from "@/components/workout/exercise-picker";
 import { Chip } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
+import {
+  ImportedReveal,
+  importedRevealState,
+} from "@/components/exercise/imported-reveal";
 import type { ExerciseBatch } from "@/lib/actions/exercise-search";
-import type { ExerciseScope } from "@/lib/queries/exercise";
+import type { ExerciseListItem, ExerciseScope } from "@/lib/queries/exercise";
 import { MUSCLES } from "@/lib/db/schema";
 import type { Muscle } from "@/lib/db/schema";
 import { labelize } from "@/lib/utils";
@@ -17,6 +21,9 @@ import { labelize } from "@/lib/utils";
 const SCOPES = [
   { value: "available" as const, label: "All" },
   { value: "mine" as const, label: "Mine" },
+  // Four disjoint slices is the honest structure now that a fourth exists —
+  // an exercise is built-in, yours, imported, or archived.
+  { value: "imported" as const, label: "Imported" },
   { value: "archived" as const, label: "Archived" },
 ];
 
@@ -28,9 +35,13 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
   const [muscle, setMuscle] = useState<Muscle | "all">("all");
   const [creating, setCreating] = useState(false);
 
+  const [showImported, setShowImported] = useState(false);
+
   // The first batch is server-rendered, the rest arrive as the user scrolls.
-  const { recent, rest, loadingMore, exhausted, sentinelRef, refresh } =
+  const { recent, rest, imported, loadingMore, exhausted, sentinelRef, refresh } =
     useExerciseBatches({ query, scope, muscle }, { initial });
+
+  const reveal = importedRevealState(imported);
 
   // Recent entries are pinned on top and also appear in the alphabetical
   // batches — show each row once.
@@ -80,7 +91,7 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
         ))}
       </div>
 
-      {scope !== "archived" && (
+      {scope !== "archived" && scope !== "imported" && (
         <Button
           block
           variant="ghost"
@@ -99,29 +110,27 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
               ? "Nothing archived."
               : scope === "mine"
                 ? "You haven't created any exercises yet."
-                : "No exercises match."}
+                : scope === "imported"
+                  ? "Nothing imported yet — routines you import bring their custom exercises with them."
+                  : "No exercises match."}
           </p>
         ) : (
-          items.map((e) => (
-            <Link
-              key={e.id}
-              href={`/exercises/${e.id}`}
-              className="press flex items-center gap-3 px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-medium">{e.name}</p>
-                <p className="text-text-3 truncate text-[12px]">
-                  {labelize(e.primaryMuscle)} · {labelize(e.equipment)}
-                </p>
-              </div>
-              {e.isArchived ? (
-                <Archive className="text-text-3 size-4 shrink-0" />
-              ) : (
-                e.isCustom && <Badge>Custom</Badge>
-              )}
-              <ChevronRight className="text-text-3 size-4 shrink-0" />
-            </Link>
-          ))
+          items.map((e) => <Row key={e.id} item={e} />)
+        )}
+
+        {/* Last, so material the scope hides never pushes down material it
+            shows. With no in-scope results, last is the top, and the rule
+            still holds without a special case. */}
+        {reveal.show && (
+          <>
+            <ImportedReveal
+              count={reveal.count}
+              capped={reveal.capped}
+              open={showImported}
+              onToggle={() => setShowImported((v) => !v)}
+            />
+            {showImported && reveal.rows.map((e) => <Row key={e.id} item={e} />)}
+          </>
         )}
       </Card>
 
@@ -150,5 +159,31 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
         }}
       />
     </div>
+  );
+}
+
+function Row({ item }: { item: ExerciseListItem }) {
+  return (
+    <Link
+      href={`/exercises/${item.id}`}
+      className="press flex items-center gap-3 px-4 py-3"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[15px] font-medium">{item.name}</p>
+        <p className="text-text-3 truncate text-[12px]">
+          {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
+        </p>
+      </div>
+      {item.isArchived ? (
+        <Archive className="text-text-3 size-4 shrink-0" />
+      ) : item.isImported ? (
+        // Every imported exercise is also custom, so the more specific label
+        // wins — two badges on one row would say the same thing twice.
+        <Badge>Imported</Badge>
+      ) : (
+        item.isCustom && <Badge>Custom</Badge>
+      )}
+      <ChevronRight className="text-text-3 size-4 shrink-0" />
+    </Link>
   );
 }

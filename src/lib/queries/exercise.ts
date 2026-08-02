@@ -14,7 +14,11 @@ import {
   inArray,
 } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { EXERCISE_PAGE_SIZE, EXERCISE_RECENT_LIMIT } from "@/lib/pagination";
+import {
+  EXERCISE_PAGE_SIZE,
+  EXERCISE_RECENT_LIMIT,
+  IMPORTED_HINT_LIMIT,
+} from "@/lib/pagination";
 import {
   exercise,
   exerciseAlternative,
@@ -34,6 +38,12 @@ export type ExerciseListItem = {
   trackingType: string;
   isCustom: boolean;
   isArchived: boolean;
+  /**
+   * Arrived attached to somebody else's routine rather than being authored
+   * here. Kept out of the default search scope until adopted — see
+   * `ExerciseScope`.
+   */
+  isImported: boolean;
   /**
    * Last time this user logged it — powers the "Recent" ordering. Only
    * `getRecentExercises` fills this in; the alphabetical pages leave it null
@@ -60,11 +70,20 @@ export type ExercisePage = {
 
 /**
  * Which slice of the library to return.
- * - `available` — built-ins plus this user's live custom entries (every picker)
- * - `mine`      — only this user's live custom entries
- * - `archived`  — only this user's archived custom entries
+ * - `available` — built-ins plus the custom entries this user **authored**
+ * - `mine`      — only the custom entries this user authored
+ * - `imported`  — only the ones that arrived attached to someone's routine
+ * - `archived`  — this user's archived custom entries, however they arrived
+ *
+ * Imported entries are out of `available` and `mine` on purpose. Importing a
+ * routine can mint up to 50 library rows named by a stranger, and having those
+ * silently join every picker you open would make someone else's naming your
+ * problem. They are still fully yours — history and records log against them,
+ * and `getRecentExercises` surfaces them the moment you have trained one — but
+ * reaching for one in search is a deliberate act. `adoptImportedExercise`
+ * clears the flag for good.
  */
-export type ExerciseScope = "available" | "mine" | "archived";
+export type ExerciseScope = "available" | "mine" | "imported" | "archived";
 
 export type ExerciseFilters = {
   query?: string;
@@ -77,13 +96,40 @@ export type ExerciseFilters = {
   scope?: ExerciseScope;
 };
 
-/** The filter half of both queries below, so they can't drift apart. */
-function filterWhere(userId: string, f: ExerciseFilters) {
+/**
+ * The filter half of the queries below, so they can't drift apart.
+ *
+ * `includeImported` is the one exemption, and `getRecentExercises` is its only
+ * caller. Recent is by definition "things you have actually trained" — an
+ * imported exercise you have logged sets against disappearing from it would be
+ * a bug, not restraint. That exemption is also what makes hiding imports by
+ * default safe: the moment one becomes part of your training it sits at the
+ * top of every picker with no reveal needed.
+ */
+function filterWhere(
+  userId: string,
+  f: ExerciseFilters,
+  { includeImported = false }: { includeImported?: boolean } = {},
+) {
   const scope = f.scope ?? "available";
+  const authored = and(eq(exercise.ownerId, userId), isNull(exercise.importedAt));
+  const anyOfMine = eq(exercise.ownerId, userId);
+
+  const ownership =
+    scope === "archived"
+      ? // Archival is a state, not a provenance: an archived import belongs in
+        // the same management view as an archived exercise you wrote.
+        anyOfMine
+      : scope === "mine"
+        ? includeImported
+          ? anyOfMine
+          : authored
+        : scope === "imported"
+          ? and(anyOfMine, sql`${exercise.importedAt} IS NOT NULL`)
+          : or(isNull(exercise.ownerId), includeImported ? anyOfMine : authored);
+
   return and(
-    scope === "mine" || scope === "archived"
-      ? eq(exercise.ownerId, userId)
-      : or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+    ownership,
     scope === "archived"
       ? sql`${exercise.archivedAt} IS NOT NULL`
       : isNull(exercise.archivedAt),
@@ -107,6 +153,7 @@ const LIST_COLUMNS = {
   trackingType: exercise.trackingType,
   ownerId: exercise.ownerId,
   archivedAt: exercise.archivedAt,
+  importedAt: exercise.importedAt,
   // Not surfaced to the UI — selected because the cursor is built from it.
   popularity: exercise.popularity,
 } as const;
@@ -119,6 +166,7 @@ type ListRow = {
   trackingType: string;
   ownerId: string | null;
   archivedAt: Date | string | null;
+  importedAt: Date | string | null;
   popularity: number;
 };
 
@@ -131,6 +179,7 @@ function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
     trackingType: r.trackingType,
     isCustom: r.ownerId != null,
     isArchived: r.archivedAt != null,
+    isImported: r.importedAt != null,
     lastPerformedAt,
   };
 }
@@ -217,7 +266,7 @@ export async function getRecentExercises(
       workout,
       and(eq(workout.id, workoutExercise.workoutId), eq(workout.userId, userId)),
     )
-    .where(filterWhere(userId, filters))
+    .where(filterWhere(userId, filters, { includeImported: true }))
     // Grouping by the primary key is enough in Postgres — every other selected
     // column is functionally dependent on it.
     .groupBy(exercise.id)
@@ -228,6 +277,32 @@ export async function getRecentExercises(
   // so this arrives as whatever the driver produced — normalise rather than
   // assume it is already a Date.
   return rows.map((r) => toListItem(r, new Date(r.lastPerformedAt)));
+}
+
+/**
+ * The imported exercises that match the filters the user is already searching
+ * with — what the picker's "Show N from imported routines" row expands.
+ *
+ * Fetched rather than counted, and capped. A `COUNT(*)` would cost the same
+ * scan and then need a second round trip to show anything, so the reveal would
+ * spin; with the rows already in hand it is instant. `limit + 1` so the UI can
+ * honestly say "25+" rather than a wrong number.
+ *
+ * Cheap for the same reason `getRecentExercises` is: `owner_id = $me` bounds it
+ * to one person's own custom rows, not the library.
+ */
+export async function getImportedMatches(
+  userId: string,
+  filters: ExerciseFilters = {},
+  limit = IMPORTED_HINT_LIMIT,
+): Promise<ExerciseListItem[]> {
+  const rows = await db
+    .select(LIST_COLUMNS)
+    .from(exercise)
+    .where(filterWhere(userId, { ...filters, scope: "imported" }))
+    .orderBy(desc(exercise.popularity), asc(exercise.name), asc(exercise.id))
+    .limit(limit + 1);
+  return rows.map((r) => toListItem(r));
 }
 
 /**
@@ -366,7 +441,14 @@ export async function getReplacementSuggestions(
         eq(exercise.primaryMuscle, source.primaryMuscle),
         eq(exercise.trackingType, source.trackingType),
         isNull(exercise.archivedAt),
-        or(isNull(exercise.ownerId), eq(exercise.ownerId, userId)),
+        // Same default exclusion as every other list: an imported exercise is
+        // reachable here through the picker's search and hint, and through
+        // Recent once trained, but it is not offered unasked. "What shows by
+        // default" should be one rule, not one per surface.
+        or(
+          isNull(exercise.ownerId),
+          and(eq(exercise.ownerId, userId), isNull(exercise.importedAt)),
+        ),
         not(inArray(exercise.id, exclude)),
       ),
     )

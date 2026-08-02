@@ -180,6 +180,21 @@ export const exercise = pgTable(
     // exercises drop out of search and the picker; their detail page still
     // resolves, because past workouts link to it.
     archivedAt: timestamp("archived_at"),
+    // Set on every row that arrived attached to someone else's routine, by
+    // file import or by copyRoutine. Null means you authored it yourself.
+    // This is the only column the default-visibility gate reads: an imported
+    // exercise is fully yours — history and records log against it — but it
+    // stays out of exercise search until you adopt it, so importing a routine
+    // can't quietly stuff a stranger's naming into every picker you open.
+    importedAt: timestamp("imported_at"),
+    // The row this one was cloned from, when the clone happened inside this
+    // database (copyRoutine). Null for file imports — the export format
+    // carries no ids by design, so there is nothing to point at. It can't be
+    // the visibility flag for that reason; `imported_at` is.
+    //
+    // No FK, mirroring routine.sourceRoutineId: the source may be archived, or
+    // cascade away with its owner, and this row has to survive that.
+    sourceExerciseId: uuid("source_exercise_id"),
     // How commonly the movement is trained, highest first — the default order
     // of every picker. Authored per slug in seed-data/popularity.ts and
     // written by the seed; 0 for everything unranked and for custom

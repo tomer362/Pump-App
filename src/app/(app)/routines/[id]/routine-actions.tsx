@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { LoadPickerSheet } from "@/components/workout/load-picker";
 import { MoveToFolderSheet } from "@/components/routine/move-to-folder-sheet";
+import { ShareRoutineSheet } from "@/components/routine/routine-transfer-sheets";
 import { copyRoutine, deleteRoutine } from "@/lib/actions/routine";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
 import type { FolderListItem } from "@/lib/queries/routine";
@@ -35,6 +36,7 @@ export function RoutineActions({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadSheet, setLoadSheet] = useState(false);
+  const [shareSheet, setShareSheet] = useState(false);
   const [moveSheet, setMoveSheet] = useState(false);
   const [multiplier, setMultiplier] = useState(1);
 
@@ -123,15 +125,21 @@ export function RoutineActions({
                 <FolderInput className="size-4" />
                 Move
               </Button>
-              {/* Only offered when the routine is actually reachable. A share
-                  sheet on a private routine hands out a link that 404s for
-                  everyone who receives it. */}
-              {isPublic && (
-                <Button block variant="solid" onClick={share}>
-                  <Share2 className="size-4" />
-                  {copied ? "Copied" : "Share"}
-                </Button>
-              )}
+              {/* Always offered now. The link half is still gated on the
+                  routine being reachable — a link to a private routine 404s
+                  for everyone who receives it — but a file is not a link, and
+                  a private routine is yours to take away. */}
+              <Button
+                block
+                variant="solid"
+                onClick={() => {
+                  haptic.light();
+                  setShareSheet(true);
+                }}
+              >
+                <Share2 className="size-4" />
+                Share
+              </Button>
             </>
           ) : (
             <>
@@ -152,9 +160,16 @@ export function RoutineActions({
                 <Copy className="size-4" />
                 Save to my routines
               </Button>
-              <Button block variant="solid" onClick={share}>
+              <Button
+                block
+                variant="solid"
+                onClick={() => {
+                  haptic.light();
+                  setShareSheet(true);
+                }}
+              >
                 <Share2 className="size-4" />
-                {copied ? "Copied" : "Share"}
+                Share
               </Button>
             </>
           )}
@@ -173,6 +188,18 @@ export function RoutineActions({
       </div>
 
       {error && <p className="text-danger mt-2 text-center text-[13px]">{error}</p>}
+
+      <ShareRoutineSheet
+        open={shareSheet}
+        onClose={() => setShareSheet(false)}
+        routineId={routineId}
+        routineName={routineName}
+        // A non-owner is looking at a routine that is public by definition —
+        // that is the only way they could have opened it.
+        linkWorks={!isOwner || isPublic}
+        onShareLink={share}
+        linkCopied={copied}
+      />
 
       <MoveToFolderSheet
         open={moveSheet}

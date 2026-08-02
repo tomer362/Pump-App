@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
+  exercise,
   routine,
   routineExercise,
   routineFolder,
@@ -13,6 +14,12 @@ import {
   workoutExercise,
   workoutSet,
 } from "@/lib/db/schema";
+import {
+  nextUnfiledPosition,
+  resolveExercisesForUser,
+  writeRoutineChildren,
+  type Tx,
+} from "@/lib/routine-write";
 import { getCurrentUser } from "@/lib/session";
 import { notify } from "./notify";
 import type { ActionResult } from "./user";
@@ -169,51 +176,58 @@ export async function updateRoutine(
   return { ok: true };
 }
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-async function writeRoutineChildren(
+/**
+ * Given the exercise ids a source routine references, return the subset that
+ * belong to somebody else mapped onto rows this user owns, cloning as needed.
+ *
+ * Built-ins and the user's own rows are absent from the map — the caller falls
+ * back to the original id for those, which is already correct.
+ */
+async function remapForeignExercises(
   tx: Tx,
-  routineId: string,
-  exercises: z.output<typeof routineInputSchema>["exercises"],
-) {
-  if (!exercises.length) return;
+  userId: string,
+  exerciseIds: string[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(exerciseIds)];
+  if (!ids.length) return new Map();
 
-  // Two statements total rather than two per exercise. The zod cap allows 50
-  // exercises, which was 100 sequential round trips inside a transaction.
-  const inserted = await tx
-    .insert(routineExercise)
-    .values(
-      exercises.map((e, i) => ({
-        routineId,
-        exerciseId: e.exerciseId,
-        position: i,
-        notes: e.notes ?? null,
-        restSeconds: e.restSeconds ?? null,
-        supersetGroup: e.supersetGroup ?? null,
-        intervalWorkSeconds: e.intervalWorkSeconds ?? null,
-        intervalRestSeconds: e.intervalRestSeconds ?? null,
-      })),
-    )
-    .returning({ id: routineExercise.id, position: routineExercise.position });
+  const rows = await tx
+    .select({
+      id: exercise.id,
+      ownerId: exercise.ownerId,
+      slug: exercise.slug,
+      name: exercise.name,
+      primaryMuscle: exercise.primaryMuscle,
+      secondaryMuscles: exercise.secondaryMuscles,
+      equipment: exercise.equipment,
+      trackingType: exercise.trackingType,
+      instructions: exercise.instructions,
+    })
+    .from(exercise)
+    .where(inArray(exercise.id, ids));
 
-  const byPosition = new Map(inserted.map((r) => [r.position, r.id]));
+  const foreign = rows.filter((r) => r.ownerId != null && r.ownerId !== userId);
+  if (!foreign.length) return new Map();
 
-  const rows = exercises.flatMap((e, i) => {
-    const reId = byPosition.get(i);
-    if (!reId) return [];
-    return e.sets.map((s, j) => ({
-      routineExerciseId: reId,
-      position: j,
-      setType: s.setType,
-      targetWeightKg: s.targetWeightKg ?? null,
-      targetReps: s.targetReps ?? null,
-      targetSeconds: s.targetSeconds ?? null,
-      targetDistanceM: s.targetDistanceM ?? null,
-      targetRpe: s.targetRpe ?? null,
-    }));
-  });
+  const resolved = await resolveExercisesForUser(
+    tx,
+    userId,
+    foreign.map((r) => ({
+      // A foreign row with a slug would be a built-in, which can't be foreign
+      // — but pass it through rather than assume, so a hit resolves to the
+      // shared built-in instead of minting a clone of it.
+      slug: r.slug,
+      name: r.name,
+      primaryMuscle: r.primaryMuscle,
+      secondaryMuscles: r.secondaryMuscles,
+      equipment: r.equipment,
+      trackingType: r.trackingType,
+      instructions: r.instructions,
+      sourceExerciseId: r.id,
+    })),
+  );
 
-  if (rows.length) await tx.insert(routineSet).values(rows);
+  return new Map(foreign.map((r, i) => [r.id, resolved[i].exerciseId]));
 }
 
 export async function deleteRoutine(routineId: string): Promise<ActionResult> {
@@ -264,10 +278,7 @@ export async function copyRoutine(
         // A copy lands unfiled. Inheriting the source's folder dropped a
         // stranger's filing system into your list.
         folderId: null,
-        position: sql`(
-          SELECT COALESCE(MAX("position"), -1) + 1 FROM "routine" r2
-          WHERE r2."user_id" = ${me.id} AND r2."folder_id" IS NULL
-        )`,
+        position: nextUnfiledPosition(me.id),
         isPublic: false,
         sourceRoutineId: rootId,
       })
@@ -299,12 +310,23 @@ export async function copyRoutine(
       )
       .orderBy(asc(routineSet.position));
 
+    // Anything of the author's own goes through the same clone path a file
+    // import uses. Copying the ids verbatim used to leave the copier holding
+    // rows they don't own — which renders, and then 404s on the detail page,
+    // vanishes from the picker, and cascades away if the author ever deletes
+    // their account.
+    const remap = await remapForeignExercises(
+      tx,
+      me.id,
+      res.map((re) => re.exerciseId),
+    );
+
     const inserted = await tx
       .insert(routineExercise)
       .values(
         res.map((re) => ({
           routineId: copy.id,
-          exerciseId: re.exerciseId,
+          exerciseId: remap.get(re.exerciseId) ?? re.exerciseId,
           position: re.position,
           notes: re.notes,
           restSeconds: re.restSeconds,

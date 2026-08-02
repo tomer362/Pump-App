@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ListChecks, Plus, Users } from "lucide-react";
+import { ListChecks, Plus, Upload, Users } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { EmptyState, SectionTitle, Avatar } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { MyRoutines } from "@/components/routine/my-routines";
 import { DiscoverList } from "@/components/routine/discover-list";
+import { ImportRoutineButton } from "@/components/routine/routine-transfer-sheets";
 import { RoutinesTabs } from "./routines-tabs";
 import { requireUser } from "@/lib/session";
 import {
@@ -75,12 +76,21 @@ async function MinePanel({ userId }: { userId: string }) {
         title="No routines yet"
         body="A routine is a template: exercises, sets and target reps. Start one from it and every field is pre-filled."
         action={
-          <Link href="/routines/new">
-            <Button variant="volt">
-              <Plus className="size-4" strokeWidth={2.6} />
-              Create a routine
-            </Button>
-          </Link>
+          <div className="flex flex-col items-center gap-1">
+            <Link href="/routines/new">
+              <Button variant="volt">
+                <Plus className="size-4" strokeWidth={2.6} />
+                Create a routine
+              </Button>
+            </Link>
+            {/* Being handed a friend's file is a real first-run path, and
+                until now it had nowhere to go — the import control lived
+                only on a screen you reach by already having a routine. */}
+            <ImportRoutineButton className="press tap text-text-3 hover:text-text-1 flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold">
+              <Upload className="size-4" strokeWidth={2.2} />
+              Import a file
+            </ImportRoutineButton>
+          </div>
         }
       />
     );

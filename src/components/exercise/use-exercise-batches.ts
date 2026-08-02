@@ -24,6 +24,12 @@ type Loaded = {
   key: string;
   recent: ExerciseListItem[];
   rest: ExerciseListItem[];
+  /**
+   * Matches the default scope hides. Comes back with the opening batch and is
+   * discarded with it on any filter change — `loadMore` never touches it,
+   * because it is a capped probe rather than a paginated list.
+   */
+  imported: ExerciseListItem[];
   cursor: ExerciseCursor | null;
 };
 
@@ -72,6 +78,7 @@ export function useExerciseBatches(
     key: initialKey ?? "",
     recent: initial?.recent ?? [],
     rest: initial?.items ?? [],
+    imported: initial?.imported ?? [],
     cursor: initial?.cursor ?? null,
   }));
   const [loadingMore, setLoadingMore] = useState(false);
@@ -106,6 +113,7 @@ export function useExerciseBatches(
         key: signature,
         recent: batch.recent ?? [],
         rest: batch.items,
+        imported: batch.imported ?? [],
         cursor: batch.cursor,
       });
     }, debounceMs);
@@ -182,6 +190,7 @@ export function useExerciseBatches(
   return {
     recent: loaded.recent,
     rest: loaded.rest,
+    imported: loaded.imported,
     loading,
     loadingMore,
     /** Everything the current filters can return is on screen. */
