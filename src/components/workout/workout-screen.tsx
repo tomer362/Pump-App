@@ -956,7 +956,6 @@ export function WorkoutScreen({
 
       <RestTimerBar
         state={timer.state}
-        remaining={timer.remaining}
         nextUp={
           nextTarget && {
             name: nextTarget.block.name,

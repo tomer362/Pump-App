@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Minus, Plus, X } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
@@ -75,9 +69,93 @@ function writeStorage(state: RestTimerState, workoutId: string | null) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* The countdown, also in the store.                                           */
+/*                                                                             */
+/* It used to be `useState` inside `useRestTimer`, whose caller is the entire   */
+/* workout screen — so every quarter-second re-rendered the whole set table,    */
+/* and a tap on ±15s had to wait for one of those renders before the digits or  */
+/* the track could move. Here, one module-level interval owns the clock, the    */
+/* seconds are a snapshot alongside the timer itself, and `setTimerState`       */
+/* recomputes them *synchronously*: the adjust and the number it produces are   */
+/* one update. The workout screen reads only `current`, whose identity doesn't  */
+/* change on a tick, so `useSyncExternalStore` bails out and it never re-renders*/
+/* for the clock at all.                                                        */
+/* -------------------------------------------------------------------------- */
+
+let remainingNow = 0;
+let ticker: number | null = null;
+let clearTimer: number | null = null;
+/** The `endsAt` that has already chimed, so an extended rest can chime again. */
+let chimedFor: number | null = null;
+
+function secondsLeft(state: RestTimerState) {
+  return state ? Math.max(0, Math.ceil((state.endsAt - Date.now()) / 1000)) : 0;
+}
+
+/** Re-read the clock. Returns whether the displayed second actually moved. */
+function recompute(): boolean {
+  const next = secondsLeft(current);
+  if (current && next === 0 && chimedFor !== current.endsAt) {
+    chimedFor = current.endsAt;
+    haptic.success();
+    // Timer finishing while the phone is in a pocket needs a sound too.
+    void playChime();
+  }
+  if (next === remainingNow) return false;
+  remainingNow = next;
+  return true;
+}
+
+/** Clear a couple of seconds after it hits zero, so the "0:00" is seen. */
+function scheduleAutoClear() {
+  if (clearTimer != null) {
+    window.clearTimeout(clearTimer);
+    clearTimer = null;
+  }
+  if (current && remainingNow === 0) {
+    clearTimer = window.setTimeout(() => {
+      clearTimer = null;
+      setTimerState(null);
+    }, 2500);
+  }
+}
+
+function onVisible() {
+  // Browsers throttle intervals in a backgrounded tab, so the first thing to do
+  // on return is re-read the clock rather than trust the last tick.
+  if (document.visibilityState !== "visible") return;
+  if (recompute()) {
+    scheduleAutoClear();
+    emit();
+  }
+}
+
+function startTicker() {
+  if (ticker != null) return;
+  ticker = window.setInterval(() => {
+    if (!recompute()) return;
+    scheduleAutoClear();
+    emit();
+  }, 250);
+  document.addEventListener("visibilitychange", onVisible);
+}
+
+function stopTicker() {
+  if (ticker == null) return;
+  window.clearInterval(ticker);
+  ticker = null;
+  document.removeEventListener("visibilitychange", onVisible);
+}
+
 function setTimerState(next: RestTimerState) {
   current = next;
   writeStorage(current, currentWorkoutId);
+  if (next) startTicker();
+  else stopTicker();
+  // Before the emit, so subscribers see the new state and its seconds together.
+  recompute();
+  scheduleAutoClear();
   emit();
 }
 
@@ -85,6 +163,13 @@ function setTimerState(next: RestTimerState) {
  * Rest timer state. Everything is derived from an absolute end timestamp so a
  * throttled background tab, a lock screen, or a tab switch can't make the
  * timer drift — the single most common failure of web-based trackers.
+ *
+ * This hook deliberately does **not** count. Its caller is the whole workout
+ * screen; if the seconds lived here, every tick would re-render the entire set
+ * table, and a tap on ±15s would queue behind that work instead of landing on
+ * the next frame. The countdown lives inside the bar, which is the only thing
+ * that displays it — this hook changes only when a rest starts, stops, or is
+ * adjusted.
  */
 export function useRestTimer(workoutId?: string) {
   const subscribe = useCallback(
@@ -95,11 +180,12 @@ export function useRestTimer(workoutId?: string) {
         loaded = true;
         currentWorkoutId = workoutId ?? null;
         current = readStorage(workoutId);
+        // Before the auto-clear check — with `remainingNow` still at its
+        // initial 0, a restored rest would look finished and be swept away.
+        recompute();
+        scheduleAutoClear();
       }
-      listeners.add(onChange);
-      return () => {
-        listeners.delete(onChange);
-      };
+      return subscribeTick(onChange);
     },
     [workoutId],
   );
@@ -111,17 +197,9 @@ export function useRestTimer(workoutId?: string) {
     () => null,
   );
 
-  const [ticked, setTicked] = useState(0);
-  const firedRef = useRef(false);
-
-  // Derived, not stored: with no timer running there is nothing to count down,
-  // so resetting via setState in an effect would only cause a second render.
-  const remaining = state ? ticked : 0;
-
   const start = useCallback(
     (seconds: number) => {
       if (seconds <= 0) return;
-      firedRef.current = false;
       currentWorkoutId = workoutId ?? null;
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
@@ -154,7 +232,6 @@ export function useRestTimer(workoutId?: string) {
   const setDuration = useCallback(
     (seconds: number) => {
       if (seconds <= 0) return;
-      firedRef.current = false;
       currentWorkoutId = workoutId ?? null;
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
@@ -164,45 +241,47 @@ export function useRestTimer(workoutId?: string) {
     [workoutId],
   );
 
-  useEffect(() => {
-    if (!state) return;
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((state.endsAt - Date.now()) / 1000));
-      setTicked(left);
-      if (left === 0 && !firedRef.current) {
-        firedRef.current = true;
-        haptic.success();
-        // Timer finishing while the phone is in a pocket needs a sound too.
-        void playChime();
-      }
-    };
-    tick();
-    const id = window.setInterval(tick, 250);
-    const onVisible = () => document.visibilityState === "visible" && tick();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [state]);
-
-  // Clear a couple of seconds after it hits zero, so the "0:00" is seen.
-  useEffect(() => {
-    if (state && remaining === 0) {
-      const id = window.setTimeout(() => setTimerState(null), 2500);
-      return () => window.clearTimeout(id);
-    }
-  }, [state, remaining]);
-
   return {
     state,
-    remaining,
     start,
     stop,
     adjust,
     setDuration,
     running: state != null,
   };
+}
+
+/**
+ * Shared by both hooks. The interval runs only while something is subscribed
+ * *and* a rest is running, so navigating off the workout screen mid-rest leaves
+ * nothing ticking — the timer is an absolute timestamp and picks itself back up
+ * on return.
+ */
+function subscribeTick(onChange: () => void) {
+  listeners.add(onChange);
+  if (current) {
+    startTicker();
+    // Catch up after a gap; the caller re-reads the snapshot right after this.
+    // If this is the read that lands on zero, the interval's own recompute will
+    // return false and never get round to the sweep, so do it here.
+    if (recompute()) scheduleAutoClear();
+  }
+  return () => {
+    listeners.delete(onChange);
+    if (listeners.size === 0) stopTicker();
+  };
+}
+
+/**
+ * Seconds left on the running rest. Only the bar subscribes to this, so only
+ * the bar re-renders on a tick.
+ */
+function useRemaining() {
+  return useSyncExternalStore(
+    subscribeTick,
+    () => remainingNow,
+    () => 0,
+  );
 }
 
 /** Short synthesised beep — avoids shipping an audio asset. */
@@ -248,204 +327,220 @@ export type NextUp = {
   onJump: () => void;
 };
 
-export function RestTimerBar({
+export function RestTimerBar(props: {
+  state: RestTimerState;
+  nextUp?: NextUp | null;
+  onStop: () => void;
+  onAdjust: (delta: number) => void;
+  onSetDuration: (seconds: number) => void;
+}) {
+  const { state, ...rest } = props;
+  return (
+    <AnimatePresence>
+      {state && <RestTimerPanel key="rest" state={state} {...rest} />}
+    </AnimatePresence>
+  );
+}
+
+function RestTimerPanel({
   state,
-  remaining,
   nextUp,
   onStop,
   onAdjust,
   onSetDuration,
 }: {
-  state: RestTimerState;
-  remaining: number;
+  state: NonNullable<RestTimerState>;
   nextUp?: NextUp | null;
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const remaining = useRemaining();
 
-  const progress = state ? remaining / state.totalSeconds : 0;
+  const progress = remaining / state.totalSeconds;
   const urgent = remaining > 0 && remaining <= 3;
-  const done = state != null && remaining === 0;
+  const done = remaining === 0;
 
   useEffect(() => {
     if (urgent) haptic.light();
   }, [urgent, remaining]);
 
   return (
-    <AnimatePresence>
-      {state && (
-        <motion.div
-          initial={{ y: 80 }}
-          animate={{ y: 0 }}
-          exit={{ y: 80, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 420, damping: 36 }}
-          className="fixed inset-x-0 bottom-0 z-40"
+    <motion.div
+      initial={{ y: 80 }}
+      animate={{ y: 0 }}
+      exit={{ y: 80, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 36 }}
+      className="fixed inset-x-0 bottom-0 z-40"
+    >
+      <div className="mx-auto max-w-lg px-3 pb-3 mb-safe">
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-card border transition-colors",
+            done
+              ? "border-volt bg-volt text-black"
+              : "border-hairline bg-surface-1",
+          )}
         >
-          <div className="mx-auto max-w-lg px-3 pb-3 mb-safe">
+          {/* Draining track — the primary read at a glance.
+
+              Keyed on `endsAt` so ±15s remounts it: a fifth of the bar's width
+              eased over 250ms reads as the track lagging behind the thumb,
+              whereas a fresh element simply starts at its new length. Between
+              adjusts the key holds and the per-second drain animates. */}
+          {!done && (
             <div
+              key={state.endsAt}
+              className="bg-volt-fade absolute inset-y-0 left-0 origin-left"
+              style={{
+                width: "100%",
+                transform: `scaleX(${progress})`,
+                transition: "transform 250ms linear",
+              }}
+            />
+          )}
+
+          <div className="relative flex items-center gap-2 px-3 py-2.5">
+            <button
+              onClick={() => {
+                haptic.light();
+                onAdjust(-15);
+              }}
+              aria-label="Subtract 15 seconds"
               className={cn(
-                "relative overflow-hidden rounded-card border transition-colors",
-                done
-                  ? "border-volt bg-volt text-black"
-                  : "border-hairline bg-surface-1",
+                "press tap grid place-items-center rounded-[10px] px-2",
+                done ? "text-black/60" : "bg-surface-2 text-text-2",
+              )}
+              disabled={done}
+            >
+              <Minus className="size-4" strokeWidth={2.6} />
+            </button>
+
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="press flex min-w-0 flex-1 flex-col items-center"
+            >
+              <span
+                className={cn(
+                  "text-[10px] font-bold tracking-[0.1em] uppercase",
+                  done ? "text-black/60" : "text-text-3",
+                )}
+              >
+                {done ? "Rest complete" : "Rest"}
+              </span>
+              <span
+                className={cn(
+                  "num text-[26px] leading-none font-bold",
+                  urgent && "animate-pulse-volt text-volt",
+                  done && "text-black",
+                )}
+              >
+                {formatDuration(remaining)}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                haptic.light();
+                onAdjust(15);
+              }}
+              aria-label="Add 15 seconds"
+              className={cn(
+                "press tap grid place-items-center rounded-[10px] px-2",
+                done ? "text-black/60" : "bg-surface-2 text-text-2",
+              )}
+              disabled={done}
+            >
+              <Plus className="size-4" strokeWidth={2.6} />
+            </button>
+
+            <button
+              onClick={() => {
+                haptic.light();
+                onStop();
+              }}
+              aria-label="Skip rest"
+              className={cn(
+                "press tap grid place-items-center rounded-[10px] px-2",
+                done ? "text-black" : "text-text-3",
               )}
             >
-              {/* Draining track — the primary read at a glance. */}
-              {!done && (
-                <div
-                  className="bg-volt-fade absolute inset-y-0 left-0 origin-left"
-                  style={{
-                    width: "100%",
-                    transform: `scaleX(${progress})`,
-                    transition: "transform 250ms linear",
-                  }}
-                />
-              )}
+              <X className="size-5" strokeWidth={2.4} />
+            </button>
+          </div>
 
-              <div className="relative flex items-center gap-2 px-3 py-2.5">
-                <button
-                  onClick={() => {
-                    haptic.light();
-                    onAdjust(-15);
-                  }}
-                  aria-label="Subtract 15 seconds"
-                  className={cn(
-                    "press tap grid place-items-center rounded-[10px] px-2",
-                    done ? "text-black/60" : "bg-surface-2 text-text-2",
-                  )}
-                  disabled={done}
-                >
-                  <Minus className="size-4" strokeWidth={2.6} />
-                </button>
-
-                <button
-                  onClick={() => setExpanded((v) => !v)}
-                  className="press flex min-w-0 flex-1 flex-col items-center"
-                >
-                  <span
-                    className={cn(
-                      "text-[10px] font-bold tracking-[0.1em] uppercase",
-                      done ? "text-black/60" : "text-text-3",
-                    )}
-                  >
-                    {done ? "Rest complete" : "Rest"}
-                  </span>
-                  <span
-                    className={cn(
-                      "num text-[26px] leading-none font-bold",
-                      urgent && "animate-pulse-volt text-volt",
-                      done && "text-black",
-                    )}
-                  >
-                    {formatDuration(remaining)}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    haptic.light();
-                    onAdjust(15);
-                  }}
-                  aria-label="Add 15 seconds"
-                  className={cn(
-                    "press tap grid place-items-center rounded-[10px] px-2",
-                    done ? "text-black/60" : "bg-surface-2 text-text-2",
-                  )}
-                  disabled={done}
-                >
-                  <Plus className="size-4" strokeWidth={2.6} />
-                </button>
-
-                <button
-                  onClick={() => {
-                    haptic.light();
-                    onStop();
-                  }}
-                  aria-label="Skip rest"
-                  className={cn(
-                    "press tap grid place-items-center rounded-[10px] px-2",
-                    done ? "text-black" : "text-text-3",
-                  )}
-                >
-                  <X className="size-5" strokeWidth={2.4} />
-                </button>
-              </div>
-
-              {/* The two minutes of rest are the one stretch of the session
+          {/* The two minutes of rest are the one stretch of the session
                   where the lifter is looking at the screen with nothing to do,
                   so the bar says what the rest is *for*. Tapping it scrolls the
                   row into place, which is otherwise a scroll hunt with a
                   countdown running. */}
-              {nextUp && (
-                <button
-                  onClick={nextUp.onJump}
+          {nextUp && (
+            <button
+              onClick={nextUp.onJump}
+              className={cn(
+                "press relative flex w-full items-center gap-2 px-3 py-2 text-left",
+                done ? "border-t border-black/15" : "hairline-t",
+              )}
+            >
+              <span
+                className={cn(
+                  "shrink-0 text-[10px] font-bold tracking-[0.1em] uppercase",
+                  done ? "text-black/60" : "text-text-3",
+                )}
+              >
+                Next
+              </span>
+              {nextUp.supersetGroup && (
+                <span
                   className={cn(
-                    "press relative flex w-full items-center gap-2 px-3 py-2 text-left",
-                    done ? "border-t border-black/15" : "hairline-t",
+                    "grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold",
+                    done
+                      ? "border-black/40 text-black/70"
+                      : "text-volt border-volt/50",
                   )}
                 >
-                  <span
-                    className={cn(
-                      "shrink-0 text-[10px] font-bold tracking-[0.1em] uppercase",
-                      done ? "text-black/60" : "text-text-3",
-                    )}
-                  >
-                    Next
-                  </span>
-                  {nextUp.supersetGroup && (
-                    <span
-                      className={cn(
-                        "grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold",
-                        done
-                          ? "border-black/40 text-black/70"
-                          : "text-volt border-volt/50",
-                      )}
-                    >
-                      {nextUp.supersetGroup}
-                    </span>
-                  )}
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate text-[13px] font-semibold",
-                      done ? "text-black" : "text-text-1",
-                    )}
-                  >
-                    {nextUp.name}
-                  </span>
-                  <span
-                    className={cn(
-                      "num shrink-0 text-[12px]",
-                      done ? "text-black/70" : "text-text-2",
-                    )}
-                  >
-                    {nextUp.setLabel}
-                    {nextUp.target && ` · ${nextUp.target}`}
-                  </span>
-                </button>
+                  {nextUp.supersetGroup}
+                </span>
               )}
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                  done ? "text-black" : "text-text-1",
+                )}
+              >
+                {nextUp.name}
+              </span>
+              <span
+                className={cn(
+                  "num shrink-0 text-[12px]",
+                  done ? "text-black/70" : "text-text-2",
+                )}
+              >
+                {nextUp.setLabel}
+                {nextUp.target && ` · ${nextUp.target}`}
+              </span>
+            </button>
+          )}
 
-              {expanded && !done && (
-                <div className="hairline-t relative flex gap-2 px-3 py-2.5">
-                  {[30, 60, 90, 120, 180].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        haptic.light();
-                        onSetDuration(s);
-                      }}
-                      className="press num bg-surface-2 text-text-2 h-9 flex-1 rounded-[10px] text-[13px] font-semibold"
-                    >
-                      {s < 60 ? `${s}s` : `${s / 60}m`}
-                    </button>
-                  ))}
-                </div>
-              )}
+          {expanded && !done && (
+            <div className="hairline-t relative flex gap-2 px-3 py-2.5">
+              {[30, 60, 90, 120, 180].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    haptic.light();
+                    onSetDuration(s);
+                  }}
+                  className="press num bg-surface-2 text-text-2 h-9 flex-1 rounded-[10px] text-[13px] font-semibold"
+                >
+                  {s < 60 ? `${s}s` : `${s / 60}m`}
+                </button>
+              ))}
             </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 }
