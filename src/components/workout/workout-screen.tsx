@@ -49,6 +49,7 @@ import type { CoopSnapshot } from "@/lib/actions/coop";
 import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useLongPress } from "@/hooks/use-long-press";
+import { usePumpJam } from "./pump-jam";
 import {
   addSet,
   addExercisesToWorkout,
@@ -714,6 +715,15 @@ export function WorkoutScreen({
     return () => ro.disconnect();
   }, []);
 
+  // Hold the elapsed time a beat longer than any accidental press and the gym
+  // gets a soundtrack. Deliberately unadvertised: no icon, no hint, and a 1.1s
+  // hold — well past the hook's 480ms default and past iOS's own long-press
+  // menu — so nobody trips it reaching for Finish. The header's centre block is
+  // the one gesture-free target up there; the exercise titles already spend
+  // their hold on reorder.
+  const jam = usePumpJam();
+  const jamPress = useLongPress(jam.start, { delayMs: 1100 });
+
   /** Working sets logged in *this* session, per muscle. Added to the 7-day
    *  figure from the server so the number moves while you train. */
   const liveMuscleSets = useMemo(() => {
@@ -797,12 +807,44 @@ export function WorkoutScreen({
             <ChevronLeft className="size-6" strokeWidth={2.4} />
           </IconButton>
 
-          <div className="min-w-0 flex-1 text-center">
+          {/* Also the easter egg. `select-none` for the same reason the exercise
+              titles have it: iOS raises its text-selection handles out of a
+              hold otherwise. `h-full` so the target is the whole 48px row and
+              not just two lines of text. */}
+          <div
+            {...jamPress}
+            onClick={jam.playing ? jam.stop : undefined}
+            className="flex h-full min-w-0 flex-1 flex-col justify-center text-center select-none"
+          >
             <div className="truncate text-[15px] font-semibold">{name}</div>
-            <Elapsed
-              start={workout.startedAt}
-              className="num text-volt block text-[12px] leading-tight font-bold"
-            />
+            <div className="flex items-center justify-center gap-1.5">
+              <Elapsed
+                start={workout.startedAt}
+                className="num text-volt text-[12px] leading-tight font-bold"
+              />
+              {jam.playing && (
+                // The way out short of waiting it out, and the only thing on
+                // screen that admits the egg exists once it's been found.
+                <button
+                  type="button"
+                  aria-label="Stop music"
+                  onClick={jam.stop}
+                  className="flex h-3 items-end gap-[2px]"
+                >
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="bg-volt w-[2px] rounded-full"
+                      style={
+                        reduce
+                          ? { height: "60%" }
+                          : { animation: `jam-bar 620ms ${i * 140}ms ease-in-out infinite alternate` }
+                      }
+                    />
+                  ))}
+                </button>
+              )}
+            </div>
           </div>
 
           <Button

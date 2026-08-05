@@ -143,9 +143,14 @@ export function ShareRoutineSheet({
  *
  * The button used to open the file picker outright, which only ever helped
  * someone who had been handed a file. The other way a routine gets written is
- * by asking a model for one — and that answer lands on the clipboard, never in
- * Files, so a paste path is what makes the prompt worth copying. Hence a menu:
- * file, paste, or copy the prompt that produces something the parser accepts.
+ * that someone planned their training in a chat with a model — and that answer
+ * lands on the clipboard, never in Files, so a paste path is what makes the
+ * prompt worth copying. Hence a menu: file, paste, or copy the prompt that
+ * turns the plan in that chat into something the parser accepts.
+ *
+ * A week is several routines and this imports one document at a time, so the
+ * paste path gets used once per training day. That is why it returns to this
+ * menu rather than closing the sheet on the way in.
  *
  * The preview is not ceremony. An import writes rows into a library that can
  * only ever be archived, never deleted, so "this creates 2 new exercises" is
@@ -347,9 +352,9 @@ export function ImportRoutineButton({
                 {copied ? "Prompt copied" : "Copy AI prompt"}
               </Button>
               <p className="text-text-3 pt-1 text-[13px] leading-relaxed">
-                No file? Copy the prompt into ChatGPT or Claude, describe the
-                routine you want, then bring its answer back here with Paste
-                JSON.
+                Planned a week with ChatGPT or Claude? Paste the prompt into
+                that same chat and it turns the plan into one JSON block per
+                day. Bring them back here with Paste JSON, one at a time.
               </p>
 
               {promptText && (

@@ -154,6 +154,34 @@ export type ParseResult =
   | { ok: true; doc: RoutineDocument }
   | { ok: false; error: string };
 
+/** A ```-fenced block, closing fence on its own line, info string ignored. */
+const FENCED_BLOCK = /^[ \t]*```[^\n]*\n([\s\S]*?)^[ \t]*```[ \t]*$/gm;
+
+/**
+ * The fenced blocks in a chat reply, in order.
+ *
+ * `routine-prompt.ts` asks a model for one \`\`\`json block per training day,
+ * because that is what puts a copy button on each one. What lands on the
+ * clipboard afterwards depends on how it was copied: the button gives the bare
+ * document, a hand-selection gives the fence and usually the "Day 1 — Upper A"
+ * line above it, and an impatient person gives the entire reply. All three are
+ * reasonable things to do, so the parser reads all three.
+ *
+ * Only the fences are recognised. No stripping of a label line, no scanning
+ * prose for the first `{`: a parser that guesses is a parser that eventually
+ * imports the wrong half of something.
+ */
+export function stripCodeFence(raw: string): {
+  json: string;
+  blocks: number;
+} {
+  const found = [...raw.matchAll(FENCED_BLOCK)];
+  return {
+    json: (found[0]?.[1] ?? raw).trim(),
+    blocks: found.length,
+  };
+}
+
 /**
  * Every rejection here is a sentence someone can act on. A zod issue dump is
  * the wrong thing to show a person who just picked the wrong file in Files.
@@ -167,7 +195,24 @@ export function parseRoutineExport(raw: string): ParseResult {
   try {
     json = JSON.parse(raw);
   } catch {
-    return { ok: false, error: "That file isn't valid JSON" };
+    // Only now consider fences. Trying JSON first means a real export file is
+    // never reinterpreted — a routine whose notes happen to contain ``` parses
+    // as itself and never reaches this branch.
+    const fenced = stripCodeFence(raw);
+    if (fenced.blocks > 1) {
+      return {
+        ok: false,
+        error: "That's several routines — paste them one at a time",
+      };
+    }
+    if (fenced.blocks === 0) {
+      return { ok: false, error: "That file isn't valid JSON" };
+    }
+    try {
+      json = JSON.parse(fenced.json);
+    } catch {
+      return { ok: false, error: "That file isn't valid JSON" };
+    }
   }
 
   // Check the discriminator before the schema so the common mistake — picking
