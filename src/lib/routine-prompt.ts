@@ -9,12 +9,27 @@ import {
 /**
  * The prompt behind "Copy AI prompt" on the import sheet.
  *
- * Importing a file only helps someone who was handed one. The other way to get
- * a routine in is to have a model write the document — but every object in
- * `routine-transfer.ts` is `.strict()`, every nullable field is
- * required-but-nullable rather than optional, and four of the value sets are
- * database enums. Nobody guesses that, and a model that guesses produces a file
- * the parser rejects with one terse sentence.
+ * Importing a file only helps someone who was handed one. The other way a
+ * routine gets written is that someone plans their training with a model —
+ * arguing about the split, the volume, what to do about a bad shoulder — and
+ * ends up with a week of workouts sitting in a chat transcript. So this prompt
+ * is a **converter**, not an author: it is pasted into that same conversation
+ * and turns the plan already there into documents. It deliberately does not
+ * offer to design anything, because the good version of the plan is the one the
+ * person argued their way to.
+ *
+ * That framing is what forces the multi-document rule. A week is several
+ * routines and Pump imports one document at a time, so the prompt asks for one
+ * fenced block per training day — a fence is what gives ChatGPT and Claude
+ * their per-block copy button, which is the whole ergonomic point when there
+ * are four of them. `stripCodeFence` in `routine-transfer.ts` is the other half
+ * of that decision.
+ *
+ * The mechanical half is unforgiving: every object in `routine-transfer.ts` is
+ * `.strict()`, every nullable field is required-but-nullable rather than
+ * optional, and four of the value sets are database enums. Nobody guesses that,
+ * and a model that guesses produces a document the parser rejects with one
+ * terse sentence.
  *
  * So the prompt is *generated*, never transcribed: the enums come from the
  * schema and the example is a real `RoutineDocument` run through the same
@@ -129,9 +144,21 @@ export const PROMPT_EXAMPLE: RoutineDocument = {
 const list = (values: readonly string[]) => values.join(" | ");
 
 export function buildRoutinePrompt(): string {
-  return `You are writing a strength-training routine for Pump, a gym tracker that imports a routine as one JSON document.
+  return `Take the training plan you have already given me in this conversation and convert it into routines for Pump, the gym tracker I log my workouts in. Do not design a new plan, do not change the one above, and do not ask me anything first — the plan in this chat is the input.
 
-Reply with the JSON document and nothing else — no explanation, no markdown code fence.
+One document per routine
+- Pump imports a routine as one JSON document, one at a time. A training week is several routines, so a four-day plan is four separate documents.
+- Never merge two days into one document, and never wrap the documents in a JSON array. Either one is rejected.
+- Emit one document per training day, in the order they appear in your plan, each inside its own \`\`\`json code block. Put a single short line naming the day immediately before each block — for example "Day 1 — Upper A". Nothing else: no commentary before the first block, none after the last.
+
+Turning prose into a document
+- "routine.name" is the day's own label from the plan: "Upper A", "Push", "Legs — Day 3". That is what I will see in my routine list.
+- Everything about the day that isn't an exercise, a set or a target — the rationale, the progression scheme, how to warm up, when to deload — goes in that day's "routine.notes". Cues for one movement go in that exercise's "notes".
+- Every set gets its own object in "sets": "3×8" is three objects, not one. Every exercise needs at least one set.
+- For a rep range ("3×8–10"), write the top of the range in "targetReps" and say the range in that exercise's notes.
+- If the plan gave a percentage of 1RM or an RPE instead of a weight, leave "targetWeightKg" null and put the RPE in "targetRpe". If the plan gave no weights at all, leave every "targetWeightKg" null — do not invent numbers I did not agree to.
+- Days the plan describes with no exercises — rest days, "walk for 30 minutes" — get no document at all.
+- Don't add exercises, sets or days that aren't in the plan, and don't quietly drop any that are. If something in the plan genuinely cannot be expressed in the format, say so in one line after the last block.
 
 This is a complete valid document. Copy its shape exactly:
 
@@ -139,7 +166,7 @@ ${serializeRoutineExport(PROMPT_EXAMPLE)}
 
 Rules
 - Output exactly the keys shown. Any key that isn't in the example makes the whole document invalid.
-- Every key is required. Where a value doesn't apply write null — never omit the key. The one exception is "secondaryMuscles", which may be [].
+- Every key is required. Where a value doesn't apply write null — never omit the key. "secondaryMuscles" is the only key that may be left out entirely; write [] when an exercise has none.
 - "format" and "formatVersion" must be exactly ${JSON.stringify(ROUTINE_FORMAT)} and ${ROUTINE_FORMAT_VERSION}. "exportedAt" is any ISO-8601 UTC timestamp.
 - "slug" must be null on every exercise. Pump matches an exercise to its own library by name and creates the rest as custom exercises, so an invented slug only does harm.
 - Weights are kilograms, in "targetWeightKg". There is no unit field — never write pounds.
@@ -161,5 +188,5 @@ Allowed values — use these strings exactly, nothing else
 - trackingType: ${list(TRACKING_TYPES)}
 - setType: ${list(SET_TYPES)}
 
-The routine I want: <replace this line with your goal, how many days a week you train, the equipment you have, and anything to avoid>`;
+Start with the day-name line for the first routine.`;
 }
