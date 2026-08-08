@@ -527,6 +527,61 @@ export async function getExerciseHistory(
   return [...byWorkout.values()].slice(0, limit);
 }
 
+export type LastLoggedSet = {
+  weightKg: number | null;
+  reps: number | null;
+  seconds: number | null;
+  distanceM: number | null;
+};
+
+/**
+ * The heaviest working set of the most recent session on this exercise —
+ * what quick-log prefills with.
+ *
+ * A dedicated query rather than a slice of `getExerciseHistory`: that one
+ * carries neither `seconds` nor `distance_m`, and it reads thirty sessions'
+ * worth of rows to answer a question about one. This is a single indexed row.
+ */
+export async function getLastLoggedSet(
+  userId: string,
+  exerciseId: string,
+): Promise<LastLoggedSet | null> {
+  const [row] = await db
+    .select({
+      weightKg: workoutSet.weightKg,
+      reps: workoutSet.reps,
+      seconds: workoutSet.seconds,
+      distanceM: workoutSet.distanceM,
+    })
+    .from(workoutSet)
+    .innerJoin(
+      workoutExercise,
+      eq(workoutExercise.id, workoutSet.workoutExerciseId),
+    )
+    .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .where(
+      and(
+        eq(workout.userId, userId),
+        eq(workoutExercise.exerciseId, exerciseId),
+        sql`${workout.endedAt} IS NOT NULL`,
+        sql`${workoutSet.completedAt} IS NOT NULL`,
+        // Warm-ups are excluded everywhere else that counts; prefilling with
+        // one would suggest the wrong load.
+        sql`${workoutSet.setType} <> 'warmup'`,
+      ),
+    )
+    // Most recent session first, then its heaviest set — the number you would
+    // be trying to match.
+    .orderBy(
+      desc(workout.startedAt),
+      desc(workoutSet.weightKg),
+      desc(workoutSet.reps),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 export async function getExerciseRecords(userId: string, exerciseId: string) {
   return db
     .select()

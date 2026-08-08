@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import {
+  isScoring,
+  recordsSomething,
+  sumSetTotals,
+} from "@/lib/workout-totals";
+
+/**
+ * `finishWorkout` and `quickLogSet` both write the denormalised counters on
+ * `workout`, which the feed, history and co-op poll read instead of
+ * re-aggregating. Two implementations of "what counts" would eventually
+ * disagree, and the disagreement would only ever show up as a wrong number in
+ * someone's feed — so the rule lives in one pure function, asserted here.
+ */
+
+const set = (o: Partial<Parameters<typeof isScoring>[0]> = {}) => ({
+  setType: "normal",
+  weightKg: 100,
+  reps: 5,
+  completedAt: new Date(),
+  ...o,
+});
+
+describe("sumSetTotals", () => {
+  it("multiplies weight by reps across completed working sets", () => {
+    expect(
+      sumSetTotals([set(), set({ weightKg: 60, reps: 10 })]),
+    ).toEqual({ totalVolumeKg: 500 + 600, totalSets: 2, totalReps: 15 });
+  });
+
+  it("excludes warm-ups from every counter", () => {
+    // Warm-ups inflate volume, records and muscle volume — every read query
+    // filters them, so the write side has to agree.
+    const totals = sumSetTotals([set(), set({ setType: "warmup" })]);
+    expect(totals).toEqual({ totalVolumeKg: 500, totalSets: 1, totalReps: 5 });
+  });
+
+  it("excludes sets that were never ticked", () => {
+    const totals = sumSetTotals([set(), set({ completedAt: null })]);
+    expect(totals).toEqual({ totalVolumeKg: 500, totalSets: 1, totalReps: 5 });
+  });
+
+  it("treats a missing weight or rep count as zero volume, not NaN", () => {
+    // Bodyweight and time-tracked sets arrive with nulls. A NaN here would be
+    // written straight into `workout.total_volume_kg`.
+    const totals = sumSetTotals([
+      set({ weightKg: null }),
+      set({ weightKg: 80, reps: null }),
+    ]);
+    expect(totals.totalVolumeKg).toBe(0);
+    expect(totals.totalReps).toBe(5);
+    expect(totals.totalSets).toBe(2);
+  });
+
+  it("is zero for an empty workout rather than throwing", () => {
+    expect(sumSetTotals([])).toEqual({
+      totalVolumeKg: 0,
+      totalSets: 0,
+      totalReps: 0,
+    });
+  });
+});
+
+describe("recordsSomething", () => {
+  it("accepts a set with reps, seconds or distance", () => {
+    expect(recordsSomething({ reps: 1, seconds: null, distanceM: null })).toBe(
+      true,
+    );
+    expect(recordsSomething({ reps: null, seconds: 30, distanceM: null })).toBe(
+      true,
+    );
+    expect(recordsSomething({ reps: null, seconds: null, distanceM: 400 })).toBe(
+      true,
+    );
+  });
+
+  it("rejects an empty row", () => {
+    // Quick-log and finishWorkout both refuse these: a 0×0 set is a plan, not
+    // a performance.
+    expect(recordsSomething({ reps: 0, seconds: 0, distanceM: 0 })).toBe(false);
+    expect(
+      recordsSomething({ reps: null, seconds: null, distanceM: null }),
+    ).toBe(false);
+  });
+});

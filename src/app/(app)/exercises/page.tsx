@@ -30,7 +30,7 @@ export default async function ExercisesPage() {
           </Link>
         }
       />
-      <ExerciseBrowser initial={initial} />
+      <ExerciseBrowser initial={initial} unit={me.unit} />
     </div>
   );
 }

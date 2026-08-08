@@ -5,6 +5,7 @@ import { NavBar } from "@/components/ui/nav-bar";
 import { Skeleton, SkeletonSegmented } from "@/components/ui/skeleton";
 import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
 import type { ExerciseDetailData } from "@/components/exercise/exercise-detail-tabs";
+import { QuickLogDock } from "@/components/exercise/quick-log-dock";
 import { ManageExercise } from "./manage-exercise";
 import { AdoptImported } from "./adopt-imported";
 import { requireUser } from "@/lib/session";
@@ -16,7 +17,9 @@ import {
   getExerciseRepMaxes,
   getExerciseSessionSeries,
   getExerciseSummary,
+  getLastLoggedSet,
 } from "@/lib/queries/exercise";
+import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { exerciseVideoLink } from "@/lib/exercise-video";
 import { labelize } from "@/lib/utils";
 
@@ -92,7 +95,56 @@ export default async function ExerciseDetailPage(
           />
         )}
       </div>
+
+      {/* No dock on an archived exercise — it is hidden from every picker, so
+          offering to log against it would contradict that. */}
+      {!archived && (
+        <Suspense fallback={null}>
+          <QuickLogDockPanel
+            userId={me.id}
+            unit={me.unit}
+            exerciseId={exercise.id}
+            exerciseName={exercise.name}
+            trackingType={exercise.trackingType}
+          />
+        </Suspense>
+      )}
     </div>
+  );
+}
+
+/**
+ * The docked control streams in behind its two cheap indexed lookups rather
+ * than holding up the page — it is chrome, and the numbers above it are what
+ * the user came for.
+ */
+async function QuickLogDockPanel({
+  userId,
+  unit,
+  exerciseId,
+  exerciseName,
+  trackingType,
+}: {
+  userId: string;
+  unit: "kg" | "lb";
+  exerciseId: string;
+  exerciseName: string;
+  trackingType: string;
+}) {
+  const [last, active] = await Promise.all([
+    getLastLoggedSet(userId, exerciseId),
+    getActiveWorkoutSummary(userId),
+  ]);
+
+  return (
+    <QuickLogDock
+      exerciseId={exerciseId}
+      exerciseName={exerciseName}
+      trackingType={trackingType}
+      unit={unit}
+      prefill={last}
+      activeWorkoutId={active?.id ?? null}
+    />
   );
 }
 
