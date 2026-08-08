@@ -94,7 +94,7 @@ async function HeroPanel({ userId, unit }: { userId: string; unit: Unit }) {
   return (
     <>
       {/* Hero figure: exactly one per view. */}
-      <Card className="px-4 py-5">
+      <Card className="animate-rise-in px-4 py-5">
         <p className="text-text-3 text-[11px] font-semibold tracking-[0.08em] uppercase">
           Lifetime volume
         </p>
@@ -154,7 +154,7 @@ async function HeroPanel({ userId, unit }: { userId: string; unit: Unit }) {
 async function MusclePanel({ userId, unit }: { userId: string; unit: Unit }) {
   const muscles = await getMuscleVolume(userId, 7);
   return (
-    <div>
+    <div className="animate-rise-in">
       <SectionTitle>By muscle</SectionTitle>
       <Card className="px-4 py-4">
         <MuscleVolumePanel initial={muscles} unit={unit} />
@@ -166,7 +166,7 @@ async function MusclePanel({ userId, unit }: { userId: string; unit: Unit }) {
 async function ConsistencyPanel({ userId }: { userId: string }) {
   const calendar = await getTrainingCalendar(userId, 200);
   return (
-    <div>
+    <div className="animate-rise-in">
       <SectionTitle>Consistency</SectionTitle>
       <Card className="px-4 py-4">
         <ConsistencyHeatmap days={calendar} />
@@ -178,7 +178,7 @@ async function ConsistencyPanel({ userId }: { userId: string }) {
 async function TrendPanel({ userId, unit }: { userId: string; unit: Unit }) {
   const trend = await getWeeklyTrend(userId, 12);
   return (
-    <div>
+    <div className="animate-rise-in">
       <SectionTitle>Last 12 weeks</SectionTitle>
       <Card className="px-4 py-4">
         <WeeklyTrendChart data={trend} unit={unit} />

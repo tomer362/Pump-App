@@ -183,7 +183,11 @@ async function DetailPanels({
     ]);
 
   return (
+    // Rises in as the aggregates land, so streamed content reads as arriving
+    // rather than popping. A CSS animation, so the reduced-motion override in
+    // globals.css already covers it.
     <ExerciseDetailTabs
+      className="animate-rise-in"
       unit={unit}
       data={{
         ...about,

@@ -3,10 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { Minus, Plus, Trophy, Undo2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
+import { REDUCED } from "@/lib/motion";
 import { setColumns, type SetColumn } from "@/components/workout/set-row";
 import {
   getQuickLogPrefill,
@@ -58,6 +61,7 @@ export function QuickLogSheet({
 }) {
   const router = useRouter();
   const keyboardInset = useKeyboardInset();
+  const { enabled, spring } = useMotionPreset();
   const columns = setColumns(trackingType);
 
   // Weight is held in the user's display unit and converted at the edge, the
@@ -197,7 +201,20 @@ export function QuickLogSheet({
         {logged.length > 0 && (
           <div className="border-hairline divide-hairline divide-y rounded-[12px] border">
             {logged.map((l) => (
-              <div key={l.setId} className="flex items-center gap-3 px-3 py-2.5">
+              // Springs in with the same grammar as a completed set on the
+              // workout screen — this *is* a completed set.
+              <motion.div
+                key={l.setId}
+                layout
+                initial={
+                  enabled
+                    ? { opacity: 0, y: -8, backgroundColor: "rgba(215,255,62,0.14)" }
+                    : { opacity: 0 }
+                }
+                animate={{ opacity: 1, y: 0, backgroundColor: "rgba(0,0,0,0)" }}
+                transition={enabled ? spring.snappy : REDUCED}
+                className="flex items-center gap-3 px-3 py-2.5"
+              >
                 <span className="num flex-1 text-[15px] font-semibold">
                   {l.label}
                 </span>
@@ -218,7 +235,7 @@ export function QuickLogSheet({
                 >
                   <Undo2 className="size-4" strokeWidth={2.2} />
                 </button>
-              </div>
+              </motion.div>
             ))}
           </div>
         )}
