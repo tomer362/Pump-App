@@ -51,6 +51,7 @@ const { startEmptyWorkout, discardWorkout } = await import(
 );
 const { cleanup, makeExercise, makeUser } = await import("./helpers");
 const { sumSetTotals } = await import("@/lib/workout-totals");
+const { shiftDay, toDayKey } = await import("@/lib/day");
 
 let userId = "";
 let exerciseId = "";
@@ -182,5 +183,206 @@ describe("quickLogSet", () => {
     const started = await startEmptyWorkout();
     expect(started.ok).toBe(true);
     if (started.ok && started.data) await discardWorkout(started.data.workoutId);
+  });
+
+  it("stores the effort rating", async () => {
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 90,
+      reps: 6,
+      rpe: 8.5,
+    });
+    if (!res.ok || !res.data) throw new Error("expected a logged set");
+
+    const [row] = await db
+      .select({ rpe: workoutSet.rpe })
+      .from(workoutSet)
+      .where(eq(workoutSet.id, res.data.setId));
+    expect(row.rpe).toBeCloseTo(8.5, 5);
+  });
+
+  it("refuses an effort rating off the scale", async () => {
+    expect(
+      (await quickLogSet({ exerciseId, weightKg: 90, reps: 6, rpe: 11 })).ok,
+    ).toBe(false);
+  });
+});
+
+/**
+ * Backdating. These run after the block above on purpose: `quickLogWorkouts()`
+ * counts every quick-log row the user has, and the "one session per window"
+ * assertion up there would fail the moment a dated set added another.
+ */
+describe("quickLogSet with a date", () => {
+  // The action's notion of "today" comes from the caller's offset, so the tests
+  // hand it the same one they compute their day keys with.
+  const tzOffsetMinutes = new Date().getTimezoneOffset();
+  const today = toDayKey(new Date());
+
+  async function dayOf(workoutId: string) {
+    const [w] = await db
+      .select({ startedAt: workout.startedAt, endedAt: workout.endedAt })
+      .from(workout)
+      .where(eq(workout.id, workoutId));
+    return w;
+  }
+
+  it("writes the workout and its set onto the chosen day", async () => {
+    const day = shiftDay(today, -3);
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: day,
+      tzOffsetMinutes,
+    });
+    if (!res.ok || !res.data) throw new Error("expected a logged set");
+
+    // The load-bearing assertion: drizzle serialises a Date through
+    // toISOString() into a zoneless column, so what Postgres stores is the UTC
+    // clock — noon on the chosen day. If this drifts, every date-keyed read
+    // (history headers, the heatmap, streaks) lands on the wrong day.
+    const w = await dayOf(res.data.workoutId);
+    expect(w.startedAt.toISOString()).toBe(`${day}T12:00:00.000Z`);
+    // Still ended at insert, or the set counts nowhere.
+    expect(w.endedAt).not.toBeNull();
+    expect(w.endedAt!.toISOString()).toBe(`${day}T12:00:00.000Z`);
+
+    const [s] = await db
+      .select({ completedAt: workoutSet.completedAt })
+      .from(workoutSet)
+      .where(eq(workoutSet.id, res.data.setId));
+    expect(s.completedAt!.toISOString()).toBe(`${day}T12:00:00.000Z`);
+  });
+
+  it("keeps a backdated day and today in separate sessions", async () => {
+    const day = shiftDay(today, -4);
+    const past = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: day,
+      tzOffsetMinutes,
+    });
+    const now = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: today,
+      tzOffsetMinutes,
+    });
+    if (!past.ok || !past.data || !now.ok || !now.data) {
+      throw new Error("expected two logged sets");
+    }
+    // The rolling window would have swallowed the older one into today's
+    // session; the calendar-day branch is what keeps them apart.
+    expect(past.data.workoutId).not.toBe(now.data.workoutId);
+  });
+
+  it("collapses two logs on the same past day into one session", async () => {
+    const day = shiftDay(today, -5);
+    const first = await quickLogSet({
+      exerciseId,
+      weightKg: 60,
+      reps: 10,
+      date: day,
+      tzOffsetMinutes,
+    });
+    const second = await quickLogSet({
+      exerciseId,
+      weightKg: 62.5,
+      reps: 8,
+      date: day,
+      tzOffsetMinutes,
+    });
+    if (!first.ok || !first.data || !second.ok || !second.data) {
+      throw new Error("expected two logged sets");
+    }
+    expect(second.data.workoutId).toBe(first.data.workoutId);
+    expect(second.data.setsLoggedInSession).toBe(2);
+
+    // And the counters still agree with the rows they summarise.
+    const [w] = await db
+      .select()
+      .from(workout)
+      .where(eq(workout.id, first.data.workoutId));
+    const totals = sumSetTotals(await setsIn(first.data.workoutId));
+    expect(w.totalVolumeKg).toBeCloseTo(totals.totalVolumeKg, 4);
+    expect(w.totalSets).toBe(totals.totalSets);
+    expect(w.totalReps).toBe(totals.totalReps);
+  });
+
+  it("dates a backdated record on the day it was earned", async () => {
+    const day = shiftDay(today, -6);
+    // Heavier than anything else this file logs, so it takes every record.
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 250,
+      reps: 2,
+      date: day,
+      tzOffsetMinutes,
+    });
+    if (!res.ok || !res.data) throw new Error("expected a logged set");
+    expect(res.data.isPr).toBe(true);
+
+    // `recalculatePersonalRecords` takes achieved_at from the workout's
+    // ended_at, so backdating a lift backdates the record rather than claiming
+    // you set it today.
+    const [pr] = await db
+      .select()
+      .from(personalRecord)
+      .where(
+        and(
+          eq(personalRecord.userId, userId),
+          eq(personalRecord.exerciseId, exerciseId),
+          eq(personalRecord.kind, "weight"),
+        ),
+      );
+    expect(pr.value).toBeCloseTo(250, 5);
+    expect(pr.achievedAt.toISOString().slice(0, 10)).toBe(day);
+
+    // Undo rolls the backdated session back like any other.
+    expect((await undoQuickLogSet(res.data.setId)).ok).toBe(true);
+    const [w] = await db
+      .select()
+      .from(workout)
+      .where(eq(workout.id, res.data.workoutId));
+    const totals = sumSetTotals(await setsIn(res.data.workoutId));
+    expect(w.totalVolumeKg).toBeCloseTo(totals.totalVolumeKg, 4);
+  });
+
+  it("refuses a day in the future", async () => {
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: shiftDay(today, 1),
+      tzOffsetMinutes,
+    });
+    expect(res.ok).toBe(false);
+  });
+
+  it("refuses a day beyond the backdating limit", async () => {
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: shiftDay(today, -400),
+      tzOffsetMinutes,
+    });
+    expect(res.ok).toBe(false);
+  });
+
+  it("refuses a well-shaped string that isn't a real date", async () => {
+    // Shape alone would let this through and `new Date` would roll it over
+    // into some other month entirely.
+    const res = await quickLogSet({
+      exerciseId,
+      weightKg: 70,
+      reps: 8,
+      date: "2026-13-40",
+      tzOffsetMinutes,
+    });
+    expect(res.ok).toBe(false);
   });
 });

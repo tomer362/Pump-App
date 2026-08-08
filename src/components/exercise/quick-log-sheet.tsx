@@ -1,23 +1,40 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { Minus, Plus, Trophy, Undo2 } from "lucide-react";
+import { CalendarDays, Gauge, Minus, Plus, Trophy, Undo2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
 import { REDUCED } from "@/lib/motion";
 import { setColumns, type SetColumn } from "@/components/workout/set-row";
+import { RpePicker } from "@/components/workout/rpe-picker";
+import {
+  dayKeyToLocalDate,
+  shiftDay,
+  todayKey,
+  type DayKey,
+} from "@/lib/day";
 import {
   getQuickLogPrefill,
   quickLogSet,
   undoQuickLogSet,
   type QuickLogPrefill,
 } from "@/lib/actions/quick-log";
-import { cn, formatWeight, haptic, kgToLb, lbToKg } from "@/lib/utils";
+import {
+  cn,
+  formatDayLabel,
+  formatWeight,
+  haptic,
+  kgToLb,
+  lbToKg,
+} from "@/lib/utils";
+
+/** Matches MAX_BACKDATE_DAYS in `lib/actions/quick-log.ts`. */
+const MAX_BACKDATE_DAYS = 365;
 
 export type QuickLogSetValues = {
   weightKg: number | null;
@@ -30,6 +47,8 @@ type Logged = {
   setId: string;
   label: string;
   isPr: boolean;
+  /** Shown on the row only when it isn't today — see the list below. */
+  day: DayKey;
 };
 
 /**
@@ -79,9 +98,25 @@ export function QuickLogSheet({
     prefill?.distanceM != null ? String(prefill.distanceM) : "",
   );
 
+  const [rpe, setRpe] = useState<number | null>(null);
+  // Safe as a plain initialiser, unlike the app's other time-relative values:
+  // this sheet is mounted only after a tap — `{open && <QuickLogSheet/>}` in
+  // the dock, and `QuickLogLauncher` mounts after its fetch — so it never
+  // renders on the server and there is no hydration text to mismatch.
+  const [day, setDay] = useState<DayKey>(todayKey);
+
   const [logged, setLogged] = useState<Logged[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+
+  const today = todayKey();
+  const backdated = day !== today;
+
+  // The receipt sits below the effort chips, which on a phone puts it under the
+  // fold — so a saved set would look like nothing happened, and Undo would be
+  // unreachable without a hunt. Scrolls the sheet's own scroller, not the
+  // document, which the app never moves.
+  const loggedRef = useRef<HTMLDivElement>(null);
 
   const values = {
     weight: num(weight),
@@ -99,8 +134,14 @@ export function QuickLogSheet({
   function save() {
     setError(null);
     startSaving(async () => {
+      // Recomputed here rather than read off render state, so a sheet left open
+      // across midnight sends the day it actually meant.
+      const sentDay = day;
       const res = await quickLogSet({
         exerciseId,
+        rpe,
+        date: sentDay,
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
         weightKg:
           columns.includes("weight") && values.weight != null
             ? storedWeight(values.weight, unit)
@@ -123,11 +164,18 @@ export function QuickLogSheet({
       setLogged((prev) => [
         {
           setId: data.setId,
-          label: describe(data.weightKg, data.reps, values, unit, columns),
+          label: describe(data.weightKg, data.reps, values, unit, columns, rpe),
           isPr: data.isPr,
+          day: sentDay,
         },
         ...prev,
       ]);
+      requestAnimationFrame(() =>
+        loggedRef.current?.scrollIntoView({
+          block: "nearest",
+          behavior: enabled ? "smooth" : "auto",
+        }),
+      );
       // The charts, the totals and the history list are all server-rendered.
       router.refresh();
     });
@@ -160,12 +208,20 @@ export function QuickLogSheet({
             disabled={!canSave}
             onClick={save}
           >
-            {logged.length > 0 ? "Log another set" : "Log set"}
+            {/* The thumb is already here, so this is the last place backdating
+                can be made impossible to do silently. */}
+            {backdated
+              ? `Log set · ${formatDayLabel(dayKeyToLocalDate(day))}`
+              : logged.length > 0
+                ? "Log another set"
+                : "Log set"}
           </Button>
         </div>
       }
     >
       <div className="space-y-5 px-4 pb-4">
+        <DayField day={day} today={today} onChange={setDay} />
+
         {columns.map((column) => (
           <Field
             key={column}
@@ -192,6 +248,19 @@ export function QuickLogSheet({
           />
         ))}
 
+        {/* After the numbers, because effort is the judgement you make once
+            you know what you did — and it is optional, so it stays out of the
+            path between the steppers and the pinned button. */}
+        <div>
+          <FieldLabel>
+            <Gauge className="size-3.5" />
+            Effort (RPE)
+          </FieldLabel>
+          <div className="mt-1.5">
+            <RpePicker value={rpe} onChange={setRpe} idPrefix="quick-log" />
+          </div>
+        </div>
+
         {error && (
           <p role="alert" className="text-[13px] text-red-400">
             {error}
@@ -199,7 +268,10 @@ export function QuickLogSheet({
         )}
 
         {logged.length > 0 && (
-          <div className="border-hairline divide-hairline divide-y rounded-[12px] border">
+          <div
+            ref={loggedRef}
+            className="border-hairline divide-hairline divide-y rounded-[12px] border"
+          >
             {logged.map((l) => (
               // Springs in with the same grammar as a completed set on the
               // workout screen — this *is* a completed set.
@@ -215,8 +287,17 @@ export function QuickLogSheet({
                 transition={enabled ? spring.snappy : REDUCED}
                 className="flex items-center gap-3 px-3 py-2.5"
               >
-                <span className="num flex-1 text-[15px] font-semibold">
-                  {l.label}
+                <span className="min-w-0 flex-1">
+                  <span className="num block text-[15px] font-semibold">
+                    {l.label}
+                  </span>
+                  {/* Three identical "100 kg × 5" rows, two of them for last
+                      Tuesday, would be lying at the moment you reach for Undo. */}
+                  {l.day !== today && (
+                    <span className="text-text-3 block text-[12px]">
+                      {formatDayLabel(dayKeyToLocalDate(l.day))}
+                    </span>
+                  )}
                 </span>
                 {l.isPr && (
                   // Gold alone is not distinguishable from volt for a
@@ -240,9 +321,10 @@ export function QuickLogSheet({
           </div>
         )}
 
-        {activeWorkoutId && (
+        {activeWorkoutId && !backdated && (
           // Never silently redirects the numbers already typed — it just says
-          // the running session exists.
+          // the running session exists. Hidden while backdating: that session
+          // is today's, and pointing at it would be advice for the wrong day.
           <p className="text-text-3 text-[13px] leading-relaxed">
             You have a workout running.{" "}
             <Link
@@ -310,6 +392,138 @@ export function QuickLogLauncher({
   );
 }
 
+const FIELD_LABEL =
+  "text-text-3 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase";
+
+/**
+ * `htmlFor` only when there is a real form control to point at — the RPE chips
+ * are a radiogroup of buttons, which a `<label>` cannot name, so that one
+ * carries its own `aria-label` and this renders as plain text.
+ */
+function FieldLabel({
+  htmlFor,
+  children,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  if (!htmlFor) return <p className={FIELD_LABEL}>{children}</p>;
+  return (
+    <label htmlFor={htmlFor} className={FIELD_LABEL}>
+      {children}
+    </label>
+  );
+}
+
+/**
+ * Which day the set happened on.
+ *
+ * Today, yesterday, and a native `<input type="date">` for anything older —
+ * native because it is the platform picker (the iOS wheel), it enforces
+ * `min`/`max` and its own accessibility for free, and hand-rolled calendar
+ * chrome is exactly the auto-generated look the design system rules out.
+ *
+ * Today is the default, so it is *neutral*: volt appears only once you have
+ * deliberately backdated, which is the state that actually matters here.
+ */
+function DayField({
+  day,
+  today,
+  onChange,
+}: {
+  day: DayKey;
+  today: DayKey;
+  onChange: (day: DayKey) => void;
+}) {
+  const yesterday = shiftDay(today, -1);
+  const custom = day !== today && day !== yesterday;
+
+  function pick(next: DayKey) {
+    haptic.light();
+    onChange(next);
+  }
+
+  return (
+    <div>
+      <FieldLabel htmlFor="quick-log-date">
+        <CalendarDays className="size-3.5" />
+        Date
+      </FieldLabel>
+      <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+        <DayChip selected={day === today} onClick={() => pick(today)}>
+          Today
+        </DayChip>
+        <DayChip
+          backdated
+          selected={day === yesterday}
+          onClick={() => pick(yesterday)}
+        >
+          Yesterday
+        </DayChip>
+        <label
+          className={cn(
+            "tap press rounded-field relative grid h-11 place-items-center border",
+            "text-[13px] font-semibold",
+            custom
+              ? "border-volt bg-volt-fade text-volt"
+              : "border-hairline bg-surface-2 text-text-2",
+          )}
+        >
+          <span className={custom ? "num" : undefined}>
+            {custom ? formatDayLabel(dayKeyToLocalDate(day)) : "Pick a date"}
+          </span>
+          {/* Laid over the chip rather than styled in place: the intrinsic
+              rendering of a date input is unstyleable enough across engines
+              that fighting it costs more than hiding it. 16px so focusing it
+              never zooms the page on iOS. */}
+          <input
+            id="quick-log-date"
+            type="date"
+            value={day}
+            min={shiftDay(today, -MAX_BACKDATE_DAYS)}
+            max={today}
+            aria-label="Date this set was done"
+            onChange={(e) => {
+              if (e.target.value) pick(e.target.value);
+            }}
+            className="absolute inset-0 h-full w-full cursor-pointer text-[16px] opacity-0"
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function DayChip({
+  selected,
+  backdated = false,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  backdated?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={cn(
+        "tap press rounded-field h-11 border text-[13px] font-semibold",
+        !selected
+          ? "border-hairline bg-surface-2 text-text-2"
+          : backdated
+            ? "border-volt bg-volt-fade text-volt"
+            : "border-hairline bg-surface-3 text-text-1",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 const STEP: Record<SetColumn, number> = {
   weight: 2.5,
   reps: 1,
@@ -339,12 +553,9 @@ function Field({
 
   return (
     <div>
-      <label
-        htmlFor={`quick-log-${column}`}
-        className="text-text-3 text-[11px] font-semibold tracking-[0.08em] uppercase"
-      >
+      <FieldLabel htmlFor={`quick-log-${column}`}>
         {LABEL[column](unit)}
-      </label>
+      </FieldLabel>
       <div className="mt-1.5 flex items-stretch gap-2">
         <Stepper label={`Decrease ${column}`} onClick={() => bump(-step)}>
           <Minus className="size-5" strokeWidth={2.6} />
@@ -431,6 +642,7 @@ function describe(
   values: { seconds: number | null; distance: number | null },
   unit: "kg" | "lb",
   columns: SetColumn[],
+  rpe: number | null,
 ): string {
   const parts: string[] = [];
   if (columns.includes("weight") && weightKg != null) {
@@ -443,5 +655,7 @@ function describe(
   if (columns.includes("distance") && values.distance != null) {
     parts.push(`${values.distance}m`);
   }
-  return parts.join(" ") || "Logged";
+  const label = parts.join(" ") || "Logged";
+  // Same shorthand the set row uses under the set number.
+  return rpe != null ? `${label} @${rpe}` : label;
 }

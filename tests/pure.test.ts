@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { estimate1RM, formatWeight, kgToLb, lbToKg } from "@/lib/utils";
+import {
+  estimate1RM,
+  formatDayLabel,
+  formatShortDate,
+  formatWeight,
+  kgToLb,
+  lbToKg,
+} from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isBlobUrl } from "@/lib/blob";
 import { exerciseVideoLink, isYouTubeUrl } from "@/lib/exercise-video";
+import {
+  dayKeyBounds,
+  dayKeyToLocalDate,
+  dayKeyToNoonUtc,
+  isDayKey,
+  shiftDay,
+  toDayKey,
+} from "@/lib/day";
 
 describe("estimate1RM (Epley)", () => {
   it("is the weight itself at one rep", () => {
@@ -160,5 +175,95 @@ describe("isYouTubeUrl", () => {
     ]) {
       expect(isYouTubeUrl(url), url).toBe(false);
     }
+  });
+});
+
+describe("day keys", () => {
+  it("reads a date's *local* calendar day, not its UTC one", () => {
+    // toISOString().slice(0,10) is the tempting one-liner and it is wrong: it
+    // reports UTC, so a user west of Greenwich logging in the evening would
+    // have "today" resolve to tomorrow.
+    const d = new Date(2026, 7, 8, 23, 30);
+    expect(toDayKey(d)).toBe("2026-08-08");
+  });
+
+  it("pads single-digit months and days", () => {
+    expect(toDayKey(new Date(2026, 0, 3))).toBe("2026-01-03");
+  });
+
+  it("shifts across month, year and leap-day boundaries", () => {
+    expect(shiftDay("2026-03-01", -1)).toBe("2026-02-28");
+    expect(shiftDay("2024-03-01", -1)).toBe("2024-02-29");
+    expect(shiftDay("2026-01-01", -1)).toBe("2025-12-31");
+    expect(shiftDay("2026-08-08", -365)).toBe("2025-08-08");
+    expect(shiftDay("2026-08-08", 1)).toBe("2026-08-09");
+  });
+
+  it("rejects a well-shaped string that isn't a real date", () => {
+    expect(isDayKey("2026-08-08")).toBe(true);
+    expect(isDayKey("2024-02-29")).toBe(true);
+    // Shape alone would let all of these through, and `new Date` would turn
+    // them into an Invalid Date or silently roll them over.
+    expect(isDayKey("2026-13-40")).toBe(false);
+    expect(isDayKey("2026-02-30")).toBe(false);
+    expect(isDayKey("2025-02-29")).toBe(false);
+    expect(isDayKey("2026-00-10")).toBe(false);
+    expect(isDayKey("26-08-08")).toBe(false);
+    expect(isDayKey("2026-8-8")).toBe(false);
+    expect(isDayKey("")).toBe(false);
+  });
+
+  it("stamps a backdated row at noon UTC", () => {
+    // Noon, so that DATE(started_at) is the day the user picked *and* a client
+    // rendering it locally reads back the same date at every offset in
+    // (-12, +12). Midnight would render as the previous day everywhere west.
+    expect(dayKeyToNoonUtc("2026-08-08").toISOString()).toBe(
+      "2026-08-08T12:00:00.000Z",
+    );
+  });
+
+  it("bounds a day as a half-open UTC range", () => {
+    const { start, end } = dayKeyBounds("2026-08-08");
+    expect(start.toISOString()).toBe("2026-08-08T00:00:00.000Z");
+    expect(end.toISOString()).toBe("2026-08-09T00:00:00.000Z");
+    // The noon stamp has to fall inside its own day's bounds, or a second
+    // backdated set would open a second session.
+    const noon = dayKeyToNoonUtc("2026-08-08");
+    expect(noon >= start && noon < end).toBe(true);
+  });
+
+  it("round-trips a key through a local date", () => {
+    expect(toDayKey(dayKeyToLocalDate("2026-08-08"))).toBe("2026-08-08");
+  });
+});
+
+describe("formatDayLabel", () => {
+  const daysAgo = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return d;
+  };
+
+  it("names the last week relatively", () => {
+    expect(formatDayLabel(daysAgo(0))).toBe("Today");
+    expect(formatDayLabel(daysAgo(1))).toBe("Yesterday");
+    expect(formatDayLabel(daysAgo(3))).toMatch(
+      /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day$/,
+    );
+  });
+
+  it("spells older dates itself rather than through Intl", () => {
+    // Node ships a cut-down ICU and renders "Thu 30 Jul" where Chromium renders
+    // "Thu, 30 Jul". On a server-rendered label that is a hydration mismatch,
+    // and React throws the subtree away — it took out the whole history list.
+    // Backdating a set is the shortest path to a workout old enough to hit it.
+    expect(formatDayLabel(new Date(2026, 6, 30))).toBe("Thu 30 Jul");
+    expect(formatDayLabel(new Date(2020, 0, 1))).toBe("Wed 1 Jan 2020");
+    expect(formatShortDate(new Date(2026, 3, 14))).toBe("14 Apr");
+  });
+
+  it("carries the year only when it isn't this one", () => {
+    const old = daysAgo(30);
+    expect(formatDayLabel(old).includes(String(old.getFullYear()))).toBe(false);
   });
 });
