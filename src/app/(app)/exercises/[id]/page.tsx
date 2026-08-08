@@ -1,7 +1,10 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { Archive } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
+import { Skeleton, SkeletonSegmented } from "@/components/ui/skeleton";
 import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
+import type { ExerciseDetailData } from "@/components/exercise/exercise-detail-tabs";
 import { ManageExercise } from "./manage-exercise";
 import { AdoptImported } from "./adopt-imported";
 import { requireUser } from "@/lib/session";
@@ -27,16 +30,6 @@ export default async function ExerciseDetailPage(
   if (!exercise) notFound();
   // Custom exercises belong to one user.
   if (exercise.ownerId && exercise.ownerId !== me.id) notFound();
-
-  const [history, records, alternatives, series, repMaxes, summary] =
-    await Promise.all([
-      getExerciseHistory(me.id, id, 30),
-      getExerciseRecords(me.id, id),
-      getExerciseAlternatives(id),
-      getExerciseSessionSeries(me.id, id),
-      getExerciseRepMaxes(me.id, id),
-      getExerciseSummary(me.id, id),
-    ]);
 
   const mine = exercise.ownerId === me.id;
   const archived = exercise.archivedAt != null;
@@ -64,28 +57,24 @@ export default async function ExerciseDetailPage(
 
         {imported && <AdoptImported exerciseId={exercise.id} />}
 
-        <ExerciseDetailTabs
-          unit={me.unit}
-          data={{
-            bodyEffect: exercise.bodyEffect,
-            instructions: exercise.instructions,
-            secondaryMuscles: exercise.secondaryMuscles,
-            video: exerciseVideoLink(exercise),
-            alternatives,
-            summary,
-            series,
-            history,
-            repMaxes,
-            records: records.map((r) => ({
-              id: r.id,
-              kind: r.kind,
-              value: r.value,
-              weightKg: r.weightKg,
-              reps: r.reps,
-              achievedAt: r.achievedAt,
-            })),
-          }}
-        />
+        {/* Only the exercise row blocks — it names the page and decides the
+            404. The six history/records aggregates stream in behind it, which
+            on a cold Neon is most of this route's time to first paint. One
+            boundary, not six: the tabs pick their initial tab from `summary`,
+            so a half-populated panel would flip tabs under the user. */}
+        <Suspense fallback={<DetailFallback />}>
+          <DetailPanels
+            userId={me.id}
+            unit={me.unit}
+            exerciseId={exercise.id}
+            about={{
+              bodyEffect: exercise.bodyEffect,
+              instructions: exercise.instructions,
+              secondaryMuscles: exercise.secondaryMuscles,
+              video: exerciseVideoLink(exercise),
+            }}
+          />
+        </Suspense>
 
         {mine && (
           <ManageExercise
@@ -104,5 +93,62 @@ export default async function ExerciseDetailPage(
         )}
       </div>
     </div>
+  );
+}
+
+function DetailFallback() {
+  return (
+    <div className="space-y-5">
+      <SkeletonSegmented />
+      <Skeleton className="h-40 rounded-[12px]" />
+      <Skeleton className="h-24 rounded-[12px]" />
+    </div>
+  );
+}
+
+async function DetailPanels({
+  userId,
+  unit,
+  exerciseId,
+  about,
+}: {
+  userId: string;
+  unit: "kg" | "lb";
+  exerciseId: string;
+  about: Pick<
+    ExerciseDetailData,
+    "bodyEffect" | "instructions" | "secondaryMuscles" | "video"
+  >;
+}) {
+  const [history, records, alternatives, series, repMaxes, summary] =
+    await Promise.all([
+      getExerciseHistory(userId, exerciseId, 30),
+      getExerciseRecords(userId, exerciseId),
+      getExerciseAlternatives(exerciseId),
+      getExerciseSessionSeries(userId, exerciseId),
+      getExerciseRepMaxes(userId, exerciseId),
+      getExerciseSummary(userId, exerciseId),
+    ]);
+
+  return (
+    <ExerciseDetailTabs
+      unit={unit}
+      data={{
+        ...about,
+        alternatives,
+        summary,
+        series,
+        history,
+        repMaxes,
+        records: records.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          value: r.value,
+          weightKg: r.weightKg,
+          reps: r.reps,
+          achievedAt: r.achievedAt,
+        })),
+      }}
+    />
   );
 }

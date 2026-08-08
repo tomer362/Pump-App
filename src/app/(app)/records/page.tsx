@@ -27,7 +27,7 @@ export default async function RecordsPage() {
 
   return (
     <div className="pb-8">
-      <NavBar title="Records" back="/stats" />
+      <NavBar title="Records" back />
 
       {records.length === 0 ? (
         <EmptyState

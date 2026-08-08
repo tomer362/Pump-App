@@ -1,8 +1,8 @@
 import Link from "next/link";
 import {
+  BarChart3,
   Building2,
   ChevronRight,
-  Dumbbell,
   Settings,
   UserPlus,
   Bell,
@@ -89,10 +89,12 @@ export default async function ProfilePage() {
               <ChevronRight className="text-text-3 size-4 shrink-0" />
             </Card>
           </Link>
-          <Link href="/exercises">
+          {/* Exercises has its own tab now; Stats is the thing that lost one,
+              so this row points there instead of duplicating a tab. */}
+          <Link href="/stats">
             <Card className="press flex items-center gap-3 px-4 py-3.5">
-              <Dumbbell className="text-text-3 size-5 shrink-0" />
-              <p className="flex-1 text-[15px] font-medium">Exercises</p>
+              <BarChart3 className="text-text-3 size-5 shrink-0" />
+              <p className="flex-1 text-[15px] font-medium">Stats</p>
               <ChevronRight className="text-text-3 size-4 shrink-0" />
             </Card>
           </Link>

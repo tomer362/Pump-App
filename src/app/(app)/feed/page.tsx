@@ -21,22 +21,25 @@ import { eq } from "drizzle-orm";
 export default async function FeedPage() {
   const me = await requireUser();
 
-  const [items, atGym, presence, discovery] = await Promise.all([
+  // The home-gym lookup used to run *after* this fan-out resolved — a fifth
+  // serial round trip on the most-visited route, and on a scaled-to-zero Neon
+  // that is a cold start the user waits through for one string. It depends on
+  // nothing else here, so it belongs in the same batch.
+  const [items, atGym, presence, discovery, homeGym] = await Promise.all([
     getFollowingFeed(me.id, { limit: FEED_PAGE_SIZE }),
     getFriendsAtGym(me.id),
     getMyPresence(me.id),
     getDiscoveryFeed(me.id, 6),
-  ]);
-
-  const homeGymName = me.homeGymId
-    ? ((
-        await db
+    me.homeGymId
+      ? db
           .select({ name: gym.name })
           .from(gym)
           .where(eq(gym.id, me.homeGymId))
           .limit(1)
-      )[0]?.name ?? null)
-    : null;
+      : Promise.resolve([]),
+  ]);
+
+  const homeGymName = homeGym[0]?.name ?? null;
 
   return (
     <div className="pb-6">

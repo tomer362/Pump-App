@@ -318,8 +318,24 @@ input[type="number"]::-webkit-inner-spin-button {
   }
 }
 
+/* The route rail creeps toward the edge without ever reaching it: its width is
+   a guess about a response that hasn't arrived, and a bar that fills and then
+   waits at 100% is a lie about being finished. */
+@keyframes route-rail {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
+
 .animate-rise-in {
   animation: rise-in 320ms var(--ease-out-quart) both;
+}
+
+.animate-route-rail {
+  animation: route-rail 2.4s var(--ease-out-quart) forwards;
 }
 
 .animate-pulse-volt {
