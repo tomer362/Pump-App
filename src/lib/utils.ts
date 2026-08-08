@@ -77,20 +77,58 @@ export function formatVolume(kg: number, unit: "kg" | "lb"): string {
   return String(Math.round(v));
 }
 
-/** `Today` / `Yesterday` / `Mon 14 Apr` — feed and history headers. */
+/**
+ * `Today` / `Yesterday` / `Mon 14 Apr` — feed and history headers.
+ *
+ * Spelled out from constants rather than `toLocaleDateString`, because the two
+ * ends of a render disagree: Node ships a cut-down ICU and gives `Thu 30 Jul`,
+ * while Chromium gives `Thu, 30 Jul`. That is a text mismatch on a
+ * server-rendered label, and React responds by throwing the subtree away — on
+ * `/history` it took out the whole list. It only ever showed up on a workout
+ * more than a week old, which is why it sat here unnoticed until a set could be
+ * backdated into one.
+ */
+const WEEKDAYS_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
 export function formatDayLabel(date: Date): string {
   const now = new Date();
   const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOf(now) - startOf(date)) / 86_400_000);
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return date.toLocaleDateString("en-GB", { weekday: "long" });
-  return date.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
-  });
+  if (diffDays > 0 && diffDays < 7) return WEEKDAYS_LONG[date.getDay()];
+  const base = `${WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
+  return date.getFullYear() !== now.getFullYear()
+    ? `${base} ${date.getFullYear()}`
+    : base;
+}
+
+/** `14 Apr` — the tail of `timeAgo`, and deterministic for the same reason. */
+export function formatShortDate(date: Date): string {
+  return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
 }
 
 /** Relative time for feed items: `now`, `12m`, `5h`, `3d`, then a date. */
@@ -100,7 +138,7 @@ export function timeAgo(date: Date): string {
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   if (secs < 86_400) return `${Math.floor(secs / 3600)}h`;
   if (secs < 604_800) return `${Math.floor(secs / 86_400)}d`;
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return formatShortDate(date);
 }
 
 export function initialsOf(name: string | null | undefined): string {

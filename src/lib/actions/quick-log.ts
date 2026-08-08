@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -16,6 +16,7 @@ import { getLastLoggedSet, type LastLoggedSet } from "@/lib/queries/exercise";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
+import { dayKeyBounds, dayKeyToNoonUtc, isDayKey, shiftDay } from "@/lib/day";
 import { estimate1RM } from "@/lib/utils";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
@@ -35,10 +36,27 @@ import type { ActionResult } from "./user";
  * records. It is safe against `workout_one_active_idx` because that unique
  * index is scoped `WHERE ended_at IS NULL`; a quick-log session is never active
  * and so never blocks (or is blocked by) a real one.
+ *
+ * A set can also be dated. That splits the session-reuse rule in two, and the
+ * split is the non-obvious part: **today** keeps the 12-hour rolling window, so
+ * a late-night session doesn't fork across midnight, while a **backdated** log
+ * is scoped to the calendar day — there is nothing rolling about a day three
+ * weeks ago, and the window would match nothing anyway. Both branches are a
+ * half-open range on the raw `started_at`, so `workout_user_kind_started_idx`
+ * still does the work; `DATE(started_at) = $1` would force a filter and re-open
+ * the very question of which zone `DATE` means.
+ *
+ * Which day counts as "today" is the *caller's*, from a client-supplied UTC
+ * offset. Without it, a user at UTC+13 asking for their own today would be
+ * refused for logging in the future. The offset gates that comparison and
+ * nothing else — it is never stored, and never reaches a timestamp.
  */
 
 /** How long consecutive quick logs keep landing in the same session. */
 const QUICK_LOG_WINDOW_HOURS = 12;
+
+/** Far enough back for anything real; short enough that a typo'd year fails. */
+const MAX_BACKDATE_DAYS = 365;
 
 // Not exported: every export of a "use server" module is a public POST
 // endpoint, so the file exports actions and types only.
@@ -51,6 +69,13 @@ const quickLogSchema = z.object({
   seconds: z.number().int().min(0).max(86_400).nullable().optional(),
   distanceM: z.number().min(0).max(1_000_000).nullable().optional(),
   rpe: z.number().min(1).max(10).nullable().optional(),
+  /**
+   * The calendar day the set happened on, in the caller's local time. A day
+   * rather than an instant: the sheet only ever asks for a date.
+   */
+  date: z.string().refine(isDayKey).nullable().optional(),
+  /** Only decides which day is "today" for this caller. Never stored. */
+  tzOffsetMinutes: z.number().int().min(-840).max(840).nullable().optional(),
 });
 
 export type QuickLogInput = z.input<typeof quickLogSchema>;
@@ -77,6 +102,24 @@ export async function quickLogSet(
   const parsed = quickLogSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid set values" };
   const values = parsed.data;
+
+  // `getTimezoneOffset()` counts minutes *behind* UTC, so local = UTC - offset.
+  // Clamped in the schema: the offset is client-supplied, and the worst it can
+  // buy is ~14 hours of slack on the caller's own data.
+  const offset = values.tzOffsetMinutes ?? 0;
+  const today = new Date(Date.now() - offset * 60_000)
+    .toISOString()
+    .slice(0, 10);
+  const day = values.date ?? today;
+
+  // ISO day keys compare correctly as strings, so the guard needs no date math.
+  if (day > today) {
+    return { ok: false, error: "You can't log a set in the future" };
+  }
+  if (day < shiftDay(today, -MAX_BACKDATE_DAYS)) {
+    return { ok: false, error: "That's too far back to log" };
+  }
+  const backdated = day !== today;
 
   // Same rule the workout screen applies when promoting a planned set: an
   // empty row is not a performance.
@@ -139,13 +182,27 @@ export async function quickLogSet(
     estimated1rm != null &&
     (!previousBest || estimated1rm > previousBest.value + 0.01);
 
-  const now = new Date();
+  // Picking today is byte-for-byte what shipped before this field existed.
+  const at = backdated ? dayKeyToNoonUtc(day) : new Date();
 
   const result = await db.transaction(async (tx) => {
-    // One session per rolling window rather than one workout per set: history
-    // stays readable and the training calendar sees a single day. A rolling
-    // window, not a calendar day, because `started_at` is timezone-naive server
-    // time and the user's midnight is unknown.
+    // One session per window rather than one workout per set: history stays
+    // readable and the training calendar sees a single day. For today that is a
+    // rolling window rather than a calendar day, because `started_at` is
+    // timezone-naive server time and the user's midnight is unknown. A
+    // backdated log has no such ambiguity — it was given a day, so it is scoped
+    // to that day. Both branches are sargable ranges on `started_at`.
+    const bounds = dayKeyBounds(day);
+    const sameSession = backdated
+      ? and(
+          gte(workout.startedAt, bounds.start),
+          lt(workout.startedAt, bounds.end),
+        )
+      : sql`${workout.startedAt} > NOW() - (${QUICK_LOG_WINDOW_HOURS} || ' hours')::interval`;
+
+    // Scoped to `kind`, so a day that already holds a real session still gets
+    // its own "Quick log" row — appending to a finished workout would rewrite
+    // counters that screen owns.
     const [existing] = await tx
       .select({ id: workout.id })
       .from(workout)
@@ -154,7 +211,7 @@ export async function quickLogSet(
           eq(workout.userId, me.id),
           eq(workout.kind, "quick_log"),
           isNotNull(workout.endedAt),
-          sql`${workout.startedAt} > NOW() - (${QUICK_LOG_WINDOW_HOURS} || ' hours')::interval`,
+          sameSession,
         ),
       )
       .orderBy(desc(workout.startedAt))
@@ -171,10 +228,11 @@ export async function quickLogSet(
           name: QUICK_LOG_NAME,
           kind: "quick_log",
           gymId: me.homeGymId,
-          startedAt: now,
-          // Inserted already ended. `durationSeconds` stays 0 — nobody spent
-          // time in a session that never ran, and lifetime "Time" would lie.
-          endedAt: now,
+          startedAt: at,
+          // Inserted already ended, backdated or not. `durationSeconds` stays
+          // 0 — nobody spent time in a session that never ran, and lifetime
+          // "Time" would lie.
+          endedAt: at,
           durationSeconds: 0,
         })
         .returning({ id: workout.id });
@@ -233,7 +291,7 @@ export async function quickLogSet(
         seconds: values.seconds ?? null,
         distanceM: values.distanceM ?? null,
         rpe: values.rpe ?? null,
-        completedAt: now,
+        completedAt: at,
         estimated1rm,
       })
       .returning({ id: workoutSet.id });
@@ -266,7 +324,7 @@ export async function quickLogSet(
     ok: true,
     data: {
       ...result,
-      completedAt: now.toISOString(),
+      completedAt: at.toISOString(),
       weightKg,
       reps,
       estimated1rm,

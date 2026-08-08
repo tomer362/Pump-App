@@ -227,12 +227,30 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   `endedAt` is set at insert. That is safe against `workout_one_active_idx`
   because the unique index is scoped `WHERE ended_at IS NULL`: a quick log is
   never *active*, so it neither blocks nor is blocked by a real session.
-  Consecutive logs reuse the same row for 12 rolling hours (not a calendar day
-  — `started_at` is timezone-naive and the user's midnight is unknown). The
-  session is identified by `workout.kind`, never by its name: `name` is
-  user-editable through `updateWorkoutMeta`, so a rename would silently fork a
-  second session. Records go through `recalculatePersonalRecords`, which also
-  owns `workout.pr_count` — quick-log must not write that column itself.
+  Consecutive logs for **today** reuse the same row for 12 rolling hours (not a
+  calendar day — `started_at` is timezone-naive and the user's midnight is
+  unknown). The session is identified by `workout.kind`, never by its name:
+  `name` is user-editable through `updateWorkoutMeta`, so a rename would
+  silently fork a second session. Records go through
+  `recalculatePersonalRecords`, which also owns `workout.pr_count` — quick-log
+  must not write that column itself.
+- **A backdated quick log is scoped to the calendar day, and stamped at noon
+  UTC.** The rolling window is meaningless for a day three weeks ago, so the
+  reuse lookup switches to that day's half-open range — a range on the raw
+  column, so `workout_user_kind_started_idx` still serves it and `DATE(started_at)
+  = $1` never re-opens the question of which zone `DATE` means. The client sends
+  a `YYYY-MM-DD` (`lib/day.ts`, pure so `pure.test.ts` can hold it), not an
+  instant: the user picked a *date*, and an instant would invent a time-of-day
+  they never gave. **Noon**, because a `timestamp` column here carries no zone
+  and drizzle serialises through `toISOString()` — so the stored value is the
+  UTC clock, and noon is the only stamp where `DATE(started_at)` is the chosen
+  day *and* a client rendering it locally reads the same date back at every
+  offset in (-12, +12). Midnight renders as the previous day everywhere west of
+  Greenwich, which would put the history header and the heatmap in contradiction
+  with the picker. The request also carries `tzOffsetMinutes`, used for one
+  thing only — deciding which day is "today" for *this caller*, so a user at
+  UTC+13 isn't refused for logging their own today "in the future". It is never
+  stored and never reaches a timestamp.
 - **`finishWorkout` and quick-log both write the denormalised counters**, so
   "what scores" (ticked, not a warm-up) lives once in `lib/workout-totals.ts`
   and is asserted in `tests/workout-totals.test.ts`.

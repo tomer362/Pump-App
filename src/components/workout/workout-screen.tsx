@@ -39,6 +39,7 @@ import {
   setGridTemplate,
   type SetDraft,
 } from "./set-row";
+import { RpePicker } from "./rpe-picker";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
 import { FinishSheet } from "./finish-sheet";
@@ -1575,9 +1576,6 @@ const SET_TYPES: [SetType, string, string][] = [
   ["failure", "To failure", "Taken to muscular failure"],
 ];
 
-/** RPE is logged on the half point from 6 up — below that nobody bothers. */
-const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
-
 function SetOptions({
   set,
   onSetType,
@@ -1612,37 +1610,7 @@ function SetOptions({
           <Gauge className="size-3.5" />
           Effort (RPE)
         </SheetLabel>
-        <div className="grid grid-cols-5 gap-1.5">
-          <button
-            onClick={() => onSetRpe(null)}
-            className={cn(
-              "press rounded-field h-10 border text-[13px] font-semibold",
-              set.rpe == null
-                ? "border-volt bg-volt-fade text-volt"
-                : "border-hairline bg-surface-2 text-text-2",
-            )}
-          >
-            —
-          </button>
-          {RPE_VALUES.map((v) => (
-            <button
-              key={v}
-              onClick={() => onSetRpe(v)}
-              className={cn(
-                "press num rounded-field h-10 border text-[13px] font-semibold",
-                set.rpe === v
-                  ? "border-volt bg-volt-fade text-volt"
-                  : "border-hairline bg-surface-2 text-text-2",
-              )}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-        <p className="text-text-3 mt-2 text-[12px] leading-snug">
-          How hard the set felt. 10 is a set you couldn&apos;t have added a rep
-          to; 8 leaves two in the tank.
-        </p>
+        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
       </div>
 
       {/* The swipe is the fast path, but it is a gesture: this is the one that
