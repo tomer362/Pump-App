@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Calendar, ChevronRight, Dumbbell, Flame, Trophy } from "lucide-react";
+import { Calendar, ChevronRight, Flame, Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Card, SectionTitle } from "@/components/ui/primitives";
 import { MuscleVolumePanel } from "@/components/stats/muscle-volume-panel";
@@ -34,7 +34,9 @@ export default async function StatsPage() {
 
   return (
     <div className="pb-8">
-      <NavBar title="Stats" />
+      {/* Reached from the Exercises tab rather than owning a tab itself, so it
+          needs a way back. */}
+      <NavBar title="Stats" back="/exercises" />
 
       <div className="space-y-6 px-4">
         {/* Hero figure: exactly one per view. */}
@@ -172,16 +174,9 @@ export default async function StatsPage() {
           </div>
         )}
 
+        {/* No "Exercises" card any more — this page is reached *from* the
+            Exercises tab, so it would only point back at its own parent. */}
         <div className="space-y-3">
-          <Link href="/exercises">
-            <Card className="press flex items-center gap-3 px-4 py-3.5">
-              <Dumbbell className="text-text-3 size-5 shrink-0" />
-              <p className="flex-1 text-[15px] font-medium">
-                Exercises &amp; per-exercise progress
-              </p>
-              <ChevronRight className="text-text-3 size-4 shrink-0" />
-            </Card>
-          </Link>
           <Link href="/history">
             <Card className="press flex items-center gap-3 px-4 py-3.5">
               <Calendar className="text-text-3 size-5 shrink-0" />

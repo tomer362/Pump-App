@@ -14,7 +14,9 @@ export default async function HistoryPage() {
 
   return (
     <div className="pb-8">
-      <NavBar title="History" back="/stats" />
+      {/* Reached from both Stats and Profile, so it goes back where you came
+          from rather than to one hard-coded parent. */}
+      <NavBar title="History" back />
 
       {workouts.length === 0 ? (
         <EmptyState

@@ -2,14 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Dumbbell, Home, ListChecks, User, BarChart3 } from "lucide-react";
+import { Dumbbell, Home, ListChecks, User, LibraryBig } from "lucide-react";
 import { cn, haptic } from "@/lib/utils";
 
 const TABS = [
   { href: "/feed", label: "Feed", icon: Home },
   { href: "/routines", label: "Routines", icon: ListChecks },
   { href: "/start", label: "Start", icon: Dumbbell, primary: true },
-  { href: "/stats", label: "Stats", icon: BarChart3 },
+  // Exercises, not Stats. The library is where a lifter actually goes between
+  // sessions — to check what they lifted last time, or to log one set — while
+  // /stats was a hallway whose bottom two rows linked here and to /history.
+  // Stats keeps its own route, reached from this tab's nav bar.
+  { href: "/exercises", label: "Exercises", icon: LibraryBig },
   { href: "/profile", label: "You", icon: User },
 ] as const;
 
