@@ -47,6 +47,51 @@ export function SkeletonCard({ className }: { className?: string }) {
   );
 }
 
+/**
+ * A chart-sized block inside a card. Streaming boundaries want a fallback the
+ * same height as what replaces it — a short placeholder swapping for a tall
+ * chart reflows the page under a thumb that is already scrolling.
+ */
+export function SkeletonChartCard({
+  height = "11rem",
+  label = true,
+}: {
+  height?: string;
+  label?: boolean;
+}) {
+  return (
+    <div>
+      {label && <Skeleton className="mb-2 ml-1 h-3 w-24" />}
+      <div className="border-hairline bg-surface-1 rounded-card border px-4 py-4">
+        <Skeleton className="w-full rounded-[12px]" style={{ height }} />
+      </div>
+    </div>
+  );
+}
+
+/** The one hero figure a stats-shaped screen leads with. */
+export function SkeletonStatHero() {
+  return (
+    <div className="border-hairline bg-surface-1 rounded-card border px-4 py-5">
+      <Skeleton className="h-3 w-28" />
+      <Skeleton className="mt-2 h-11 w-3/5 rounded-xl" />
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-2.5 w-1/2" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Segmented-control placeholder, for tabbed panels that stream their body. */
+export function SkeletonSegmented() {
+  return <Skeleton className="h-9 w-full rounded-[12px]" />;
+}
+
 export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   return (
     <div className="border-hairline bg-surface-1 rounded-card divide-hairline divide-y border">

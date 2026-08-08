@@ -546,6 +546,12 @@ try {
   const workoutRes = await b.page.goto(`${BASE}/workout/${workoutId}`, {
     waitUntil: "domcontentloaded",
   });
+  // Status, not content: this is the one route asserted on the response code
+  // itself. That makes it sensitive to streaming — giving `/workout/[id]` a
+  // `loading.tsx` flips this to 200, because the shell is sent before
+  // `notFound()` has run. The page still refuses to render a stranger's
+  // session, but a 200 for someone else's live workout is the wrong thing to
+  // put on the wire, so that route deliberately has no loading file.
   check(
     "another user's live workout is not readable",
     workoutRes.status() === 404,
@@ -647,6 +653,47 @@ try {
       `${name} refuses another user's exercise`,
       ran && refused,
       ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // Quick-log takes a caller-supplied exercise id and writes a workout, a
+  // workout_exercise, a set and a records recalculation off the back of it —
+  // the one write path in the app that creates its own session. Fired at A's
+  // private custom exercise it must refuse; and `undoQuickLogSet` takes a set
+  // id, so it needs the same owner scope in the other direction.
+  const quickLogActions = actionIdsFromManifest("src/lib/actions/quick-log.ts", [
+    "quickLogSet",
+    "undoQuickLogSet",
+  ]);
+  requireFixture(
+    quickLogActions.size === 2,
+    `expected 2 quick-log action ids in the dev manifest, found ${quickLogActions.size}`,
+  );
+  {
+    const res = await postAction(
+      b.page,
+      `${BASE}/exercises`,
+      quickLogActions.get("quickLogSet"),
+      [{ exerciseId: customId, weightKg: 100, reps: 5 }],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    const refused = /Exercise not found|Not signed in/.test(res.body);
+    check(
+      "quickLogSet refuses another user's custom exercise",
+      ran && refused,
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+
+    // Out-of-range values are rejected before anything is written.
+    const bad = await postAction(
+      b.page,
+      `${BASE}/exercises`,
+      quickLogActions.get("quickLogSet"),
+      [{ exerciseId: customId, weightKg: 99999, reps: -3 }],
+    );
+    check(
+      "quickLogSet rejects out-of-range values",
+      /Invalid set values|Exercise not found/.test(bad.body),
     );
   }
 

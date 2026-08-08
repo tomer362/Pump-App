@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -40,9 +41,6 @@ import {
 } from "./set-row";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
-import { ExercisePicker } from "./exercise-picker";
-import { PlateCalculator } from "./plate-calculator";
-import { IntervalRunner } from "./interval-runner";
 import { FinishSheet } from "./finish-sheet";
 import { CoopStrip } from "./coop-strip";
 import type { CoopSnapshot } from "@/lib/actions/coop";
@@ -67,6 +65,19 @@ import { setCoopResting } from "@/lib/actions/coop";
 import type { FullWorkout } from "@/lib/queries/workout";
 import { cn, estimate1RM, formatDuration, formatWeight, haptic } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
+import { DUR, EASE_OUT_QUART, REDUCED, SPRING } from "@/lib/motion";
+
+// All three open from a tap and none of them is on screen when the workout
+// mounts — the one screen where the first paint is a sweaty thumb waiting.
+const ExercisePicker = dynamic(() =>
+  import("./exercise-picker").then((m) => m.ExercisePicker),
+);
+const PlateCalculator = dynamic(() =>
+  import("./plate-calculator").then((m) => m.PlateCalculator),
+);
+const IntervalRunner = dynamic(() =>
+  import("./interval-runner").then((m) => m.IntervalRunner),
+);
 
 type ExerciseDraft = FullWorkout["exercises"][number] & { sets: never };
 
@@ -76,8 +87,8 @@ type ExerciseDraft = FullWorkout["exercises"][number] & { sets: never };
  * makes the table below it bounce. 200 ms is the house speed for the routine.
  */
 const LIST_TRANSITION = {
-  duration: 0.2,
-  ease: [0.25, 1, 0.5, 1],
+  duration: DUR.base,
+  ease: EASE_OUT_QUART,
 } as const;
 
 type Block = {
@@ -1033,7 +1044,7 @@ export function WorkoutScreen({
               initial={{ y: 28, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 28, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 420, damping: 36 }}
+              transition={reduce ? REDUCED : SPRING.snappy}
               className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 mb-safe"
             >
               <button
@@ -1545,7 +1556,7 @@ function PrBurst() {
       initial={{ opacity: 0, scale: 0.8, x: 8 }}
       animate={{ opacity: 1, scale: 1, x: 0 }}
       exit={{ opacity: 0, scale: 0.9 }}
-      transition={{ type: "spring", stiffness: 500, damping: 24 }}
+      transition={SPRING.pop}
       className="pointer-events-none absolute top-1/2 right-14 z-10 -translate-y-1/2"
     >
       <span className="bg-pr flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-black tracking-[0.06em] text-black uppercase">

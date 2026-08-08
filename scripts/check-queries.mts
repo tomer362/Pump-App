@@ -140,6 +140,7 @@ const cases: [string, () => Promise<unknown>][] = [
   ["exercise.getExerciseSessionSeries", () => exerciseQ.getExerciseSessionSeries(uid, eid)],
   ["exercise.getExerciseRepMaxes", () => exerciseQ.getExerciseRepMaxes(uid, eid)],
   ["exercise.getExerciseSummary", () => exerciseQ.getExerciseSummary(uid, eid)],
+  ["exercise.getLastLoggedSet", () => exerciseQ.getLastLoggedSet(uid, eid)],
   altCase,
   [
     "exercise.getReplacementSuggestions",

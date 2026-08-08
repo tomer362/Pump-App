@@ -20,7 +20,7 @@ import type {
   ExerciseSummary,
   RepMax,
 } from "@/lib/queries/exercise";
-import { formatDayLabel, formatVolume, formatWeight, labelize } from "@/lib/utils";
+import { cn, formatDayLabel, formatVolume, formatWeight, labelize } from "@/lib/utils";
 
 type Tab = "about" | "history" | "charts" | "records";
 
@@ -55,16 +55,18 @@ export type ExerciseDetailData = {
 export function ExerciseDetailTabs({
   data,
   unit,
+  className,
 }: {
   data: ExerciseDetailData;
   unit: "kg" | "lb";
+  className?: string;
 }) {
   const [tab, setTab] = useState<Tab>(
     data.summary.sessions > 0 ? "charts" : "about",
   );
 
   return (
-    <div className="space-y-5">
+    <div className={cn("space-y-5", className)}>
       <Segmented value={tab} onChange={setTab} options={TABS} />
 
       {tab === "about" && <About data={data} />}

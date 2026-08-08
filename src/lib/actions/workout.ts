@@ -21,6 +21,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
+import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { estimate1RM } from "@/lib/utils";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
@@ -842,18 +843,6 @@ export type FinishSummary = {
 export type UnfinishedSetsMode = "delete" | "complete" | "keep";
 
 /**
- * A planned set only becomes a real one if it actually records something.
- * Promoting an empty row would write a 0×0 set into the log.
- */
-function recordsSomething(s: {
-  reps: number | null;
-  seconds: number | null;
-  distanceM: number | null;
-}) {
-  return (s.reps ?? 0) > 0 || (s.seconds ?? 0) > 0 || (s.distanceM ?? 0) > 0;
-}
-
-/**
  * Close out the workout: settle unticked sets, roll up totals, detect records,
  * grant achievements and publish to the feed. Everything the celebration
  * screen needs comes back in one payload so it can animate immediately.
@@ -918,12 +907,9 @@ export async function finishWorkout(
   }
 
   // Warm-ups are excluded from volume — counting them inflates every stat.
+  // `sumSetTotals` owns that rule; quick-log writes the same counters.
   const scoring = completed.filter((s) => s.setType !== "warmup");
-  const totalVolumeKg = scoring.reduce(
-    (sum, s) => sum + (s.weightKg ?? 0) * (s.reps ?? 0),
-    0,
-  );
-  const totalReps = scoring.reduce((sum, s) => sum + (s.reps ?? 0), 0);
+  const { totalVolumeKg, totalReps } = sumSetTotals(completed);
 
   const byWe = new Map(wes.map((r) => [r.id, r]));
   const prs: FinishSummary["prs"] = [];

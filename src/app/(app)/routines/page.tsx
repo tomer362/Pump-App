@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { ListChecks, Plus, Upload, Users } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import { EmptyState, SectionTitle, Avatar } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { MyRoutines } from "@/components/routine/my-routines";
@@ -52,11 +54,23 @@ export default async function RoutinesPage({
 
       <div className="px-safe-4 pb-8">
         <RoutinesTabs active={discover ? "discover" : "mine"} sort={sort} />
-        {discover ? (
-          <DiscoverPanel userId={me.id} sort={sort} />
-        ) : (
-          <MinePanel userId={me.id} />
-        )}
+        {/* The segmented control and the nav bar paint immediately; only the
+            list waits on its queries. Keyed on the tab so switching shows the
+            skeleton rather than the previous tab's rows. */}
+        <Suspense
+          key={discover ? "discover" : "mine"}
+          fallback={
+            <div className="mt-4">
+              <SkeletonRows rows={4} />
+            </div>
+          }
+        >
+          {discover ? (
+            <DiscoverPanel userId={me.id} sort={sort} />
+          ) : (
+            <MinePanel userId={me.id} />
+          )}
+        </Suspense>
       </div>
     </div>
   );

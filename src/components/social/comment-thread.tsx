@@ -9,6 +9,8 @@ import { TimeAgo } from "@/components/ui/time-ago";
 import { addComment, deleteComment } from "@/lib/actions/social";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { cn, haptic } from "@/lib/utils";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
+import { REDUCED } from "@/lib/motion";
 
 /** Height of the fixed tab bar, plus the iPhone home indicator. */
 const TAB_BAR_OFFSET = "calc(52px + env(safe-area-inset-bottom, 0px))";
@@ -37,6 +39,7 @@ export function CommentThread({
   currentUserName: string;
   currentUserImage: string | null;
 }) {
+  const { enabled } = useMotionPreset();
   const [, startTransition] = useTransition();
   const [body, setBody] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
@@ -88,9 +91,9 @@ export function CommentThread({
           {roots.map((c) => (
             <motion.div
               key={c.id}
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: enabled ? 6 : 0 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22 }}
+              transition={enabled ? { duration: 0.22 } : REDUCED}
             >
               <CommentRow
                 comment={c}

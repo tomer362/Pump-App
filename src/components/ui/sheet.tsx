@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn, haptic } from "@/lib/utils";
+import { SPRING } from "@/lib/motion";
 
 /**
  * Bottom sheet with drag-to-dismiss, the dominant modal pattern on phones —
@@ -173,7 +174,7 @@ export function Sheet({
             transition={
               reduce
                 ? { duration: 0.15 }
-                : { type: "spring", stiffness: 420, damping: 38, mass: 0.9 }
+                : SPRING.sheet
             }
             drag={reduce || !dragToDismiss ? false : "y"}
             dragConstraints={{ top: 0, bottom: 0 }}

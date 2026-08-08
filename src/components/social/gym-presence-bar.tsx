@@ -12,6 +12,7 @@ import { checkInAtGym, checkOut } from "@/lib/actions/social";
 import type { PresenceEntry } from "@/lib/queries/social";
 import { TimeAgo } from "@/components/ui/time-ago";
 import { cn, haptic } from "@/lib/utils";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 const DURATIONS = [45, 60, 90, 120];
 
@@ -29,6 +30,7 @@ export function GymPresenceBar({
   checkedIn: boolean;
   homeGymName: string | null;
 }) {
+  const { enabled } = useMotionPreset();
   const [sheet, setSheet] = useState(false);
   const [note, setNote] = useState("");
   const [minutes, setMinutes] = useState(90);
@@ -90,9 +92,9 @@ export function GymPresenceBar({
         <AnimatePresence initial={false}>
           {friends.length > 0 && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
+              initial={enabled ? { height: 0, opacity: 0 } : { opacity: 0 }}
+              animate={enabled ? { height: "auto", opacity: 1 } : { opacity: 1 }}
+              exit={enabled ? { height: 0, opacity: 0 } : { opacity: 0 }}
               className="overflow-hidden"
             >
               <div className="flex gap-3 overflow-x-auto px-4 pt-1 pb-3.5 scrollbar-none">

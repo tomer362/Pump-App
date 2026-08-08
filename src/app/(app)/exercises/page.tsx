@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { BarChart3 } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { ExerciseBrowser } from "@/components/exercise/exercise-browser";
 import { requireUser } from "@/lib/session";
@@ -14,8 +16,21 @@ export default async function ExercisesPage() {
   const initial = { ...page, recent };
   return (
     <div className="pb-8">
-      <NavBar title="Exercises" back="/profile" />
-      <ExerciseBrowser initial={initial} />
+      {/* A tab root, so no back arrow. Whole-body stats live one tap away
+          rather than in a tab of their own. */}
+      <NavBar
+        title="Exercises"
+        right={
+          <Link
+            href="/stats"
+            aria-label="Stats"
+            className="press tap text-text-2 grid place-items-center px-2"
+          >
+            <BarChart3 className="size-[22px]" strokeWidth={2.2} />
+          </Link>
+        }
+      />
+      <ExerciseBrowser initial={initial} unit={me.unit} />
     </div>
   );
 }

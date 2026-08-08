@@ -1,17 +1,28 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, FolderInput, Pencil, Percent, Play, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { LoadPickerSheet } from "@/components/workout/load-picker";
-import { MoveToFolderSheet } from "@/components/routine/move-to-folder-sheet";
-import { ShareRoutineSheet } from "@/components/routine/routine-transfer-sheets";
 import { copyRoutine, deleteRoutine } from "@/lib/actions/routine";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
 import type { FolderListItem } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
+
+// Behind a gesture, so it stays out of the initial payload.
+const MoveToFolderSheet = dynamic(() =>
+  import("@/components/routine/move-to-folder-sheet").then(
+    (m) => m.MoveToFolderSheet,
+  ),
+);
+const ShareRoutineSheet = dynamic(() =>
+  import("@/components/routine/routine-transfer-sheets").then(
+    (m) => m.ShareRoutineSheet,
+  ),
+);
 
 export function RoutineActions({
   routineId,

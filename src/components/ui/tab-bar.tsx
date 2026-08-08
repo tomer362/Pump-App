@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Dumbbell, Home, ListChecks, User, BarChart3 } from "lucide-react";
+import { Dumbbell, Home, ListChecks, User, LibraryBig } from "lucide-react";
+import { useLinkPending } from "./route-progress";
 import { cn, haptic } from "@/lib/utils";
 
 const TABS = [
   { href: "/feed", label: "Feed", icon: Home },
   { href: "/routines", label: "Routines", icon: ListChecks },
   { href: "/start", label: "Start", icon: Dumbbell, primary: true },
-  { href: "/stats", label: "Stats", icon: BarChart3 },
+  // Exercises, not Stats. The library is where a lifter actually goes between
+  // sessions — to check what they lifted last time, or to log one set — while
+  // /stats was a hallway whose bottom two rows linked here and to /history.
+  // Stats keeps its own route, reached from this tab's nav bar.
+  { href: "/exercises", label: "Exercises", icon: LibraryBig },
   { href: "/profile", label: "You", icon: User },
 ] as const;
 
@@ -30,13 +35,10 @@ export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
             <li key={href} className="flex-1">
               <Link
                 href={href}
+                prefetch
                 onClick={() => haptic.light()}
                 aria-current={active ? "page" : undefined}
-                className={cn(
-                  "press relative flex h-[52px] flex-col items-center justify-center gap-[3px]",
-                  "text-[10px] font-medium tracking-[0.01em]",
-                  active ? "text-volt" : "text-text-3",
-                )}
+                className="press relative flex h-[52px] flex-col items-center justify-center gap-[3px] text-[10px] font-medium tracking-[0.01em]"
               >
                 {/* Unread marker lives on the profile tab, which is where the
                     inbox is reached from. A dot, not a number: the exact count
@@ -47,30 +49,62 @@ export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
                     className="bg-volt ring-bg absolute top-1.5 right-[calc(50%-16px)] size-2 rounded-full ring-2"
                   />
                 )}
-                {primary ? (
-                  <span
-                    className={cn(
-                      "grid size-8 place-items-center rounded-[10px] transition-colors",
-                      active
-                        ? "bg-volt text-black"
-                        : "bg-surface-2 text-text-1",
-                    )}
-                  >
-                    <Icon className="size-[18px]" strokeWidth={2.4} />
-                  </span>
-                ) : (
-                  <Icon
-                    className="size-[22px]"
-                    strokeWidth={active ? 2.4 : 2}
-                  />
-                )}
-                <span className={primary ? "sr-only" : undefined}>{label}</span>
+                <TabContent
+                  active={active}
+                  primary={!!primary}
+                  Icon={Icon}
+                  label={label}
+                />
               </Link>
             </li>
           );
         })}
       </ul>
     </nav>
+  );
+}
+
+/**
+ * The tab's contents, split out so it can read `useLinkStatus` from inside the
+ * `<Link>`. A tab that is being navigated to goes volt on the tap rather than
+ * when the server answers — on a dynamic route that gap was the whole reason a
+ * tab press felt ignored. It also feeds the route rail.
+ */
+function TabContent({
+  active,
+  primary,
+  Icon,
+  label,
+}: {
+  active: boolean;
+  primary: boolean;
+  Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  label: string;
+}) {
+  const pending = useLinkPending();
+  const lit = active || pending;
+
+  return (
+    <span
+      className={cn(
+        "flex flex-col items-center gap-[3px] transition-colors duration-150",
+        lit ? "text-volt" : "text-text-3",
+      )}
+    >
+      {primary ? (
+        <span
+          className={cn(
+            "grid size-8 place-items-center rounded-[10px] transition-colors",
+            lit ? "bg-volt text-black" : "bg-surface-2 text-text-1",
+          )}
+        >
+          <Icon className="size-[18px]" strokeWidth={2.4} />
+        </span>
+      ) : (
+        <Icon className="size-[22px]" strokeWidth={lit ? 2.4 : 2} />
+      )}
+      <span className={primary ? "sr-only" : undefined}>{label}</span>
+    </span>
   );
 }
 

@@ -39,6 +39,11 @@ Translated from the original Hebrew note; all of it is implemented.
 | 15 | Run a routine at ±% load (deload) | `workout.loadMultiplier`, `/start` percent picker |
 | 16 | Co-op session | `/coop`, `lib/actions/coop.ts` |
 | 17 | Weekly per-muscle volume | `getMuscleVolume`, `components/stats/muscle-volume-chart.tsx` |
+| 18 | Quick-log a set outside a workout | `lib/actions/quick-log.ts`, `components/exercise/quick-log-{dock,sheet}.tsx` |
+
+Exercises is the fourth tab; **Stats** is a button in its nav bar, plus a row on
+the profile. The library and the per-exercise page (charts, rep maxes, records)
+are the between-sessions surface, and quick-log lives on it.
 
 ---
 
@@ -179,9 +184,12 @@ thresholds on a live position, and an observer's numbers are stale between
 threshold crossings.
 
 **Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
-area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill`) or
-sit above it (`CommentThread` composer, `z-50`). The active workout screen lives
-**outside** the `(app)` group so it has no tab bar at all.
+area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill` at
+`bottom-[52px]`) or sit above it (`CommentThread` composer, `z-50`). The
+exercise page's `QuickLogDock` clears *both*: `bottom-[52px]` normally, and
+`108px` when a workout is running so it stacks on top of the pill rather than
+under it. The active workout screen lives **outside** the `(app)` group so it
+has no tab bar at all.
 
 **Dense screens are solid, not translucent.** `glass` is for browsing chrome.
 The workout and routine-builder headers use `bg-bg` — a device that fails to
@@ -213,6 +221,31 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 
 - **Weights are always stored in kilograms.** `user.unit` is a display
   preference; convert at the edge with `formatWeight`/`lbToKg`.
+- **A quick-logged set lives in a workout that was inserted already ended.**
+  Nothing counts until a workout is finished — every stats and records query
+  filters `ended_at IS NOT NULL` — so `quickLogSet` writes a `workout` whose
+  `endedAt` is set at insert. That is safe against `workout_one_active_idx`
+  because the unique index is scoped `WHERE ended_at IS NULL`: a quick log is
+  never *active*, so it neither blocks nor is blocked by a real session.
+  Consecutive logs reuse the same row for 12 rolling hours (not a calendar day
+  — `started_at` is timezone-naive and the user's midnight is unknown). The
+  session is identified by `workout.kind`, never by its name: `name` is
+  user-editable through `updateWorkoutMeta`, so a rename would silently fork a
+  second session. Records go through `recalculatePersonalRecords`, which also
+  owns `workout.pr_count` — quick-log must not write that column itself.
+- **`finishWorkout` and quick-log both write the denormalised counters**, so
+  "what scores" (ticked, not a warm-up) lives once in `lib/workout-totals.ts`
+  and is asserted in `tests/workout-totals.test.ts`.
+- **`/workout/[id]` deliberately has no `loading.tsx`.** A loading file makes
+  Next stream a 200 shell before `notFound()` runs, and `check-authz` asserts
+  that someone else's live workout answers 404 on the wire, not just in the
+  rendered output. Every other route has one — and needs one, because
+  prefetching a dynamic route fetches the loading shell and nothing else.
+- **Motion constants live in `lib/motion.ts`; reduced motion comes from
+  `useMotionPreset()`.** The `prefers-reduced-motion` block in `globals.css`
+  zeroes CSS transitions and animations only — it cannot reach a JS-driven
+  transform, which is what `motion` animates. A `motion.*` component that
+  doesn't consult the hook ignores the setting entirely.
 - Estimated 1RM is **Epley** (`w × (1 + r/30)`), cached on `workout_set.estimated1rm` so PR detection is one comparison.
 - Warm-up sets are excluded from volume, records and muscle-volume counts.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.

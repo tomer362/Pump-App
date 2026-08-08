@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 import { Heart } from "lucide-react";
 import { toggleRoutineLike } from "@/lib/actions/routine-social";
 import { cn, haptic } from "@/lib/utils";
+import { ENTER, REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 /**
  * Optimistic, then reconciled from the server's count — the same shape the feed
@@ -22,6 +24,7 @@ export function RoutineLikeButton({
   initialCount: number;
   size?: "sm" | "md";
 }) {
+  const { enabled } = useMotionPreset();
   const [liked, setLiked] = useState(initialLiked);
   const [count, setCount] = useState(initialCount);
   const [burst, setBurst] = useState(0);
@@ -64,8 +67,12 @@ export function RoutineLikeButton({
     >
       <motion.span
         key={burst}
-        animate={liked && burst > 0 ? { scale: [1, 1.35, 0.92, 1] } : { scale: 1 }}
-        transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+        animate={
+          enabled && liked && burst > 0
+            ? { scale: [1, 1.35, 0.92, 1] }
+            : { scale: 1 }
+        }
+        transition={enabled ? ENTER : REDUCED}
         className="inline-flex"
       >
         <Heart

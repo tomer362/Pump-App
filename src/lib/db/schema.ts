@@ -403,6 +403,9 @@ export const routineSet = pgTable(
    Workouts (sessions)
    ========================================================================== */
 
+export const WORKOUT_KINDS = ["session", "quick_log"] as const;
+export type WorkoutKind = (typeof WORKOUT_KINDS)[number];
+
 export const workout = pgTable(
   "workout",
   {
@@ -415,6 +418,12 @@ export const workout = pgTable(
     }),
     gymId: uuid("gym_id"),
     name: text("name").notNull(),
+    // How this workout came to exist. A quick-logged set lands in a session
+    // that was never "started" — it is inserted already ended. This is a
+    // column rather than a marker in `name` because `name` is user-editable
+    // through `updateWorkoutMeta`: renaming a quick-log session would silently
+    // fork a second one, and history could no longer label the row honestly.
+    kind: text("kind", { enum: WORKOUT_KINDS }).default("session").notNull(),
     note: text("note"),
     photoUrl: text("photo_url"),
     startedAt: timestamp("started_at").defaultNow().notNull(),
@@ -433,6 +442,8 @@ export const workout = pgTable(
   (t) => [
     index("workout_user_started_idx").on(t.userId, t.startedAt),
     index("workout_active_idx").on(t.userId, t.endedAt),
+    // Quick-log looks up "my open quick-log session" on every logged set.
+    index("workout_user_kind_started_idx").on(t.userId, t.kind, t.startedAt),
     // Enforces "at most one unfinished workout per user" in the database.
     // Every start path is a check-then-insert, so without this a double-tap
     // can create a second active workout that the UI then hides — and which

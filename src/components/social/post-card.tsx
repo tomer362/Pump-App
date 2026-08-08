@@ -10,6 +10,8 @@ import { toggleLike } from "@/lib/actions/social";
 import type { FeedItem } from "@/lib/queries/social";
 import { TimeAgo } from "@/components/ui/time-ago";
 import { cn, formatDurationLong, formatVolume, haptic } from "@/lib/utils";
+import { ENTER, REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 export function PostCard({
   item,
@@ -18,6 +20,7 @@ export function PostCard({
   item: FeedItem;
   unit: "kg" | "lb";
 }) {
+  const { enabled } = useMotionPreset();
   const [liked, setLiked] = useState(item.likedByMe);
   const [likeCount, setLikeCount] = useState(item.likeCount);
   const [, startTransition] = useTransition();
@@ -141,7 +144,7 @@ export function PostCard({
                 ? { scale: [1, 1.35, 0.92, 1] }
                 : { scale: 1 }
             }
-            transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+            transition={enabled ? ENTER : REDUCED}
             className="inline-flex"
           >
             <Heart

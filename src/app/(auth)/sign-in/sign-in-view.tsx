@@ -6,6 +6,8 @@ import { Wordmark } from "@/components/wordmark";
 import { Button } from "@/components/ui/button";
 import { signInWithGoogle } from "@/lib/auth-client";
 import { GoogleMark } from "@/components/google-mark";
+import { DUR, EASE_OUT_QUART, REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 const LINES = [
   "Log every set in one tap.",
@@ -14,6 +16,7 @@ const LINES = [
 ];
 
 export function SignInView() {
+  const { enabled } = useMotionPreset();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +46,11 @@ export function SignInView() {
 
       <div className="relative flex flex-1 flex-col justify-center">
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: enabled ? 12 : 0 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.25, 1, 0.5, 1] }}
+          transition={
+            enabled ? { duration: 0.5, ease: EASE_OUT_QUART } : REDUCED
+          }
           className="flex flex-col items-center text-center"
         >
           <Wordmark size={52} />
@@ -62,13 +67,17 @@ export function SignInView() {
             {LINES.map((line, i) => (
               <motion.li
                 key={line}
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: enabled ? 6 : 0 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  delay: 0.18 + i * 0.08,
-                  duration: 0.4,
-                  ease: [0.25, 1, 0.5, 1],
-                }}
+                transition={
+                  enabled
+                    ? {
+                        delay: 0.18 + i * 0.08,
+                        duration: DUR.slow,
+                        ease: EASE_OUT_QUART,
+                      }
+                    : REDUCED
+                }
                 className="text-text-2 flex items-center gap-2.5 text-[15px]"
               >
                 <span className="bg-volt size-1.5 shrink-0 rounded-full" />
@@ -81,9 +90,13 @@ export function SignInView() {
 
       {/* Sign-in lives in the thumb zone, not centred in the page. */}
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: enabled ? 16 : 0 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.34, duration: 0.45, ease: [0.25, 1, 0.5, 1] }}
+        transition={
+          enabled
+            ? { delay: 0.34, duration: 0.45, ease: EASE_OUT_QUART }
+            : REDUCED
+        }
         className="relative pb-8"
       >
         {error && (

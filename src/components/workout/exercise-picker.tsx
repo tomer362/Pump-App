@@ -11,6 +11,11 @@ import {
   ImportedReveal,
   importedRevealState,
 } from "@/components/exercise/imported-reveal";
+// Statically imported: `use-exercise-batches` — which this component always
+// uses — already pulls this module in, so deferring it saved nothing, and as a
+// lazy import nested inside a lazily-loaded component it asked for a chunk the
+// bundler had not emitted.
+import { getReplacementSuggestionsAction } from "@/lib/actions/exercise-search";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
@@ -83,11 +88,9 @@ export function ExercisePicker({
   useEffect(() => {
     if (!replacingId) return;
     let live = true;
-    import("@/lib/actions/exercise-search")
-      .then((m) => m.getReplacementSuggestionsAction(replacingId))
-      .then((items) => {
-        if (live) setSuggestions({ for: replacingId, items });
-      });
+    getReplacementSuggestionsAction(replacingId).then((items) => {
+      if (live) setSuggestions({ for: replacingId, items });
+    });
     return () => {
       live = false;
     };

@@ -139,6 +139,30 @@ try {
   await page.waitForTimeout(500);
   await shot(page, "feed-with-post");
 
+  log("→ Exercises tab");
+  await page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
+  await shot(page, "exercises");
+
+  // The docked quick-log bar has to clear the tab bar and the home indicator,
+  // and the sheet has to survive the keyboard — both are only visible here.
+  log("→ Exercise detail and quick-log");
+  const first = await page
+    .locator('a[href^="/exercises/"]')
+    .first()
+    .getAttribute("href");
+  await page.goto(`${BASE}${first}`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  await shot(page, "exercise-detail");
+  const logSet = page.getByRole("button", { name: /^Log a set$/ });
+  if (await logSet.count()) {
+    await logSet.click();
+    await page.waitForTimeout(600);
+    await shot(page, "quick-log-sheet");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+  }
+
   log("→ Stats");
   await page.goto(`${BASE}/stats`, { waitUntil: "networkidle" });
   await page.waitForTimeout(700);

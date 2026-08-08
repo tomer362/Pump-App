@@ -1,13 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Archive, ChevronRight, Loader2, Plus, Search, X } from "lucide-react";
 import { Badge, Card, Input, Segmented } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
-import { ExercisePicker } from "@/components/workout/exercise-picker";
 import { Chip } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
+import { QuickLogLauncher } from "@/components/exercise/quick-log-sheet";
 import {
   ImportedReveal,
   importedRevealState,
@@ -17,6 +18,11 @@ import type { ExerciseListItem, ExerciseScope } from "@/lib/queries/exercise";
 import { MUSCLES } from "@/lib/db/schema";
 import type { Muscle } from "@/lib/db/schema";
 import { labelize } from "@/lib/utils";
+
+// Behind a gesture, so it stays out of the initial payload.
+const ExercisePicker = dynamic(() =>
+  import("@/components/workout/exercise-picker").then((m) => m.ExercisePicker),
+);
 
 const SCOPES = [
   { value: "available" as const, label: "All" },
@@ -29,7 +35,13 @@ const SCOPES = [
 
 const MUSCLE_FILTERS = ["all", ...MUSCLES] as const;
 
-export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
+export function ExerciseBrowser({
+  initial,
+  unit,
+}: {
+  initial: ExerciseBatch;
+  unit: "kg" | "lb";
+}) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ExerciseScope>("available");
   const [muscle, setMuscle] = useState<Muscle | "all">("all");
@@ -49,6 +61,13 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
     const shown = new Set(recent.map((e) => e.id));
     return [...recent, ...rest.filter((e) => !shown.has(e.id))];
   }, [recent, rest]);
+
+  // The quick-log shortcut is offered on recently-trained rows only. Recent is
+  // "what you have actually done", so it is where a repeat log happens; hanging
+  // a control off all 249 built-ins would be 249 targets for a gesture almost
+  // nobody wants there.
+  const recentIds = useMemo(() => new Set(recent.map((e) => e.id)), [recent]);
+  const [quickLogFor, setQuickLogFor] = useState<ExerciseListItem | null>(null);
 
   return (
     <div className="px-4">
@@ -115,7 +134,17 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
                   : "No exercises match."}
           </p>
         ) : (
-          items.map((e) => <Row key={e.id} item={e} />)
+          items.map((e) => (
+            <Row
+              key={e.id}
+              item={e}
+              onQuickLog={
+                recentIds.has(e.id) && !e.isArchived
+                  ? () => setQuickLogFor(e)
+                  : undefined
+              }
+            />
+          ))
         )}
 
         {/* Last, so material the scope hides never pushes down material it
@@ -142,6 +171,14 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
         </div>
       )}
 
+      {quickLogFor && (
+        <QuickLogLauncher
+          exerciseId={quickLogFor.id}
+          unit={unit}
+          onClose={() => setQuickLogFor(null)}
+        />
+      )}
+
       {/* Reuses the picker's sheet, opened straight into the create form. */}
       <ExercisePicker
         startCreating
@@ -162,11 +199,17 @@ export function ExerciseBrowser({ initial }: { initial: ExerciseBatch }) {
   );
 }
 
-function Row({ item }: { item: ExerciseListItem }) {
-  return (
+function Row({
+  item,
+  onQuickLog,
+}: {
+  item: ExerciseListItem;
+  onQuickLog?: () => void;
+}) {
+  const link = (
     <Link
       href={`/exercises/${item.id}`}
-      className="press flex items-center gap-3 px-4 py-3"
+      className="press flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
     >
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-medium">{item.name}</p>
@@ -183,7 +226,24 @@ function Row({ item }: { item: ExerciseListItem }) {
       ) : (
         item.isCustom && <Badge>Custom</Badge>
       )}
-      <ChevronRight className="text-text-3 size-4 shrink-0" />
+      {!onQuickLog && <ChevronRight className="text-text-3 mr-4 size-4 shrink-0" />}
     </Link>
+  );
+
+  if (!onQuickLog) return link;
+
+  // A sibling of the link, never a child: a button inside an anchor is invalid
+  // and taps on it would still navigate.
+  return (
+    <div className="flex items-stretch">
+      {link}
+      <button
+        onClick={onQuickLog}
+        aria-label={`Log a set of ${item.name}`}
+        className="press tap text-volt grid w-12 shrink-0 place-items-center"
+      >
+        <Plus className="size-5" strokeWidth={2.8} />
+      </button>
+    </div>
   );
 }

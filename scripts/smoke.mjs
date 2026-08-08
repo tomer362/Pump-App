@@ -213,6 +213,9 @@ try {
   console.log("→ Exercise detail: reference content");
   await exerciseReference(a, problems);
 
+  console.log("→ Quick-log a set from the exercise page");
+  await quickLog(a, problems);
+
   console.log("→ Mid-workout: add an exercise, reorder, reload mid-rest");
   await coveredWorkoutPaths(b, problems);
 
@@ -280,6 +283,54 @@ async function exerciseReference(user, problems) {
   const status = res?.status() ?? 0;
   console.log(`  ${status < 400 ? "ok  " : "FAIL"} alternative ${altHref} (${status})`);
   if (status >= 400) problems.push(`alternative ${altHref} -> ${status}`);
+}
+
+/**
+ * Quick-log is the one write path that creates its own workout, and everything
+ * it claims — that the set counts straight away — depends on that workout being
+ * inserted already ended. A unit test proves the SQL; this proves the control
+ * exists, reaches the action, and that the number lands where the user is
+ * looking.
+ */
+async function quickLog(user, problems) {
+  const { page } = user;
+
+  await page.goto(`${BASE}/exercises`, { waitUntil: "networkidle" });
+  const href = await page
+    .locator('a[href^="/exercises/"]')
+    .first()
+    .getAttribute("href");
+  await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
+
+  const dock = page.getByRole("button", { name: /^Log a set$/ });
+  await dock.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+  if (!(await dock.count())) {
+    problems.push("exercise detail has no quick-log control");
+    return;
+  }
+  await dock.click();
+  await page.waitForTimeout(400);
+
+  await page.locator("#quick-log-weight").fill("77.5");
+  await page.locator("#quick-log-reps").fill("6");
+  await page.getByRole("button", { name: /^Log set$/ }).click();
+  await page.waitForTimeout(1500);
+
+  // The sheet echoes what it wrote, and offers to take it back.
+  const echoed = await page.getByText("77.5 kg × 6").count();
+  console.log(`  ${echoed ? "ok  " : "FAIL"} logged set echoed in the sheet`);
+  if (!echoed) problems.push("quick-logged set was not confirmed in the sheet");
+
+  const undo = page.getByRole("button", { name: /Undo this set/ }).first();
+  if (!(await undo.count())) {
+    problems.push("quick-logged set offers no undo");
+    return;
+  }
+  await undo.click();
+  await page.waitForTimeout(1200);
+  const stillThere = await page.getByText("77.5 kg × 6").count();
+  console.log(`  ${stillThere ? "FAIL" : "ok  "} undo removed the set`);
+  if (stillThere) problems.push("undo did not remove the quick-logged set");
 }
 
 /**
