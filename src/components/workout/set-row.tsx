@@ -12,6 +12,7 @@ import {
 import { Check, Trash2 } from "lucide-react";
 import { cn, formatWeight, haptic, kgToLb, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
+import { EASE_OUT_QUART } from "@/lib/motion";
 
 export type SetDraft = {
   id: string;
@@ -313,7 +314,7 @@ export function SetRow({
                 key={`ring-${pop}`}
                 initial={{ opacity: 0.85, scale: 0.7 }}
                 animate={{ opacity: 0, scale: 1.85 }}
-                transition={{ duration: 0.42, ease: [0.25, 1, 0.5, 1] }}
+                transition={{ duration: 0.42, ease: EASE_OUT_QUART }}
                 className="border-volt pointer-events-none absolute inset-0 rounded-[10px] border-2"
               />
             )}

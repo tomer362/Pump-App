@@ -6,6 +6,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { ChevronRight } from "lucide-react";
 import { Elapsed } from "@/components/ui/elapsed";
 import type { ActiveWorkoutSummary } from "@/lib/queries/workout";
+import { SPRING } from "@/lib/motion";
+import { REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 /**
  * Persistent "you have a workout running" bar. Sits directly above the tab bar
@@ -17,6 +20,7 @@ export function ActiveWorkoutPill({
   workout: ActiveWorkoutSummary;
 }) {
   const pathname = usePathname();
+  const { enabled } = useMotionPreset();
 
   // Redundant while you're already looking at the workout.
   const onWorkoutScreen = pathname.startsWith("/workout/");
@@ -25,10 +29,10 @@ export function ActiveWorkoutPill({
     <AnimatePresence>
       {!onWorkoutScreen && (
         <motion.div
-          initial={{ y: 60, opacity: 0 }}
+          initial={enabled ? { y: 60, opacity: 0 } : { opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 60, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 400, damping: 34 }}
+          exit={enabled ? { y: 60, opacity: 0 } : { opacity: 0 }}
+          transition={enabled ? SPRING.snappy : REDUCED}
           className="fixed inset-x-0 bottom-[52px] z-40 mb-safe px-3 pb-2"
         >
           <Link

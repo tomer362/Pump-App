@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
@@ -15,7 +16,6 @@ import {
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Textarea, Segmented } from "@/components/ui/primitives";
-import { ExercisePicker } from "@/components/workout/exercise-picker";
 import {
   columnLabel,
   setColumns,
@@ -27,6 +27,11 @@ import { folderRail } from "@/lib/folder-color";
 import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
+
+// Behind a gesture, so it stays out of the initial payload.
+const ExercisePicker = dynamic(() =>
+  import("@/components/workout/exercise-picker").then((m) => m.ExercisePicker),
+);
 
 type DraftSet = {
   key: string;

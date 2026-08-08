@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Minus, Plus, X } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
+import { SPRING } from "@/lib/motion";
+import { REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 export type RestTimerState = {
   /** Wall-clock end time. Survives backgrounding; a counter would not. */
@@ -357,6 +360,7 @@ function RestTimerPanel({
 }) {
   const [expanded, setExpanded] = useState(false);
   const remaining = useRemaining();
+  const { enabled } = useMotionPreset();
 
   const progress = remaining / state.totalSeconds;
   const urgent = remaining > 0 && remaining <= 3;
@@ -368,10 +372,10 @@ function RestTimerPanel({
 
   return (
     <motion.div
-      initial={{ y: 80 }}
-      animate={{ y: 0 }}
-      exit={{ y: 80, opacity: 0 }}
-      transition={{ type: "spring", stiffness: 420, damping: 36 }}
+      initial={enabled ? { y: 80 } : { opacity: 0 }}
+      animate={enabled ? { y: 0 } : { opacity: 1 }}
+      exit={enabled ? { y: 80, opacity: 0 } : { opacity: 0 }}
+      transition={enabled ? SPRING.snappy : REDUCED}
       className="fixed inset-x-0 bottom-0 z-40"
     >
       <div className="mx-auto max-w-lg px-3 pb-3 mb-safe">

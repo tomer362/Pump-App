@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/primitives";
 import { AchievementIcon } from "@/components/achievement-icon";
 import type { FinishSummary } from "@/lib/actions/workout";
 import { formatDurationLong, formatWeight, haptic } from "@/lib/utils";
+import { EASE_OUT_QUART } from "@/lib/motion";
 
 /**
  * The pay-off screen. Sequence: checkmark strokes itself in → stats count up in
@@ -67,7 +68,7 @@ export function WorkoutCelebration({
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.55, duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+            transition={{ delay: 0.55, duration: 0.4, ease: EASE_OUT_QUART }}
             className="font-display mt-6 text-center text-[32px] leading-[1.05] font-extrabold tracking-[-0.03em]"
           >
             Workout complete
@@ -196,7 +197,7 @@ function DrawnCheck() {
         strokeWidth="3"
         initial={reduce ? {} : { pathLength: 0 }}
         animate={{ pathLength: 1 }}
-        transition={{ duration: 0.6, ease: [0.25, 1, 0.5, 1] }}
+        transition={{ duration: 0.6, ease: EASE_OUT_QUART }}
       />
       <motion.path
         d="M38 61 L53 76 L83 46"
@@ -207,7 +208,7 @@ function DrawnCheck() {
         strokeLinejoin="round"
         initial={reduce ? {} : { pathLength: 0 }}
         animate={{ pathLength: 1 }}
-        transition={{ delay: 0.28, duration: 0.38, ease: [0.25, 1, 0.5, 1] }}
+        transition={{ delay: 0.28, duration: 0.38, ease: EASE_OUT_QUART }}
       />
     </motion.svg>
   );
@@ -278,7 +279,7 @@ function CountStat({
     <motion.div
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+      transition={{ delay, duration: 0.4, ease: EASE_OUT_QUART }}
       className="border-hairline bg-surface-1 rounded-card border px-4 py-3"
     >
       <p className="text-text-3 text-[11px] font-semibold tracking-[0.06em] uppercase">

@@ -9,6 +9,8 @@ import { Input, Segmented } from "@/components/ui/primitives";
 import { Wordmark } from "@/components/wordmark";
 import { checkUsernameAvailable, completeOnboarding } from "@/lib/actions/user";
 import { cn } from "@/lib/utils";
+import { ENTER, REDUCED } from "@/lib/motion";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 const REST_PRESETS = [60, 90, 120, 180, 240];
 
@@ -19,6 +21,7 @@ export function OnboardingView({
   defaultName: string;
   suggestedUsername: string;
 }) {
+  const { enabled } = useMotionPreset();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(defaultName);
@@ -89,9 +92,9 @@ export function OnboardingView({
       <div className="flex-1 pt-10">
         <Wordmark size={24} className="opacity-60" />
         <motion.h1
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: enabled ? 10 : 0 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+          transition={enabled ? ENTER : REDUCED}
           className="font-display mt-6 text-[32px] leading-[1.05] font-extrabold tracking-[-0.03em]"
         >
           Set up your profile

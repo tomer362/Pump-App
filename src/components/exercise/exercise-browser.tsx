@@ -1,11 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Archive, ChevronRight, Loader2, Plus, Search, X } from "lucide-react";
 import { Badge, Card, Input, Segmented } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
-import { ExercisePicker } from "@/components/workout/exercise-picker";
 import { Chip } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
 import { QuickLogLauncher } from "@/components/exercise/quick-log-sheet";
@@ -18,6 +18,11 @@ import type { ExerciseListItem, ExerciseScope } from "@/lib/queries/exercise";
 import { MUSCLES } from "@/lib/db/schema";
 import type { Muscle } from "@/lib/db/schema";
 import { labelize } from "@/lib/utils";
+
+// Behind a gesture, so it stays out of the initial payload.
+const ExercisePicker = dynamic(() =>
+  import("@/components/workout/exercise-picker").then((m) => m.ExercisePicker),
+);
 
 const SCOPES = [
   { value: "available" as const, label: "All" },

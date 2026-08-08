@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/coop";
 import { Elapsed } from "@/components/ui/elapsed";
 import { cn, formatDuration, formatVolume, haptic } from "@/lib/utils";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 const POLL_MS = 3000;
 
@@ -199,6 +200,7 @@ function ParticipantCard({
   isMe: boolean;
   unit: "kg" | "lb";
 }) {
+  const { enabled } = useMotionPreset();
   const finished = p.endedAt != null;
   // A finished lifter shows their final duration, not a clock that ticks
   // forever — <Elapsed> is only mounted while they're still training.
@@ -258,7 +260,7 @@ function ParticipantCard({
 
       {!finished && restingLeft !== null && (
         <motion.span
-          initial={{ opacity: 0, scale: 0.9 }}
+          initial={{ opacity: 0, scale: enabled ? 0.9 : 1 }}
           animate={{ opacity: 1, scale: 1 }}
           className="bg-volt-fade text-volt num shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold"
         >

@@ -15,6 +15,7 @@ import {
 } from "@/lib/actions/social";
 import type { PersonCard } from "@/lib/queries/social";
 import { cn, haptic } from "@/lib/utils";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 export function PersonRow({
   person,
@@ -201,6 +202,23 @@ export function PersonRow({
  * keep scrolling through it.
  */
 function FriendSnap({ person }: { person: PersonCard }) {
+  // The one animation in the app built entirely out of travel, so reduced
+  // motion doesn't just shorten it — the avatars stop moving and only the
+  // confirmation fades in.
+  const { enabled, spring } = useMotionPreset();
+  const fly = (from: number, to: number) =>
+    enabled
+      ? {
+          initial: { x: from, opacity: 0, scale: 0.7 },
+          animate: { x: to, opacity: 1, scale: 1 },
+          transition: { ...spring.snap, delay: 0.05 },
+        }
+      : {
+          initial: { opacity: 0 },
+          animate: { x: to, opacity: 1 },
+          transition: spring.snap,
+        };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -208,17 +226,11 @@ function FriendSnap({ person }: { person: PersonCard }) {
       exit={{ opacity: 0 }}
       className="bg-bg/92 pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-0"
     >
-      <motion.span
-        initial={{ x: -46, opacity: 0, scale: 0.7 }}
-        animate={{ x: 6, opacity: 1, scale: 1 }}
-        transition={{ type: "spring", stiffness: 420, damping: 18, delay: 0.05 }}
-      >
+      <motion.span {...fly(-46, 6)}>
         <Avatar name={person.name} src={person.image} size="md" />
       </motion.span>
       <motion.span
-        initial={{ x: 46, opacity: 0, scale: 0.7 }}
-        animate={{ x: -6, opacity: 1, scale: 1 }}
-        transition={{ type: "spring", stiffness: 420, damping: 18, delay: 0.05 }}
+        {...fly(46, -6)}
         className="ring-bg rounded-full ring-2"
       >
         <span className="bg-volt grid size-10 place-items-center rounded-full text-black">
@@ -226,9 +238,9 @@ function FriendSnap({ person }: { person: PersonCard }) {
         </span>
       </motion.span>
       <motion.span
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: enabled ? 6 : 0 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: enabled ? 0.3 : 0 }}
         className="text-volt ml-3 text-[13px] font-bold"
       >
         Friends

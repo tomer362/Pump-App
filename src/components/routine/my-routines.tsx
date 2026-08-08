@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -13,14 +14,20 @@ import {
   Upload,
 } from "lucide-react";
 import { RoutineCard } from "./routine-card";
-import { FolderManagerSheet } from "./folder-manager-sheet";
-import { ImportRoutineButton } from "./routine-transfer-sheets";
 import { useCollapsedFolders } from "@/hooks/use-collapsed-folders";
 import { reorderRoutinesInFolder } from "@/lib/actions/routine-folder";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
 import { folderRail } from "@/lib/folder-color";
 import type { FolderListItem, RoutineListItem } from "@/lib/queries/routine";
 import { cn, haptic } from "@/lib/utils";
+
+// Behind a gesture, so it stays out of the initial payload.
+const FolderManagerSheet = dynamic(() =>
+  import("./folder-manager-sheet").then((m) => m.FolderManagerSheet),
+);
+const ImportRoutineButton = dynamic(() =>
+  import("./routine-transfer-sheets").then((m) => m.ImportRoutineButton),
+);
 
 const UNFILED = "__unfiled";
 

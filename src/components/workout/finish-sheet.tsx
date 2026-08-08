@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed, Globe, Lock, Trash2 } from "lucide-react";
@@ -7,13 +8,18 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/primitives";
 import { PhotoInput } from "@/components/ui/photo-input";
-import { WorkoutCelebration } from "./celebration";
 import {
   finishWorkout,
   type FinishSummary,
   type UnfinishedSetsMode,
 } from "@/lib/actions/workout";
 import { cn, haptic } from "@/lib/utils";
+
+// The finish celebration pulls in the whole choreography and (lazily) the
+// confetti library, for a screen that appears once at the end of a session.
+const WorkoutCelebration = dynamic(() =>
+  import("./celebration").then((m) => m.WorkoutCelebration),
+);
 
 export function FinishSheet({
   open,

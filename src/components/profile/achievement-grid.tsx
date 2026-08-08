@@ -8,12 +8,15 @@ import { Sheet } from "@/components/ui/sheet";
 import { markAchievementsSeen } from "@/lib/actions/achievement-actions";
 import type { AchievementRow } from "@/lib/queries/stats";
 import { cn, haptic } from "@/lib/utils";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
+import { REDUCED, STAGGER } from "@/lib/motion";
 
 export function AchievementGrid({
   achievements,
 }: {
   achievements: AchievementRow[];
 }) {
+  const { enabled } = useMotionPreset();
   const [selected, setSelected] = useState<AchievementRow | null>(null);
   const [, startTransition] = useTransition();
   const unlocked = achievements.filter((a) => a.unlockedAt).length;
@@ -51,9 +54,13 @@ export function AchievementGrid({
                   haptic.light();
                   setSelected(a);
                 }}
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: enabled ? 0.9 : 1 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: Math.min(i * 0.025, 0.4), duration: 0.25 }}
+                transition={
+                  enabled
+                    ? { delay: Math.min(i * STAGGER, 0.4), duration: 0.25 }
+                    : REDUCED
+                }
                 className="press flex flex-col items-center gap-1.5"
               >
                 <span
