@@ -53,6 +53,7 @@ import { useLongPress } from "@/hooks/use-long-press";
 import { useWorkoutActivity } from "@/hooks/use-workout-activity";
 import { endWorkoutActivity } from "@/lib/workout-activity";
 import { usePumpJam } from "./pump-jam";
+import { RestAlertPrompt } from "./rest-alert-prompt";
 import {
   addSet,
   addExercisesToWorkout,
@@ -415,7 +416,9 @@ export function WorkoutScreen({
           setSupersetCue(true);
           window.setTimeout(() => setSupersetCue(false), 7000);
         } else if (restSeconds > 0) {
-          timer.start(restSeconds);
+          // Tagged with the set, so the strip sitting in that gap can show the
+          // same countdown as the bar rather than its planned duration.
+          timer.start(restSeconds, set.id);
 
           // In a co-op session, publish the rest so the others see you're
           // between sets rather than idle.
@@ -695,11 +698,7 @@ export function WorkoutScreen({
     [blocks, workout.id],
   );
 
-  /**
-   * Drag reordering, from the compact list. Persists on every drop rather than
-   * on sheet close: the drop is the moment the lifter decided, and a sheet
-   * dismissed by the backdrop or Escape has no close handler to hang it on.
-   */
+  /** Drag reordering, from the compact list. See `closeReorder`. */
   const reorderBlocks = useCallback(
     (ids: string[]) => {
       dirty.current = true;
@@ -714,6 +713,32 @@ export function WorkoutScreen({
     },
     [blocks, workout.id],
   );
+
+  /**
+   * The order the sheet is currently showing. A ref, not state, and committed
+   * only when the sheet closes.
+   *
+   * This used to write straight through on every drop, so the full exercise
+   * blocks behind the sheet re-ordered live underneath it — tall rows sliding
+   * about behind a modal, on a screen that is mostly numeric inputs. Both of the
+   * reasons given for writing per drop turned out not to hold: the *decision* is
+   * made when the sheet is dismissed, not on each intermediate drop, and
+   * `Sheet` does route backdrop and Escape through `onClose`, so there is a
+   * handler to hang it on after all. Nothing is lost by dismissing either way.
+   */
+  const pendingOrder = useRef<string[] | null>(null);
+
+  const closeReorder = useCallback(() => {
+    const ids = pendingOrder.current;
+    pendingOrder.current = null;
+    setReordering(false);
+    if (!ids) return;
+    // Don't fire a write, a haptic and a re-render for a sheet that was opened
+    // and closed without moving anything.
+    const unchanged =
+      ids.length === blocks.length && ids.every((id, i) => blocks[i]?.id === id);
+    if (!unchanged) reorderBlocks(ids);
+  }, [blocks, reorderBlocks]);
 
   const setSuperset = useCallback(
     (blockId: string, supersetGroup: string | null) => {
@@ -1036,6 +1061,11 @@ export function WorkoutScreen({
         )}
       </header>
 
+      {/* Below the header rather than inside it: the header is measured for the
+          sticky column offsets, and a row that can vanish mid-session would
+          re-measure the whole table under a thumb. */}
+      <RestAlertPrompt />
+
       <main className="pb-40">
         {/* initial={false} — the exercises already on screen at mount are the
             plan, not an event. Only what the lifter adds mid-session animates. */}
@@ -1053,6 +1083,8 @@ export function WorkoutScreen({
                 (liveMuscleSets[block.primaryMuscle] ?? 0)
               }
               defaultRestSeconds={defaultRestSeconds}
+              restingSetId={timer.state?.setId ?? null}
+              restingTotal={timer.state?.totalSeconds ?? null}
               canReorder={blocks.length > 1}
               onRequestReorder={() => setReordering(true)}
               onOpenMenu={() => setMenuFor(block.id)}
@@ -1344,7 +1376,7 @@ export function WorkoutScreen({
 
       <Sheet
         open={reordering}
-        onClose={() => setReordering(false)}
+        onClose={closeReorder}
         title="Reorder exercises"
         // The rows own the vertical drag. Motion's drag lock goes to whichever
         // session starts first, and the panel's listener is native and on the
@@ -1352,12 +1384,17 @@ export function WorkoutScreen({
         // and the row simply never moved.
         dragToDismiss={false}
         footer={
-          <Button block variant="volt" onClick={() => setReordering(false)}>
+          <Button block variant="volt" onClick={closeReorder}>
             Done
           </Button>
         }
       >
-        <ReorderList blocks={blocks} onReorder={reorderBlocks} />
+        <ReorderList
+          blocks={blocks}
+          onChange={(ids) => {
+            pendingOrder.current = ids;
+          }}
+        />
       </Sheet>
     </div>
   );
@@ -1371,21 +1408,32 @@ export function WorkoutScreen({
  */
 function ReorderList({
   blocks,
-  onReorder,
+  onChange,
 }: {
   blocks: Block[];
-  onReorder: (ids: string[]) => void;
+  onChange: (ids: string[]) => void;
 }) {
+  // The drag lives here and nowhere else, so a hundred intermediate positions
+  // re-render this list of names and not the workout behind it. Seeded on mount,
+  // which is every time the sheet opens — `Sheet` unmounts its children when
+  // closed — so it always starts from the committed order.
+  const [order, setOrder] = useState(() => blocks.map((b) => b.id));
+  const byId = useMemo(() => new Map(blocks.map((b) => [b.id, b])), [blocks]);
+
   return (
     <Reorder.Group
       axis="y"
-      values={blocks.map((b) => b.id)}
-      onReorder={onReorder}
+      values={order}
+      onReorder={(next: string[]) => {
+        setOrder(next);
+        onChange(next);
+      }}
       className="divide-hairline divide-y pb-2"
     >
-      {blocks.map((block) => (
-        <ReorderRow key={block.id} block={block} />
-      ))}
+      {order.map((id) => {
+        const block = byId.get(id);
+        return block ? <ReorderRow key={id} block={block} /> : null;
+      })}
     </Reorder.Group>
   );
 }
@@ -1436,6 +1484,8 @@ function ExerciseBlock({
   stickyTop,
   weekSets,
   defaultRestSeconds,
+  restingSetId,
+  restingTotal,
   canReorder,
   onRequestReorder,
   onOpenMenu,
@@ -1459,6 +1509,10 @@ function ExerciseBlock({
   weekSets: number;
   /** The account default — the last stop in the rest fallback chain. */
   defaultRestSeconds: number;
+  /** The set whose gap is currently counting down, if it's in this block. */
+  restingSetId: string | null;
+  /** That timer's full duration, for the strip's draining track. */
+  restingTotal: number | null;
   /** A single exercise has no order to change — no gesture, no hint. */
   canReorder: boolean;
   onRequestReorder: () => void;
@@ -1697,6 +1751,9 @@ function ExerciseBlock({
                   <RestStrip
                     seconds={restAfter}
                     override={set.restSeconds != null}
+                    runningTotal={
+                      restingSetId === set.id ? restingTotal : null
+                    }
                     onEdit={() => onEditRest(set.id)}
                   />
                 )}

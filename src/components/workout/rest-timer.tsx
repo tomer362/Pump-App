@@ -12,6 +12,13 @@ export type RestTimerState = {
   /** Wall-clock end time. Survives backgrounding; a counter would not. */
   endsAt: number;
   totalSeconds: number;
+  /**
+   * The set this rest follows, so the strip sitting in that gap can show the
+   * same countdown as the bar. Persisted with the rest of the state — a reload
+   * mid-rest that restored the clock but forgot whose gap it was would leave
+   * two numbers on screen disagreeing, which is the thing this exists to stop.
+   */
+  setId: string | null;
 } | null;
 
 const STORAGE_KEY = "pump.rest-timer";
@@ -46,12 +53,17 @@ function readStorage(workoutId: string | undefined): RestTimerState {
     const saved = JSON.parse(raw) as {
       endsAt: number;
       totalSeconds: number;
+      setId?: string | null;
       workoutId: string;
     };
     // Only this workout's timer, and only if it hasn't already run out.
     if (saved.workoutId !== workoutId) return null;
     if (saved.endsAt <= Date.now()) return null;
-    return { endsAt: saved.endsAt, totalSeconds: saved.totalSeconds };
+    return {
+      endsAt: saved.endsAt,
+      totalSeconds: saved.totalSeconds,
+      setId: saved.setId ?? null,
+    };
   } catch {
     return null;
   }
@@ -201,12 +213,13 @@ export function useRestTimer(workoutId?: string) {
   );
 
   const start = useCallback(
-    (seconds: number) => {
+    (seconds: number, setId: string | null = null) => {
       if (seconds <= 0) return;
       currentWorkoutId = workoutId ?? null;
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
         totalSeconds: seconds,
+        setId,
       });
     },
     [workoutId],
@@ -228,7 +241,7 @@ export function useRestTimer(workoutId?: string) {
       Math.ceil((endsAt - now) / 1000),
       current.totalSeconds + delta,
     );
-    setTimerState({ endsAt, totalSeconds });
+    setTimerState({ endsAt, totalSeconds, setId: current.setId });
   }, []);
 
   /** Restart at an exact duration — what the presets want. */
@@ -239,6 +252,8 @@ export function useRestTimer(workoutId?: string) {
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
         totalSeconds: seconds,
+        // Still the same gap: the presets change how long it is, not what it is.
+        setId: current?.setId ?? null,
       });
     },
     [workoutId],
@@ -276,10 +291,11 @@ function subscribeTick(onChange: () => void) {
 }
 
 /**
- * Seconds left on the running rest. Only the bar subscribes to this, so only
- * the bar re-renders on a tick.
+ * Seconds left on the running rest. Only the bar and the one rest strip whose
+ * gap is running subscribe to this, so a tick re-renders two leaves and never
+ * the set table.
  */
-function useRemaining() {
+export function useRemaining() {
   return useSyncExternalStore(
     subscribeTick,
     () => remainingNow,
