@@ -225,7 +225,16 @@ export function SetRow({
         >
           {/* Set number / type tag. Also the way into per-set options — RPE
               lives there rather than in a column, because it's an occasional
-              annotation and a sixth column would crush the row on a phone. */}
+              annotation and a sixth column would crush the row on a phone.
+              (Nine half-points at a 44px tap target is 396px of chips; there is
+              no one-tap version of this scale that fits a phone, which is why
+              it is a sheet.)
+
+              The `@` slot shows on every completed set, empty as `@–`. It used
+              to appear only once a rating existed, so the one gesture that sets
+              an RPE was advertised by the state it produced and by nothing else
+              — the feature read as missing entirely. The button is a fixed h-9
+              either way, so the placeholder costs no reflow. */}
           <button
             onClick={() => {
               haptic.light();
@@ -239,19 +248,28 @@ export function SetRow({
                   : "text-text-2"
                 : TYPE_COLOR[set.setType],
             )}
-            aria-label={`Set ${index} options`}
+            aria-label={
+              set.rpe != null
+                ? `Set ${index} options — effort ${set.rpe}`
+                : `Set ${index} options — no effort rating`
+            }
           >
             <span className="num block text-[14px] font-bold">
               {set.setType === "normal" ? index : TYPE_LABEL[set.setType]}
             </span>
-            {set.rpe != null && (
+            {(set.rpe != null || set.completed) && (
               <span
+                aria-hidden
                 className={cn(
                   "num mt-0.5 block text-[9px] font-bold",
-                  set.completed ? "text-black/45" : "text-text-3",
+                  set.completed
+                    ? set.rpe != null
+                      ? "text-black/45"
+                      : "text-black/25"
+                    : "text-text-3",
                 )}
               >
-                @{set.rpe}
+                @{set.rpe ?? "–"}
               </span>
             )}
           </button>

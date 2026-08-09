@@ -1631,6 +1631,18 @@ function SetOptions({
 }) {
   return (
     <div className="px-4 pb-5">
+      {/* Effort first. Set type is decided once — usually inherited from the
+          routine — whereas the effort changes on every set, so it is the reason
+          this sheet gets opened mid-session. It used to sit below the four type
+          rows, far enough down that lifters reported the app had no RPE. */}
+      <div className="hairline-b pb-5">
+        <SheetLabel>
+          <Gauge className="size-3.5" />
+          Effort (RPE)
+        </SheetLabel>
+        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
+      </div>
+
       {SET_TYPES.map(([value, label, desc]) => (
         <button
           key={value}
@@ -1646,14 +1658,6 @@ function SetOptions({
           )}
         </button>
       ))}
-
-      <div className="pt-5">
-        <SheetLabel>
-          <Gauge className="size-3.5" />
-          Effort (RPE)
-        </SheetLabel>
-        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
-      </div>
 
       {/* The swipe is the fast path, but it is a gesture: this is the one that
           works with the keyboard up, with gloves on, or after a mis-swipe. */}
