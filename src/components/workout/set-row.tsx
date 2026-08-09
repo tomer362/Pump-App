@@ -9,8 +9,15 @@ import {
   useReducedMotion,
   useTransform,
 } from "motion/react";
-import { Check, Trash2 } from "lucide-react";
-import { cn, formatWeight, haptic, kgToLb, lbToKg } from "@/lib/utils";
+import { Check, Clock, Trash2 } from "lucide-react";
+import {
+  cn,
+  formatDuration,
+  formatWeight,
+  haptic,
+  kgToLb,
+  lbToKg,
+} from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 import { EASE_OUT_QUART } from "@/lib/motion";
 
@@ -23,6 +30,8 @@ export type SetDraft = {
   seconds: number | null;
   distanceM: number | null;
   rpe: number | null;
+  /** Rest after this set, overriding the exercise's. Null inherits. */
+  restSeconds: number | null;
   completed: boolean;
   isPr?: boolean;
 };
@@ -225,7 +234,16 @@ export function SetRow({
         >
           {/* Set number / type tag. Also the way into per-set options — RPE
               lives there rather than in a column, because it's an occasional
-              annotation and a sixth column would crush the row on a phone. */}
+              annotation and a sixth column would crush the row on a phone.
+              (Nine half-points at a 44px tap target is 396px of chips; there is
+              no one-tap version of this scale that fits a phone, which is why
+              it is a sheet.)
+
+              The `@` slot shows on every completed set, empty as `@–`. It used
+              to appear only once a rating existed, so the one gesture that sets
+              an RPE was advertised by the state it produced and by nothing else
+              — the feature read as missing entirely. The button is a fixed h-9
+              either way, so the placeholder costs no reflow. */}
           <button
             onClick={() => {
               haptic.light();
@@ -239,19 +257,28 @@ export function SetRow({
                   : "text-text-2"
                 : TYPE_COLOR[set.setType],
             )}
-            aria-label={`Set ${index} options`}
+            aria-label={
+              set.rpe != null
+                ? `Set ${index} options — effort ${set.rpe}`
+                : `Set ${index} options — no effort rating`
+            }
           >
             <span className="num block text-[14px] font-bold">
               {set.setType === "normal" ? index : TYPE_LABEL[set.setType]}
             </span>
-            {set.rpe != null && (
+            {(set.rpe != null || set.completed) && (
               <span
+                aria-hidden
                 className={cn(
                   "num mt-0.5 block text-[9px] font-bold",
-                  set.completed ? "text-black/45" : "text-text-3",
+                  set.completed
+                    ? set.rpe != null
+                      ? "text-black/45"
+                      : "text-black/25"
+                    : "text-text-3",
                 )}
               >
-                @{set.rpe}
+                @{set.rpe ?? "–"}
               </span>
             )}
           </button>
@@ -332,6 +359,73 @@ export function SetRow({
         </div>
       </motion.div>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The rest that follows a set, as its own strip between two rows.
+ *
+ * Deliberately not a sixth column and not styled like the rows it sits between:
+ * rest is not a measurement of the set, it's the gap after it, and the whole
+ * point of putting it in the flow of the table is that you can see where the
+ * gaps are uneven. So it's recessed rather than elevated — `bg-surface-1`
+ * against the rows' `bg-bg`, small caps, no numerals in the table's own column
+ * grid — and it reads as a divider that happens to carry a value.
+ *
+ * Volt marks a set that carries its *own* rest rather than the exercise's. That
+ * is state the lifter set, which is exactly what the accent is for, and it is
+ * the only way to tell the two apart once the sheet is closed.
+ *
+ * 40px rather than 44: this repeats between every working set, so the tap rule's
+ * minimum would add ~90px to a three-set exercise on the one screen the design
+ * keeps dense. It matches the height of `RpePicker`'s chips, which is the
+ * established floor for a repeated control in this app, and it is full-bleed
+ * horizontally — the axis a thumb actually misses in.
+ */
+export function RestStrip({
+  seconds,
+  override,
+  onEdit,
+}: {
+  /** Resolved rest, after the set → exercise → account fallback. */
+  seconds: number;
+  /** True when this set carries its own value instead of inheriting. */
+  override: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <button
+      onClick={() => {
+        haptic.light();
+        onEdit();
+      }}
+      aria-label={
+        seconds === 0
+          ? "No rest after this set. Change it."
+          : `Rest ${formatDuration(seconds)} after this set${
+              override ? ", set just for this set" : ""
+            }. Change it.`
+      }
+      className="press bg-surface-1 hairline-t flex h-10 w-full items-center justify-center gap-2"
+    >
+      <Clock
+        className={cn("size-3", override ? "text-volt" : "text-text-3")}
+        strokeWidth={2.4}
+      />
+      <span className="text-text-3 text-[10px] font-bold tracking-[0.1em] uppercase">
+        Rest
+      </span>
+      <span
+        className={cn(
+          "num text-[12px] font-semibold",
+          override ? "text-volt" : "text-text-2",
+        )}
+      >
+        {seconds === 0 ? "None" : formatDuration(seconds)}
+      </span>
+    </button>
   );
 }
 

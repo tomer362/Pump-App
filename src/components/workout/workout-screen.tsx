@@ -31,8 +31,9 @@ import {
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Badge, Textarea } from "@/components/ui/primitives";
+import { Badge, Segmented, Textarea } from "@/components/ui/primitives";
 import {
+  RestStrip,
   SetRow,
   columnLabel,
   setColumns,
@@ -40,6 +41,7 @@ import {
   type SetDraft,
 } from "./set-row";
 import { RpePicker } from "./rpe-picker";
+import { RestPicker } from "./rest-picker";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
 import { FinishSheet } from "./finish-sheet";
@@ -48,6 +50,8 @@ import type { CoopSnapshot } from "@/lib/actions/coop";
 import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useLongPress } from "@/hooks/use-long-press";
+import { useWorkoutActivity } from "@/hooks/use-workout-activity";
+import { endWorkoutActivity } from "@/lib/workout-activity";
 import { usePumpJam } from "./pump-jam";
 import {
   addSet,
@@ -196,6 +200,15 @@ export function WorkoutScreen({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [typeMenuFor, setTypeMenuFor] = useState<{ blockId: string; setId: string } | null>(null);
+  /**
+   * The rest sheet's target. `setId` null means the exercise as a whole — the
+   * two scopes share one sheet because they are one decision with a scope, not
+   * two features.
+   */
+  const [restFor, setRestFor] = useState<{
+    blockId: string;
+    setId: string | null;
+  } | null>(null);
   const [plateFor, setPlateFor] = useState<number | null>(null);
   const [intervalFor, setIntervalFor] = useState<Block | null>(null);
   const [prFlash, setPrFlash] = useState<string | null>(null);
@@ -341,6 +354,7 @@ export function WorkoutScreen({
         seconds: patch.seconds,
         distanceM: patch.distanceM,
         rpe: patch.rpe,
+        restSeconds: patch.restSeconds,
         setType: patch.setType,
       };
       // Fired directly, not inside startTransition: tapping the exercise name
@@ -389,14 +403,18 @@ export function WorkoutScreen({
 
       // Completing a working set starts the rest clock — Strong's key behaviour.
       if (next && set.setType !== "warmup") {
-        const restSeconds = block.restSeconds ?? defaultRestSeconds;
+        // Three levels: this set's override, then the exercise, then the
+        // account default. `0` at any level means no rest and stops the search,
+        // which is why this is `??` and not `||`.
+        const restSeconds =
+          set.restSeconds ?? block.restSeconds ?? defaultRestSeconds;
         if (partnerPending) {
           // No rest means no rest bar, so nothing would otherwise name the
           // partner you're supposed to walk straight to. Surface the pill for
           // a few seconds even though its row may be in view.
           setSupersetCue(true);
           window.setTimeout(() => setSupersetCue(false), 7000);
-        } else {
+        } else if (restSeconds > 0) {
           timer.start(restSeconds);
 
           // In a co-op session, publish the rest so the others see you're
@@ -451,6 +469,9 @@ export function WorkoutScreen({
                   seconds: last?.seconds ?? null,
                   distanceM: last?.distanceM ?? null,
                   rpe: last?.rpe ?? null,
+                  // Mirrors `addSet` on the server, which carries the previous
+                  // set's rest override forward with everything else.
+                  restSeconds: last?.restSeconds ?? null,
                   completed: false,
                 },
               ],
@@ -548,6 +569,7 @@ export function WorkoutScreen({
                   seconds: null,
                   distanceM: null,
                   rpe: null,
+                  restSeconds: null,
                   completed: false,
                 })),
               },
@@ -594,6 +616,7 @@ export function WorkoutScreen({
               seconds: null,
               distanceM: null,
               rpe: null,
+              restSeconds: null,
               completed: false,
             },
           ],
@@ -611,11 +634,27 @@ export function WorkoutScreen({
     [workout.id],
   );
 
+  /**
+   * Rest for a whole exercise. Mirrors what the action does server-side: this
+   * is the "entire exercise" setting, so the per-set overrides underneath it go
+   * — otherwise a set previously pushed to 3m would quietly keep winning over
+   * the value just chosen.
+   */
   const setRest = useCallback(
     (blockId: string, seconds: number | null) => {
       dirty.current = true;
       setBlocks((prev) =>
-        prev.map((b) => (b.id === blockId ? { ...b, restSeconds: seconds } : b)),
+        prev.map((b) =>
+          b.id === blockId
+            ? {
+                ...b,
+                restSeconds: seconds,
+                sets: b.sets.map((s) =>
+                  s.restSeconds == null ? s : { ...s, restSeconds: null },
+                ),
+              }
+            : b,
+        ),
       );
       void updateWorkoutExerciseSettings(blockId, { restSeconds: seconds });
     },
@@ -783,8 +822,47 @@ export function WorkoutScreen({
     [reduce],
   );
 
+  /* ---------------------------------------------------------------------- */
+  /* The session while the phone is in a pocket.                             */
+  /* ---------------------------------------------------------------------- */
+
+  /** What the next set is, phrased for a lock screen rather than a table row. */
+  const nextUpLine = useMemo(() => {
+    if (!nextTarget) return "Back to it.";
+    return [
+      nextTarget.block.name,
+      setLabel(nextTarget.set, nextTarget.index),
+      targetLabel(
+        nextTarget.block,
+        nextTarget.set,
+        nextTarget.position,
+        unit,
+      ),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }, [nextTarget, unit]);
+
+  useWorkoutActivity({
+    url: `/workout/${workout.id}`,
+    title: name,
+    // Sets and volume, the same two figures the header carries — plus where to
+    // pick the session back up, which is the reason to look at all.
+    progressBody: `${totals.sets} set${totals.sets === 1 ? "" : "s"} · ${formatWeight(
+      totals.volume,
+      unit,
+    )} ${unit}${nextTarget ? ` · Next: ${nextTarget.block.name}` : ""}`,
+    restEndsAt: timer.state?.endsAt ?? null,
+    restBody: nextUpLine,
+    setsRemaining: totals.unfinished,
+  });
+
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
   const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
+  const restBlock = blocks.find((b) => b.id === restFor?.blockId) ?? null;
+  const restSet =
+    (restFor?.setId && restBlock?.sets.find((s) => s.id === restFor.setId)) ||
+    null;
   const optionsSet =
     (typeMenuFor &&
       blocks
@@ -974,11 +1052,13 @@ export function WorkoutScreen({
                 (muscleWeekSets[block.primaryMuscle] ?? 0) +
                 (liveMuscleSets[block.primaryMuscle] ?? 0)
               }
+              defaultRestSeconds={defaultRestSeconds}
               canReorder={blocks.length > 1}
               onRequestReorder={() => setReordering(true)}
               onOpenMenu={() => setMenuFor(block.id)}
               onOpenPlate={(kg) => setPlateFor(kg)}
               onRunInterval={() => setIntervalFor(block)}
+              onEditRest={(setId) => setRestFor({ blockId: block.id, setId })}
               onPatchSet={(setId, patch, opts) =>
                 patchSet(block.id, setId, patch, opts)
               }
@@ -1162,6 +1242,33 @@ export function WorkoutScreen({
       </Sheet>
 
       <Sheet
+        open={restBlock != null}
+        onClose={() => setRestFor(null)}
+        title={
+          restSet
+            ? `Rest after set ${setNumber(restBlock, restSet)}`
+            : `Rest — ${restBlock?.name ?? ""}`
+        }
+      >
+        {restBlock && (
+          <RestOptions
+            block={restBlock}
+            set={restSet}
+            defaultRestSeconds={defaultRestSeconds}
+            onSetForSet={(seconds) => {
+              if (!restSet) return;
+              patchSet(restBlock.id, restSet.id, { restSeconds: seconds });
+              setRestFor(null);
+            }}
+            onSetForExercise={(seconds) => {
+              setRest(restBlock.id, seconds);
+              setRestFor(null);
+            }}
+          />
+        )}
+      </Sheet>
+
+      <Sheet
         open={plateFor != null}
         onClose={() => setPlateFor(null)}
         title="Plate calculator"
@@ -1194,6 +1301,9 @@ export function WorkoutScreen({
               block
               variant="danger"
               onClick={async () => {
+                // Before the round-trip: the notification and the badge are
+                // claims about a live session, and this one is over either way.
+                endWorkoutActivity();
                 await discardWorkout(workout.id);
                 router.replace("/feed");
               }}
@@ -1325,11 +1435,13 @@ function ExerciseBlock({
   flashSetId,
   stickyTop,
   weekSets,
+  defaultRestSeconds,
   canReorder,
   onRequestReorder,
   onOpenMenu,
   onOpenPlate,
   onRunInterval,
+  onEditRest,
   onPatchSet,
   onToggle,
   onDeleteSet,
@@ -1345,12 +1457,16 @@ function ExerciseBlock({
   stickyTop: number;
   /** Sets on this muscle over the last 7 days, this session included. */
   weekSets: number;
+  /** The account default — the last stop in the rest fallback chain. */
+  defaultRestSeconds: number;
   /** A single exercise has no order to change — no gesture, no hint. */
   canReorder: boolean;
   onRequestReorder: () => void;
   onOpenMenu: () => void;
   onOpenPlate: (kg: number) => void;
   onRunInterval: () => void;
+  /** Null targets the exercise as a whole rather than one set. */
+  onEditRest: (setId: string | null) => void;
   onPatchSet: (
     setId: string,
     patch: Partial<SetDraft>,
@@ -1393,6 +1509,9 @@ function ExerciseBlock({
     ...block.sets.map((s) => (s.setType !== "warmup" ? (s.weightKg ?? 0) : 0)),
   );
 
+  /** What this exercise rests for, before any per-set override. */
+  const blockRest = block.restSeconds ?? defaultRestSeconds;
+
   return (
     // `data-block-id` is what scripts/check-authz.mjs fires the exercise-level
     // probes at, for the same reason `data-set-id` exists below.
@@ -1414,7 +1533,9 @@ function ExerciseBlock({
         // scrolled under the header, the header names the exercise instead.
         data-block-title={block.id}
         // select-none so iOS doesn't raise its text-selection handles out of a
-        // hold on the exercise name.
+        // hold on the exercise name. The other thing a hold here used to raise
+        // — Safari's link preview card for the `<Link>` below — is killed by
+        // the inline style `useLongPress` spreads in.
         className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 select-none"
       >
         {block.supersetGroup && (
@@ -1459,12 +1580,35 @@ function ExerciseBlock({
           that you would otherwise have to leave the workout to look up. It
           counts this session's sets as they land, so it is never stale. */}
       <div className="text-text-3 flex items-center gap-3 px-4 pb-2 text-[12px]">
-        {block.restSeconds != null && block.restSeconds > 0 && (
-          <span className="flex items-center gap-1.5">
-            <Clock className="size-3.5" strokeWidth={2.2} />
-            <span className="num">Rest {formatDuration(block.restSeconds)}</span>
+        {/* Always shown, including when it's inherited — it used to render only
+            for an explicitly-set value, so an exercise on the default looked
+            like an exercise with no rest at all. This is also the way to the
+            exercise-wide setting: the number you can see is the number you tap
+            to change. */}
+        <button
+          onClick={() => {
+            haptic.light();
+            onEditRest(null);
+          }}
+          aria-label={`Rest for every set of ${block.name}`}
+          className="press -my-1 flex items-center gap-1.5 py-1"
+        >
+          <Clock
+            className={cn(
+              "size-3.5",
+              block.restSeconds != null ? "text-volt" : "text-text-3",
+            )}
+            strokeWidth={2.2}
+          />
+          <span
+            className={cn(
+              "num",
+              block.restSeconds != null ? "text-volt" : "text-text-3",
+            )}
+          >
+            {blockRest === 0 ? "No rest" : `Rest ${formatDuration(blockRest)}`}
           </span>
-        )}
+        </button>
         {weekSets > 0 && (
           <span className="num ml-auto truncate">
             <span className="capitalize">{block.primaryMuscle}</span>{" "}
@@ -1501,12 +1645,20 @@ function ExerciseBlock({
         <AnimatePresence initial={false}>
           {block.sets.map((set, i) => {
             if (set.setType !== "warmup") workingIndex++;
+            // The gap after this set, shown in the flow of the table so uneven
+            // rest is visible rather than buried in a sheet. Every working set
+            // gets one, the last included — that rest runs too, it's just
+            // followed by the next exercise instead of another row, and it would
+            // otherwise be the one gap in the session with no way to change it.
+            // Never after a warm-up: those start no timer, and naming a rest
+            // that never runs would be a lie.
+            const restAfter =
+              set.setType !== "warmup"
+                ? (set.restSeconds ?? block.restSeconds ?? defaultRestSeconds)
+                : null;
             return (
-              // `data-set-id` is what scripts/check-authz.mjs fires B's probes
-              // at — the set ids are otherwise only in the flight payload.
               <motion.div
                 key={set.id}
-                data-set-id={set.id}
                 // Height, not y-translate: the rows below have to move out of
                 // the way, and a table where rows slide over each other reads
                 // as a glitch rather than an insertion.
@@ -1516,23 +1668,38 @@ function ExerciseBlock({
                 }
                 exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
                 transition={LIST_TRANSITION}
-                className="relative overflow-hidden"
+                className="overflow-hidden"
               >
-                <SetRow
-                  set={set}
-                  index={workingIndex}
-                  unit={unit}
-                  trackingType={block.trackingType}
-                  previous={block.previous[i] ?? null}
-                  flash={flashSetId === set.id}
-                  onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
-                  onToggleComplete={() => onToggle(set)}
-                  onDelete={() => onDeleteSet(set.id)}
-                  onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
-                />
-                <AnimatePresence>
-                  {prFlash === set.id && <PrBurst />}
-                </AnimatePresence>
+                {/* `data-set-id` is what scripts/check-authz.mjs fires B's
+                    probes at — the set ids are otherwise only in the flight
+                    payload — and what `useScrollWatch` and `jumpToSet` measure.
+                    It wraps the row alone, not the row plus its rest strip: both
+                    of those ask "where is the set I owe", and a box 40px taller
+                    than the row would answer with the gap after it. */}
+                <div data-set-id={set.id} className="relative">
+                  <SetRow
+                    set={set}
+                    index={workingIndex}
+                    unit={unit}
+                    trackingType={block.trackingType}
+                    previous={block.previous[i] ?? null}
+                    flash={flashSetId === set.id}
+                    onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
+                    onToggleComplete={() => onToggle(set)}
+                    onDelete={() => onDeleteSet(set.id)}
+                    onOpenTypeMenu={() => onOpenTypeMenu(set.id)}
+                  />
+                  <AnimatePresence>
+                    {prFlash === set.id && <PrBurst />}
+                  </AnimatePresence>
+                </div>
+                {restAfter != null && (
+                  <RestStrip
+                    seconds={restAfter}
+                    override={set.restSeconds != null}
+                    onEdit={() => onEditRest(set.id)}
+                  />
+                )}
               </motion.div>
             );
           })}
@@ -1569,6 +1736,88 @@ function PrBurst() {
 
 /* -------------------------------------------------------------------------- */
 
+/** Display number of a set among its exercise's working sets. */
+function setNumber(block: Block | null, set: SetDraft) {
+  if (!block) return 1;
+  let n = 0;
+  for (const s of block.sets) {
+    if (s.setType !== "warmup") n++;
+    if (s.id === set.id) break;
+  }
+  return Math.max(1, n);
+}
+
+/**
+ * Rest, at whichever level the lifter came in at.
+ *
+ * One sheet with a scope rather than two sheets, because "90 seconds" and "for
+ * which sets" are one decision. The scope defaults to the narrower option when
+ * a set was tapped — a strip in the table is a statement about that gap — and
+ * the wider one is a deliberate switch away from it.
+ */
+function RestOptions({
+  block,
+  set,
+  defaultRestSeconds,
+  onSetForSet,
+  onSetForExercise,
+}: {
+  block: Block;
+  /** Null when the exercise's own rest is being edited. */
+  set: SetDraft | null;
+  defaultRestSeconds: number;
+  onSetForSet: (seconds: number | null) => void;
+  onSetForExercise: (seconds: number | null) => void;
+}) {
+  const [scope, setScope] = useState<"set" | "exercise">(
+    set ? "set" : "exercise",
+  );
+  const blockRest = block.restSeconds ?? defaultRestSeconds;
+
+  return (
+    <div className="px-4 pb-5">
+      {set && (
+        <Segmented
+          value={scope}
+          onChange={setScope}
+          options={[
+            { value: "set", label: "This set" },
+            { value: "exercise", label: "Every set" },
+          ]}
+          className="mb-4"
+        />
+      )}
+
+      {scope === "set" && set ? (
+        <RestPicker
+          value={set.restSeconds}
+          inherited={blockRest}
+          inheritLabel="the exercise"
+          onChange={onSetForSet}
+          idPrefix="set-rest"
+          hint="This one gap only. Every other set keeps the exercise's rest."
+        />
+      ) : (
+        <RestPicker
+          value={block.restSeconds}
+          inherited={defaultRestSeconds}
+          inheritLabel="your default"
+          onChange={onSetForExercise}
+          idPrefix="exercise-rest"
+          hint={
+            <>
+              Every set of {block.name} — and it clears any rest you had set on a
+              single set.
+            </>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
 const SET_TYPES: [SetType, string, string][] = [
   ["normal", "Normal", "Counts toward volume and records"],
   ["warmup", "Warm-up", "Excluded from volume and records"],
@@ -1589,6 +1838,18 @@ function SetOptions({
 }) {
   return (
     <div className="px-4 pb-5">
+      {/* Effort first. Set type is decided once — usually inherited from the
+          routine — whereas the effort changes on every set, so it is the reason
+          this sheet gets opened mid-session. It used to sit below the four type
+          rows, far enough down that lifters reported the app had no RPE. */}
+      <div className="hairline-b pb-5">
+        <SheetLabel>
+          <Gauge className="size-3.5" />
+          Effort (RPE)
+        </SheetLabel>
+        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
+      </div>
+
       {SET_TYPES.map(([value, label, desc]) => (
         <button
           key={value}
@@ -1604,14 +1865,6 @@ function SetOptions({
           )}
         </button>
       ))}
-
-      <div className="pt-5">
-        <SheetLabel>
-          <Gauge className="size-3.5" />
-          Effort (RPE)
-        </SheetLabel>
-        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
-      </div>
 
       {/* The swipe is the fast path, but it is a gesture: this is the one that
           works with the keyboard up, with gloves on, or after a mis-swipe. */}
@@ -1657,29 +1910,25 @@ function ExerciseOptions({
   onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
-  const rest = block.restSeconds ?? defaultRestSeconds;
   const intervalOn = block.intervalWorkSeconds != null;
 
   return (
     <div className="space-y-6 px-4 pb-5">
       <div>
         <SheetLabel>Rest timer</SheetLabel>
-        <div className="flex gap-2">
-          {[0, 60, 90, 120, 180, 240].map((s) => (
-            <button
-              key={s}
-              onClick={() => onSetRest(s === 0 ? null : s)}
-              className={cn(
-                "press num h-10 flex-1 rounded-field border text-[13px] font-semibold",
-                (s === 0 ? block.restSeconds == null : rest === s)
-                  ? "border-volt bg-volt-fade text-volt"
-                  : "border-hairline bg-surface-2 text-text-2",
-              )}
-            >
-              {s === 0 ? "Off" : s < 60 ? `${s}s` : `${s / 60}m`}
-            </button>
-          ))}
-        </div>
+        {/* The shared picker, so this and the per-set sheet can't disagree about
+            what the durations are or about what "no rest" means. The old row of
+            chips here labelled `null` as "Off", which the workout screen read as
+            "fall back to the default" — so turning rest off gave you the
+            default rest. */}
+        <RestPicker
+          value={block.restSeconds}
+          inherited={defaultRestSeconds}
+          inheritLabel="your default"
+          onChange={onSetRest}
+          idPrefix="exercise-options-rest"
+          hint="Every set of this exercise, unless a single set overrides it."
+        />
       </div>
 
       <div>
@@ -2001,6 +2250,7 @@ function toBlock(e: FullWorkout["exercises"][number]): Block {
       seconds: s.seconds,
       distanceM: s.distanceM,
       rpe: s.rpe,
+      restSeconds: s.restSeconds,
       completed: s.completedAt != null,
     })),
   };

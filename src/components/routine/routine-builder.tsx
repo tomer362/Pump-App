@@ -21,6 +21,7 @@ import {
   setColumns,
   type SetColumn,
 } from "@/components/workout/set-row";
+import { RpePicker } from "@/components/workout/rpe-picker";
 import { createRoutine, updateRoutine, type RoutineInput } from "@/lib/actions/routine";
 import { createFolder } from "@/lib/actions/routine-folder";
 import { folderRail } from "@/lib/folder-color";
@@ -711,30 +712,22 @@ function ExerciseSettings({
 
       <div>
         <Label>Target effort (RPE)</Label>
-        <p className="text-text-3 mb-2 text-[12px] leading-snug">
-          Prescribed for every set — &ldquo;3×8 @ 8&rdquo;. 10 is a set you
-          couldn&apos;t have added a rep to.
-        </p>
-        <div className="grid grid-cols-5 gap-1.5">
-          {[null, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((v) => (
-            <button
-              key={v ?? "none"}
-              onClick={() =>
-                onPatch({
-                  sets: item.sets.map((s) => ({ ...s, targetRpe: v })),
-                })
-              }
-              className={cn(
-                "press num rounded-field h-10 border text-[13px] font-semibold",
-                targetRpe === v
-                  ? "border-volt bg-volt-fade text-volt"
-                  : "border-hairline bg-surface-2 text-text-2",
-              )}
-            >
-              {v ?? "—"}
-            </button>
-          ))}
-        </div>
+        {/* The shared picker, not a local copy of the scale: this hand-rolled
+            its own chips and omitted 6.5, so a routine could prescribe an
+            effort the workout screen offered and not the other way round. */}
+        <RpePicker
+          value={targetRpe}
+          onChange={(v) =>
+            onPatch({ sets: item.sets.map((s) => ({ ...s, targetRpe: v })) })
+          }
+          idPrefix="routine-target"
+          hint={
+            <>
+              Prescribed for every set — &ldquo;3×8 @ 8&rdquo;. 10 is a set you
+              couldn&apos;t have added a rep to.
+            </>
+          }
+        />
       </div>
 
       <div>

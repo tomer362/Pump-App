@@ -124,6 +124,7 @@ labels, so no value is reachable only through a tooltip.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
 - Tap targets ≥44 px (`tap` utility).
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
+- **A long-press gesture needs `-webkit-touch-callout: none`, not just `select-none`.** A hold on an `<a>` raises Safari's link preview card, which is neither a `contextmenu` event nor a text selection — so neither `preventDefault()` nor `select-none` reaches it, and the reorder sheet opened behind Apple's card. `useLongPress` spreads the inline style itself (with `-webkit-user-drag: none`, or a drifting hold drags the URL); the property inherits, so the press target covers the links nested inside it.
 - **`px-safe-*`, not `px-4 inset-safe-x`.** Both set `padding-left`, so one silently wins — and in portrait, where the inset is `0px`, `inset-safe-x` winning collapsed several large titles flush against the screen edge. `px-safe-4` is `max(1rem, env(safe-area-inset-left))`: the inset can only raise the padding. Use bare `inset-safe-x` only on an element with no horizontal padding of its own (the tab bar, the workout header).
 
 **The document never scrolls.** `body` is exactly `100dvh` and `overflow:
@@ -190,6 +191,43 @@ exercise page's `QuickLogDock` clears *both*: `bottom-[52px]` normally, and
 `108px` when a workout is running so it stacks on top of the pill rather than
 under it. The active workout screen lives **outside** the `(app)` group so it
 has no tab bar at all.
+
+**A running workout is visible outside the browser too.** Locking the phone
+between sets used to end the session as far as the OS was concerned, and the
+rest chime only played if the tab was awake to play it. Three signals now leave
+the page (`lib/workout-activity.ts`, driven by `hooks/use-workout-activity.ts`,
+fulfilled by the `message` handler in `public/sw.js`):
+
+- A **quiet progress notification** — workout name, sets, volume, what's next —
+  posted when Pump goes to the background and closed when it comes back. It is
+  a snapshot taken at the moment of backgrounding, not a live readout: the page
+  is frozen while hidden, so there is nothing to update it with, and posting on
+  every ticked set would put a banner over the set table and buzz the phone once
+  per rep on any platform that ignores `silent`.
+- A **rest-over alert** — same notification tag, so it replaces the quiet line
+  rather than stacking, with `renotify` and a vibrate pattern so it actually
+  interrupts. Skipped if any client is still visible, since the volt bar and the
+  chime have already said it.
+- The **app-icon badge** (`navigator.setAppBadge`) carries sets still owed. The
+  only one of the three that needs no permission, so it works for someone who
+  installed the app and declined push.
+
+**The delay lives in the service worker, held open by `waitUntil`.** A
+backgrounded tab has its timers clamped to roughly once a minute and an
+installed iOS PWA is suspended outright, so a page-side `setTimeout` is
+guaranteed to be late for precisely the case that matters; and a server-scheduled
+push is impossible here — Hobby cron is twice a day and a function can't sleep
+for two minutes. So the alarm is armed the instant the rest starts, while the app
+is still in the foreground, because nothing will be running later that could arm
+it. It is best-effort by construction: a browser may stop a worker whenever it
+likes, and iOS does. The in-app bar stays the source of truth.
+
+`workout-hide` (app came back) deliberately does **not** cancel the armed alarm —
+only `workout-end` does. Opening Pump mid-rest and putting it away again must not
+lose the alert. `endWorkoutActivity()` is called from the finish action's success
+path and from discard, the only two places that know the session stopped being
+live; the finish call happens before the celebration, which is dismissed by a tap
+that may never come.
 
 **Dense screens are solid, not translucent.** `glass` is for browsing chrome.
 The workout and routine-builder headers use `bg-bg` — a device that fails to
@@ -266,6 +304,13 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   doesn't consult the hook ignores the setting entirely.
 - Estimated 1RM is **Epley** (`w × (1 + r/30)`), cached on `workout_set.estimated1rm` so PR detection is one comparison.
 - Warm-up sets are excluded from volume, records and muscle-volume counts.
+- **Rest resolves through three levels: `workout_set.rest_seconds` → `workout_exercise.rest_seconds` → `user.default_rest_seconds`.** `null` at a level means inherit; **`0` means no rest at all** and stops the search, which is why the chain is `??` and never `||`. Those two were conflated before — the exercise sheet's chip was labelled "Off" and wrote `null`, so turning rest off gave you the default rest. `RestPicker` now spells `null` as "Same as …" and shows what it resolves to.
+- **Setting rest at the exercise level clears every per-set override under it.** That is what "change it for the whole exercise" has to mean: an override left on one set would silently keep winning over the value just chosen, and the two levels are indistinguishable once the sheet closes. `updateWorkoutExerciseSettings` does it in one transaction whenever `restSeconds` is present in the patch, and `setRest` mirrors it optimistically on the client. Per-set rest does **not** round-trip into a saved routine — `routine_set` has no rest column, only `routine_exercise` does.
+- **The rest strip is a divider that carries a value, not a sixth column.** Rest isn't a measurement of the set, it's the gap after it, so `RestStrip` is recessed (`bg-surface-1` against the rows' `bg-bg`) and sits outside the table's column grid — the point of putting it in the flow is that you can see where the gaps are uneven. Volt marks a set carrying its own override, the only way to tell the two levels apart at a glance. It renders after every working set including the last (that rest runs too) and never after a warm-up (those start no timer, so naming a rest would be a lie). It is 40 px, not 44: it repeats between every set on the one screen the design keeps dense, and it matches `RpePicker`'s chips, which are this app's floor for a repeated control.
+- **`data-set-id` wraps the set row alone, not the row plus its rest strip.** `useScrollWatch` and `jumpToSet` both ask "where is the set I owe", and a box 40 px taller would answer with the gap after it.
+- **RPE is per-set, and the scale lives only in `RPE_VALUES`** (`components/workout/rpe-picker.tsx`). Four surfaces write it — set options, quick-log, history detail, and the routine builder's prescribed `routine_set.target_rpe` — and they all render the same component; only the explanatory `hint` differs, because a routine prescribes an effort ahead of time and a set records one afterwards. The builder used to hand-roll its chips and its array omitted 6.5, so a routine could prescribe an effort a logged set could not record.
+- **RPE is the one logged value that stays editable after `finishWorkout`.** It feeds no denormalised counter, no volume figure and no personal record, so changing it on `/history/[id]` needs no recalculation — unlike weight or reps, which is why nothing else there is editable. `SetRpeRow` reuses `updateSet`, whose authorisation is already scoped to `workout.userId = me.id` and deliberately doesn't require the workout to be active. Skipped sets are excluded: an effort rating on a set you didn't do is a contradiction, not a gap.
+- **The `@–` placeholder on a completed set row is the affordance, not decoration.** The subscript used to appear only once a rating existed, so the gesture that sets one was advertised by nothing but its own result and the feature read as absent. There is no one-tap version of this control: nine half-points at the 44 px minimum is 396 px of chips, so it is a sheet — and effort comes first in that sheet, above set type, because set type is decided once and usually inherited from the routine.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
 - **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.

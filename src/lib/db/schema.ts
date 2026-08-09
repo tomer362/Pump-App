@@ -488,6 +488,14 @@ export const workoutSet = pgTable(
     seconds: integer("seconds"),
     distanceM: real("distance_m"),
     rpe: real("rpe"),
+    /**
+     * Rest owed *after* this set, overriding the exercise's own value. Null is
+     * the normal case and means "inherit", so the resolution order is
+     * `workout_set.rest_seconds` → `workout_exercise.rest_seconds` →
+     * `user.default_rest_seconds`. Setting rest at the exercise level clears
+     * every override underneath it — see `updateWorkoutExerciseSettings`.
+     */
+    restSeconds: integer("rest_seconds"),
     // A set only counts toward volume/PRs once ticked.
     completedAt: timestamp("completed_at"),
     // Epley estimate cached at write time so PR checks are one comparison.

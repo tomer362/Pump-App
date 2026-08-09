@@ -8,6 +8,26 @@ import { haptic } from "@/lib/utils";
 const MOVE_TOLERANCE_PX = 8;
 
 /**
+ * What actually stops iOS from claiming the gesture.
+ *
+ * A hold on an `<a>` in mobile Safari raises the system link preview — the
+ * card that floats the page up with "Open / Copy / Share" under it. It is not
+ * a `contextmenu` event, so `preventDefault()` never sees it, and it is not a
+ * text selection, so `select-none` doesn't touch it either: the reorder sheet
+ * opened *behind* Apple's card. `-webkit-touch-callout` is the only switch for
+ * it, and because the property inherits, setting it on the press target covers
+ * the links and buttons nested inside. `-webkit-user-drag` is the other half —
+ * without it a hold that drifts drags the link's URL around instead.
+ *
+ * Spread onto the same node as the handlers below, which means a consumer that
+ * needs its own inline styles has to merge rather than replace this.
+ */
+const PRESS_STYLE = {
+  WebkitTouchCallout: "none",
+  WebkitUserDrag: "none",
+} as React.CSSProperties;
+
+/**
  * Press-and-hold on a target that also contains links and buttons.
  *
  * Three things make this hostile on a phone. The page scrolls, so a press that
@@ -15,7 +35,8 @@ const MOVE_TOLERANCE_PX = 8;
  * past ~8px cancels. The browser still dispatches a `click` when the finger
  * lifts, so on a target wrapping a `<Link>` a long press would both open
  * whatever it opens *and* navigate away from it. And both iOS and Android pop
- * their own link menu at roughly the same 500ms, over the top of ours.
+ * their own link menu at roughly the same 500ms, over the top of ours — see
+ * `PRESS_STYLE` for the half of that which `preventDefault` cannot reach.
  *
  * The returned props must all land on the same node: `onClickCapture` is what
  * eats the trailing click, and it only sees it from an ancestor of the link.
@@ -44,6 +65,7 @@ export function useLongPress(
   useEffect(() => cancel, [cancel]);
 
   return {
+    style: PRESS_STYLE,
     onPointerDown: (e: React.PointerEvent) => {
       if (!enabled || e.button !== 0) return;
       cancel();

@@ -14,6 +14,7 @@ import {
   type UnfinishedSetsMode,
 } from "@/lib/actions/workout";
 import { cn, haptic } from "@/lib/utils";
+import { endWorkoutActivity } from "@/lib/workout-activity";
 
 // The finish celebration pulls in the whole choreography and (lazily) the
 // confetti library, for a screen that appears once at the end of a session.
@@ -73,6 +74,10 @@ export function FinishSheet({
       setError(res.error);
       return;
     }
+    // Nothing is live any more: drop the lock-screen line, the armed rest alarm
+    // and the app-icon badge. Here rather than after the celebration, because
+    // the celebration is dismissed by a tap that may never come.
+    endWorkoutActivity();
     // Celebrate first; the sheet closes underneath it.
     setSummary(res.data!);
   }

@@ -5,6 +5,7 @@ import { Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Badge, Card, Stat } from "@/components/ui/primitives";
 import { WorkoutDetailActions } from "./workout-detail-actions";
+import { SetRpeRow } from "./set-rpe-row";
 import { requireUser } from "@/lib/session";
 import { getFullWorkout, getPersonalRecords } from "@/lib/queries/workout";
 import {
@@ -150,51 +151,89 @@ export default async function WorkoutDetailPage(
                       s.seconds != null && `${s.seconds}s`,
                     ].filter((v): v is string => Boolean(v));
 
-                    return (
-                    <div
-                      key={s.id}
-                      className="flex items-center gap-3 px-3 py-2 text-[13px]"
-                    >
-                      <span className="num text-text-3 w-5 shrink-0 font-bold">
-                        {!done
-                          ? "–"
-                          : s.setType === "normal"
-                            ? workingIndex
-                            : s.setType === "warmup"
-                              ? "W"
-                              : s.setType === "drop"
-                                ? "D"
-                                : "F"}
-                      </span>
-                      {parts.length === 0 ? (
-                        <span className="num text-text-3 font-semibold">—</span>
-                      ) : (
-                        parts.map((part, j) => (
-                          <span key={j} className="contents">
-                            {j > 0 && <span className="text-text-3">×</span>}
-                            <span
-                              className={
-                                done
-                                  ? "num text-text-1 font-semibold"
-                                  : "num text-text-3 font-semibold line-through"
-                              }
-                            >
-                              {part}
-                            </span>
+                    const glyph = !done
+                      ? "–"
+                      : s.setType === "normal"
+                        ? String(workingIndex)
+                        : s.setType === "warmup"
+                          ? "W"
+                          : s.setType === "drop"
+                            ? "D"
+                            : "F";
+
+                    // The number and the numbers, shared by both branches below
+                    // so the editable row can't drift from the read-only one.
+                    const values = (
+                      <>
+                        <span className="num text-text-3 w-5 shrink-0 font-bold">
+                          {glyph}
+                        </span>
+                        {parts.length === 0 ? (
+                          <span className="num text-text-3 font-semibold">
+                            —
                           </span>
-                        ))
-                      )}
-                      {!done && (
-                        <span className="text-text-3 ml-auto text-[11px] font-semibold tracking-[0.06em] uppercase">
-                          Skipped
-                        </span>
-                      )}
-                      {done && s.rpe != null && (
-                        <span className="num text-text-3 ml-auto text-[12px]">
-                          RPE {s.rpe}
-                        </span>
-                      )}
-                    </div>
+                        ) : (
+                          parts.map((part, j) => (
+                            <span key={j} className="contents">
+                              {j > 0 && <span className="text-text-3">×</span>}
+                              <span
+                                className={
+                                  done
+                                    ? "num text-text-1 font-semibold"
+                                    : "num text-text-3 font-semibold line-through"
+                                }
+                              >
+                                {part}
+                              </span>
+                            </span>
+                          ))
+                        )}
+                      </>
+                    );
+
+                    // Your own performed sets stay rateable after the fact —
+                    // see `SetRpeRow`. A skipped set is deliberately excluded:
+                    // an effort rating on something you didn't do is a
+                    // contradiction, not a gap. Someone else's workout is read
+                    // only, so it keeps the plain row.
+                    if (isMine && done) {
+                      return (
+                        <SetRpeRow
+                          key={s.id}
+                          setId={s.id}
+                          initialRpe={s.rpe}
+                          title={`${e.name} · ${
+                            s.setType === "normal"
+                              ? `Set ${workingIndex}`
+                              : s.setType === "warmup"
+                                ? "Warm-up"
+                                : s.setType === "drop"
+                                  ? "Drop set"
+                                  : "Set to failure"
+                          }`}
+                        >
+                          {values}
+                        </SetRpeRow>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-3 px-3 py-2 text-[13px]"
+                      >
+                        {values}
+                        {!done && (
+                          <span className="text-text-3 ml-auto text-[11px] font-semibold tracking-[0.06em] uppercase">
+                            Skipped
+                          </span>
+                        )}
+                        {done && s.rpe != null && (
+                          <span className="num text-text-3 ml-auto text-[12px]">
+                            RPE {s.rpe}
+                          </span>
+                        )}
+                      </div>
                     );
                   })}
                 </Card>

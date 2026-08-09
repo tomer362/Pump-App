@@ -545,6 +545,10 @@ export async function addSet(
       seconds: last?.seconds ?? null,
       distanceM: last?.distanceM ?? null,
       rpe: last?.rpe ?? null,
+      // Including the rest override, if the previous set carried one. A set
+      // appended after one pushed to 3m is the next set of that same heavy
+      // pattern, not a return to the exercise's default.
+      restSeconds: last?.restSeconds ?? null,
     })
     .returning({ id: workoutSet.id });
 
@@ -594,6 +598,9 @@ const setPatchSchema = z.object({
   seconds: z.number().int().min(0).max(86_400).nullable().optional(),
   distanceM: z.number().min(0).max(1_000_000).nullable().optional(),
   rpe: z.number().min(1).max(10).nullable().optional(),
+  // Per-set rest override. Same bound as the exercise-level column; `null`
+  // inherits the exercise, `0` means no rest at all.
+  restSeconds: z.number().int().min(0).max(1800).nullable().optional(),
   setType: z.enum(["normal", "warmup", "drop", "failure"]).optional(),
   completed: z.boolean().optional(),
 });
@@ -658,6 +665,7 @@ export async function updateSet(
       ...(p.seconds !== undefined ? { seconds: p.seconds } : {}),
       ...(p.distanceM !== undefined ? { distanceM: p.distanceM } : {}),
       ...(p.rpe !== undefined ? { rpe: p.rpe } : {}),
+      ...(p.restSeconds !== undefined ? { restSeconds: p.restSeconds } : {}),
       ...(p.setType !== undefined ? { setType: p.setType } : {}),
       completedAt,
       estimated1rm: est,
@@ -744,6 +752,7 @@ export async function updateSets(
     ...(p.seconds !== undefined ? { seconds: p.seconds } : {}),
     ...(p.distanceM !== undefined ? { distanceM: p.distanceM } : {}),
     ...(p.rpe !== undefined ? { rpe: p.rpe } : {}),
+    ...(p.restSeconds !== undefined ? { restSeconds: p.restSeconds } : {}),
     ...(p.setType !== undefined ? { setType: p.setType } : {}),
   };
 
@@ -810,10 +819,27 @@ export async function updateWorkoutExerciseSettings(
   const parsed = schema.safeParse(patch);
   if (!parsed.success) return { ok: false, error: "Invalid values" };
 
-  await db
-    .update(workoutExercise)
-    .set(parsed.data)
-    .where(eq(workoutExercise.id, workoutExerciseId));
+  // Rest set here means the *whole* exercise, so it clears the per-set
+  // overrides underneath it. Without that, choosing 90s for an exercise where
+  // set 2 had been pushed to 3m leaves that set at 3m and the setting looks
+  // like it silently failed — and the two levels are indistinguishable in the
+  // UI once the sheet is closed. One transaction, because a cleared override
+  // with the old exercise value still in place is the wrong rest either way.
+  const cascade = parsed.data.restSeconds !== undefined;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(workoutExercise)
+      .set(parsed.data)
+      .where(eq(workoutExercise.id, workoutExerciseId));
+
+    if (cascade) {
+      await tx
+        .update(workoutSet)
+        .set({ restSeconds: null })
+        .where(eq(workoutSet.workoutExerciseId, workoutExerciseId));
+    }
+  });
 
   return { ok: true };
 }
