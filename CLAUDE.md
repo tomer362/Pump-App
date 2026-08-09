@@ -212,6 +212,23 @@ fulfilled by the `message` handler in `public/sw.js`):
   only one of the three that needs no permission, so it works for someone who
   installed the app and declined push.
 
+**Workout alerts need a permission and nothing else — no VAPID, no subscription,
+no server** — so their opt-in cannot live in `PushSettings`, which hides its
+whole toggle when VAPID is absent. It shipped that way once and the feature was
+*unreachable* rather than broken: on a deployment with no push keys there was no
+control anywhere in the app that could grant notification permission, and every
+function in `lib/workout-activity.ts` gates on `Notification.permission ===
+"granted"`. `WorkoutAlertSettings` is therefore its own card, rendered
+unconditionally, and it reports "on" only when a service worker registration
+*also* exists — a grant with no worker would report on and then do nothing. It
+carries a "Send a test alert" button because none of this is verifiable off a
+real installed phone. `RestAlertPrompt` asks once on the workout screen itself,
+since a permission nobody can find is the same as a feature that doesn't work.
+Muting is a local preference (`pump.workout-alerts`); a page can't revoke a
+browser permission, so a control claiming to would be lying. Clearing messages
+(`workout-hide`/`-end`/`-rest-cancel`) bypass that gate, or muting would leave the
+last notification stuck on screen.
+
 **The delay lives in the service worker, held open by `waitUntil`.** A
 backgrounded tab has its timers clamped to roughly once a minute and an
 installed iOS PWA is suspended outright, so a page-side `setTimeout` is
@@ -307,6 +324,8 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - **Rest resolves through three levels: `workout_set.rest_seconds` → `workout_exercise.rest_seconds` → `user.default_rest_seconds`.** `null` at a level means inherit; **`0` means no rest at all** and stops the search, which is why the chain is `??` and never `||`. Those two were conflated before — the exercise sheet's chip was labelled "Off" and wrote `null`, so turning rest off gave you the default rest. `RestPicker` now spells `null` as "Same as …" and shows what it resolves to.
 - **Setting rest at the exercise level clears every per-set override under it.** That is what "change it for the whole exercise" has to mean: an override left on one set would silently keep winning over the value just chosen, and the two levels are indistinguishable once the sheet closes. `updateWorkoutExerciseSettings` does it in one transaction whenever `restSeconds` is present in the patch, and `setRest` mirrors it optimistically on the client. Per-set rest does **not** round-trip into a saved routine — `routine_set` has no rest column, only `routine_exercise` does.
 - **The rest strip is a divider that carries a value, not a sixth column.** Rest isn't a measurement of the set, it's the gap after it, so `RestStrip` is recessed (`bg-surface-1` against the rows' `bg-bg`) and sits outside the table's column grid — the point of putting it in the flow is that you can see where the gaps are uneven. Volt marks a set carrying its own override, the only way to tell the two levels apart at a glance. It renders after every working set including the last (that rest runs too) and never after a warm-up (those start no timer, so naming a rest would be a lie). It is 40 px, not 44: it repeats between every set on the one screen the design keeps dense, and it matches `RpePicker`'s chips, which are this app's floor for a repeated control.
+- **The running rest appears in two places, and they read from one store.** `RestTimerState` carries the `setId` its rest follows, persisted with `endsAt`, so the strip sitting in that gap counts down alongside the bar instead of showing its planned duration — the bar said `1:56` while the strip three rows up still said `2:00`, and there is no reading of that which isn't a bug. Only the bar and that one strip subscribe to `useRemaining()`, so a tick re-renders two leaves and never the set table.
+- **The reorder sheet commits on close, not on each drop.** Writing through per drop re-ordered the full exercise blocks live *behind* the modal — tall rows sliding about on a screen that is mostly numeric inputs. The drag is local state inside `ReorderList`, the order reaches the parent through a ref (no re-render per intermediate position), and `closeReorder` commits — from the Done button and from `onClose`, which `Sheet` does route backdrop and Escape through, so dismissing never loses the change.
 - **`data-set-id` wraps the set row alone, not the row plus its rest strip.** `useScrollWatch` and `jumpToSet` both ask "where is the set I owe", and a box 40 px taller would answer with the gap after it.
 - **RPE is per-set, and the scale lives only in `RPE_VALUES`** (`components/workout/rpe-picker.tsx`). Four surfaces write it — set options, quick-log, history detail, and the routine builder's prescribed `routine_set.target_rpe` — and they all render the same component; only the explanatory `hint` differs, because a routine prescribes an effort ahead of time and a set records one afterwards. The builder used to hand-roll its chips and its array omitted 6.5, so a routine could prescribe an effort a logged set could not record.
 - **RPE is the one logged value that stays editable after `finishWorkout`.** It feeds no denormalised counter, no volume figure and no personal record, so changing it on `/history/[id]` needs no recalculation — unlike weight or reps, which is why nothing else there is editable. `SetRpeRow` reuses `updateSet`, whose authorisation is already scoped to `workout.userId = me.id` and deliberately doesn't require the workout to be active. Skipped sets are excluded: an effort rating on a set you didn't do is a contradiction, not a gap.

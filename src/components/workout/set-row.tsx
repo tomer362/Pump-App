@@ -20,6 +20,7 @@ import {
 } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 import { EASE_OUT_QUART } from "@/lib/motion";
+import { useRemaining } from "./rest-timer";
 
 export type SetDraft = {
   id: string;
@@ -387,13 +388,94 @@ export function SetRow({
 export function RestStrip({
   seconds,
   override,
+  runningTotal,
   onEdit,
 }: {
   /** Resolved rest, after the set → exercise → account fallback. */
   seconds: number;
   /** True when this set carries its own value instead of inheriting. */
   override: boolean;
+  /**
+   * The running timer's full duration when *this* gap is the one counting down,
+   * else null. Non-null swaps in the live variant, which is the only strip that
+   * subscribes to the clock.
+   */
+  runningTotal: number | null;
   onEdit: () => void;
+}) {
+  if (runningTotal != null) {
+    return (
+      <LiveRestStrip total={runningTotal} override={override} onEdit={onEdit} />
+    );
+  }
+  return (
+    <RestStripShell
+      onEdit={onEdit}
+      label={
+        seconds === 0
+          ? "No rest after this set. Change it."
+          : `Rest ${formatDuration(seconds)} after this set${
+              override ? ", set just for this set" : ""
+            }. Change it.`
+      }
+      accent={override}
+      value={seconds === 0 ? "None" : formatDuration(seconds)}
+    />
+  );
+}
+
+/**
+ * The strip for the gap that is actually running.
+ *
+ * Same countdown as the bar, from the same store, because two numbers on one
+ * screen describing one rest have to agree — the bar used to read 1:56 while
+ * the strip three rows up still said 2:00, and there is no reading of that
+ * which isn't a bug. The draining track is the bar's own device, reused: it is
+ * the same rest, so it gets the same language.
+ */
+function LiveRestStrip({
+  total,
+  override,
+  onEdit,
+}: {
+  total: number;
+  override: boolean;
+  onEdit: () => void;
+}) {
+  const remaining = useRemaining();
+  const progress = total > 0 ? remaining / total : 0;
+
+  return (
+    <RestStripShell
+      onEdit={onEdit}
+      label={`Resting, ${formatDuration(remaining)} left. Change this rest.`}
+      accent
+      running
+      value={formatDuration(remaining)}
+      track={progress}
+      caption={override ? "Rest" : "Resting"}
+    />
+  );
+}
+
+function RestStripShell({
+  onEdit,
+  label,
+  accent,
+  running,
+  value,
+  track,
+  caption = "Rest",
+}: {
+  onEdit: () => void;
+  label: string;
+  /** Volt: either a set carrying its own value, or the gap that's running. */
+  accent: boolean;
+  running?: boolean;
+  value: string;
+  /** 0–1 remaining, drawn as a draining fill. */
+  track?: number;
+  caption?: string;
 }) {
   return (
     <button
@@ -401,29 +483,36 @@ export function RestStrip({
         haptic.light();
         onEdit();
       }}
-      aria-label={
-        seconds === 0
-          ? "No rest after this set. Change it."
-          : `Rest ${formatDuration(seconds)} after this set${
-              override ? ", set just for this set" : ""
-            }. Change it.`
-      }
-      className="press bg-surface-1 hairline-t flex h-10 w-full items-center justify-center gap-2"
+      aria-label={label}
+      className={cn(
+        "press hairline-t relative flex h-10 w-full items-center justify-center gap-2 overflow-hidden",
+        running ? "bg-volt-fade" : "bg-surface-1",
+      )}
     >
+      {track != null && (
+        <span
+          aria-hidden
+          className="bg-volt-fade absolute inset-y-0 left-0 w-full origin-left"
+          style={{
+            transform: `scaleX(${track})`,
+            transition: "transform 250ms linear",
+          }}
+        />
+      )}
       <Clock
-        className={cn("size-3", override ? "text-volt" : "text-text-3")}
+        className={cn("relative size-3", accent ? "text-volt" : "text-text-3")}
         strokeWidth={2.4}
       />
-      <span className="text-text-3 text-[10px] font-bold tracking-[0.1em] uppercase">
-        Rest
+      <span className="text-text-3 relative text-[10px] font-bold tracking-[0.1em] uppercase">
+        {caption}
       </span>
       <span
         className={cn(
-          "num text-[12px] font-semibold",
-          override ? "text-volt" : "text-text-2",
+          "num relative text-[12px] font-semibold",
+          accent ? "text-volt" : "text-text-2",
         )}
       >
-        {seconds === 0 ? "None" : formatDuration(seconds)}
+        {value}
       </span>
     </button>
   );

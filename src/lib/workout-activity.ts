@@ -21,19 +21,65 @@ type Message =
   | { type: "workout-rest-cancel" }
   | { type: "workout-show"; title: string; body: string; url: string }
   | { type: "workout-hide" }
-  | { type: "workout-end" };
+  | { type: "workout-end" }
+  | { type: "workout-test" };
 
-function granted() {
+/**
+ * Whether this browser could ever show a workout alert. Note what this does
+ * *not* require: a push subscription, a VAPID key pair, or a server. These
+ * notifications are posted locally by the service worker, so they work on a
+ * deployment with no push configuration at all — which is why the opt-in can't
+ * live behind `PushSettings`, whose whole card disappears without VAPID keys.
+ */
+export function workoutAlertsSupported() {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
-    typeof Notification !== "undefined" &&
-    Notification.permission === "granted"
+    typeof Notification !== "undefined"
+  );
+}
+
+/**
+ * Turning alerts off without revoking the browser permission — which a page
+ * cannot do anyway, so a control that claimed to would be lying.
+ */
+const PREF_KEY = "pump.workout-alerts";
+
+export function workoutAlertsMuted() {
+  try {
+    return window.localStorage.getItem(PREF_KEY) === "off";
+  } catch {
+    return false;
+  }
+}
+
+export function setWorkoutAlertsMuted(muted: boolean) {
+  try {
+    if (muted) window.localStorage.setItem(PREF_KEY, "off");
+    else window.localStorage.removeItem(PREF_KEY);
+  } catch {
+    /* Private mode; the session still behaves as opted in. */
+  }
+}
+
+function canShow() {
+  return (
+    workoutAlertsSupported() &&
+    Notification.permission === "granted" &&
+    !workoutAlertsMuted()
   );
 }
 
 async function post(message: Message) {
-  if (!granted()) return;
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  // Clearing is always allowed. A notification already on screen has to be
+  // dismissible even after the permission or the preference was withdrawn,
+  // otherwise turning alerts off leaves the last one stuck there.
+  const clearing =
+    message.type === "workout-hide" ||
+    message.type === "workout-end" ||
+    message.type === "workout-rest-cancel";
+  if (!clearing && !canShow()) return;
   try {
     // `controller` is the worker already controlling this page — `sw.js` calls
     // `clients.claim()` on activate, so it is there on every load after the
@@ -87,6 +133,15 @@ export function endWorkoutActivity() {
   setWorkoutBadge(0);
 }
 
+/**
+ * Prove it works, on the device, now. There is no way to verify any of this from
+ * a development machine — it needs a real phone with the app installed — so the
+ * settings screen offers a notification you can go and look at.
+ */
+export function sendTestWorkoutAlert() {
+  void post({ type: "workout-test" });
+}
+
 type Badging = Navigator & {
   setAppBadge?: (n?: number) => Promise<void>;
   clearAppBadge?: () => Promise<void>;
@@ -99,6 +154,9 @@ type Badging = Navigator & {
  */
 export function setWorkoutBadge(count: number) {
   if (typeof navigator === "undefined") return;
+  // Muted means muted — the icon is one of the three signals, not a separate
+  // feature. Permission it does *not* need, which is the point of it.
+  if (count > 0 && workoutAlertsMuted()) return;
   const nav = navigator as Badging;
   try {
     const done =

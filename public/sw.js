@@ -163,6 +163,23 @@ self.addEventListener("message", (event) => {
       cancelRestAlarm();
       event.waitUntil(closeWorkoutNotifications());
       return;
+
+    // "Send a test alert" from settings. Its own tag, so trying it out during a
+    // live session can't clobber that session's notification — and deliberately
+    // not gated on visibility, since the whole point is to see it appear.
+    case "workout-test":
+      event.waitUntil(
+        self.registration.showNotification("Pump alerts are working", {
+          body: "This is what you'll get when your rest is up.",
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          data: { url: "/feed" },
+          tag: "pump-test",
+          renotify: true,
+          vibrate: [180, 90, 180],
+        }),
+      );
+      return;
   }
 });
 
