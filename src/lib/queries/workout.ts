@@ -67,6 +67,8 @@ export type WorkoutSetRow = {
   seconds: number | null;
   distanceM: number | null;
   rpe: number | null;
+  /** Rest after this set, overriding the exercise. Null inherits. */
+  restSeconds: number | null;
   completedAt: Date | null;
   estimated1rm: number | null;
 };
@@ -178,6 +180,7 @@ export async function getFullWorkout(
       seconds: s.seconds,
       distanceM: s.distanceM,
       rpe: s.rpe,
+      restSeconds: s.restSeconds,
       completedAt: s.completedAt,
       estimated1rm: s.estimated1rm,
     });
