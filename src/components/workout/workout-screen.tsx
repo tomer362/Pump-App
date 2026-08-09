@@ -48,6 +48,8 @@ import type { CoopSnapshot } from "@/lib/actions/coop";
 import { Elapsed } from "@/components/ui/elapsed";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useLongPress } from "@/hooks/use-long-press";
+import { useWorkoutActivity } from "@/hooks/use-workout-activity";
+import { endWorkoutActivity } from "@/lib/workout-activity";
 import { usePumpJam } from "./pump-jam";
 import {
   addSet,
@@ -783,6 +785,41 @@ export function WorkoutScreen({
     [reduce],
   );
 
+  /* ---------------------------------------------------------------------- */
+  /* The session while the phone is in a pocket.                             */
+  /* ---------------------------------------------------------------------- */
+
+  /** What the next set is, phrased for a lock screen rather than a table row. */
+  const nextUpLine = useMemo(() => {
+    if (!nextTarget) return "Back to it.";
+    return [
+      nextTarget.block.name,
+      setLabel(nextTarget.set, nextTarget.index),
+      targetLabel(
+        nextTarget.block,
+        nextTarget.set,
+        nextTarget.position,
+        unit,
+      ),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }, [nextTarget, unit]);
+
+  useWorkoutActivity({
+    url: `/workout/${workout.id}`,
+    title: name,
+    // Sets and volume, the same two figures the header carries — plus where to
+    // pick the session back up, which is the reason to look at all.
+    progressBody: `${totals.sets} set${totals.sets === 1 ? "" : "s"} · ${formatWeight(
+      totals.volume,
+      unit,
+    )} ${unit}${nextTarget ? ` · Next: ${nextTarget.block.name}` : ""}`,
+    restEndsAt: timer.state?.endsAt ?? null,
+    restBody: nextUpLine,
+    setsRemaining: totals.unfinished,
+  });
+
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
   const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const optionsSet =
@@ -1194,6 +1231,9 @@ export function WorkoutScreen({
               block
               variant="danger"
               onClick={async () => {
+                // Before the round-trip: the notification and the badge are
+                // claims about a live session, and this one is over either way.
+                endWorkoutActivity();
                 await discardWorkout(workout.id);
                 router.replace("/feed");
               }}
@@ -1414,7 +1454,9 @@ function ExerciseBlock({
         // scrolled under the header, the header names the exercise instead.
         data-block-title={block.id}
         // select-none so iOS doesn't raise its text-selection handles out of a
-        // hold on the exercise name.
+        // hold on the exercise name. The other thing a hold here used to raise
+        // — Safari's link preview card for the `<Link>` below — is killed by
+        // the inline style `useLongPress` spreads in.
         className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 select-none"
       >
         {block.supersetGroup && (

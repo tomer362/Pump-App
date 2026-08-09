@@ -129,7 +129,8 @@ export function PushSettings({
               {state === "on" ? "Notifications on" : "Notifications off"}
             </p>
             <p className="text-text-3 text-[13px]">
-              Friends arriving at the gym, records and comments.
+              When your rest is up, plus friends arriving at the gym, records
+              and comments.
             </p>
           </div>
         </div>

@@ -124,6 +124,7 @@ labels, so no value is reachable only through a tooltip.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
 - Tap targets ≥44 px (`tap` utility).
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
+- **A long-press gesture needs `-webkit-touch-callout: none`, not just `select-none`.** A hold on an `<a>` raises Safari's link preview card, which is neither a `contextmenu` event nor a text selection — so neither `preventDefault()` nor `select-none` reaches it, and the reorder sheet opened behind Apple's card. `useLongPress` spreads the inline style itself (with `-webkit-user-drag: none`, or a drifting hold drags the URL); the property inherits, so the press target covers the links nested inside it.
 - **`px-safe-*`, not `px-4 inset-safe-x`.** Both set `padding-left`, so one silently wins — and in portrait, where the inset is `0px`, `inset-safe-x` winning collapsed several large titles flush against the screen edge. `px-safe-4` is `max(1rem, env(safe-area-inset-left))`: the inset can only raise the padding. Use bare `inset-safe-x` only on an element with no horizontal padding of its own (the tab bar, the workout header).
 
 **The document never scrolls.** `body` is exactly `100dvh` and `overflow:
@@ -190,6 +191,43 @@ exercise page's `QuickLogDock` clears *both*: `bottom-[52px]` normally, and
 `108px` when a workout is running so it stacks on top of the pill rather than
 under it. The active workout screen lives **outside** the `(app)` group so it
 has no tab bar at all.
+
+**A running workout is visible outside the browser too.** Locking the phone
+between sets used to end the session as far as the OS was concerned, and the
+rest chime only played if the tab was awake to play it. Three signals now leave
+the page (`lib/workout-activity.ts`, driven by `hooks/use-workout-activity.ts`,
+fulfilled by the `message` handler in `public/sw.js`):
+
+- A **quiet progress notification** — workout name, sets, volume, what's next —
+  posted when Pump goes to the background and closed when it comes back. It is
+  a snapshot taken at the moment of backgrounding, not a live readout: the page
+  is frozen while hidden, so there is nothing to update it with, and posting on
+  every ticked set would put a banner over the set table and buzz the phone once
+  per rep on any platform that ignores `silent`.
+- A **rest-over alert** — same notification tag, so it replaces the quiet line
+  rather than stacking, with `renotify` and a vibrate pattern so it actually
+  interrupts. Skipped if any client is still visible, since the volt bar and the
+  chime have already said it.
+- The **app-icon badge** (`navigator.setAppBadge`) carries sets still owed. The
+  only one of the three that needs no permission, so it works for someone who
+  installed the app and declined push.
+
+**The delay lives in the service worker, held open by `waitUntil`.** A
+backgrounded tab has its timers clamped to roughly once a minute and an
+installed iOS PWA is suspended outright, so a page-side `setTimeout` is
+guaranteed to be late for precisely the case that matters; and a server-scheduled
+push is impossible here — Hobby cron is twice a day and a function can't sleep
+for two minutes. So the alarm is armed the instant the rest starts, while the app
+is still in the foreground, because nothing will be running later that could arm
+it. It is best-effort by construction: a browser may stop a worker whenever it
+likes, and iOS does. The in-app bar stays the source of truth.
+
+`workout-hide` (app came back) deliberately does **not** cancel the armed alarm —
+only `workout-end` does. Opening Pump mid-rest and putting it away again must not
+lose the alert. `endWorkoutActivity()` is called from the finish action's success
+path and from discard, the only two places that know the session stopped being
+live; the finish call happens before the celebration, which is dismissed by a tap
+that may never come.
 
 **Dense screens are solid, not translucent.** `glass` is for browsing chrome.
 The workout and routine-builder headers use `bg-bg` — a device that fails to
