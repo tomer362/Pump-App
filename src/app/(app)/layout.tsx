@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { TabBar, TabBarSpacer } from "@/components/ui/tab-bar";
 import { ActiveWorkoutPill } from "@/components/workout/active-workout-pill";
 import { RouteProgress } from "@/components/ui/route-progress";
+import { NotifyNudge } from "@/components/notifications/notify-nudge";
 import { requireUser } from "@/lib/session";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { getUnreadNotificationCount } from "@/lib/actions/notify";
@@ -24,6 +25,11 @@ export default async function AppLayout({
     // every page — however short — scroll into a blank void.
     <div className="flex min-h-full flex-col">
       <RouteProgress />
+      {/* Renders nothing until it has decided to ask, which it does off a timer
+          after mount — so it never blocks or shifts the page under it. Mounted
+          here rather than in the root layout because the active workout screen
+          sits outside this group and does its own, better-timed asking. */}
+      <NotifyNudge vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
       <div className="mx-auto w-full max-w-lg flex-1">{children}</div>
       <TabBarSpacer />
       {/* The tab bar is fixed-position chrome, so rendering it first without

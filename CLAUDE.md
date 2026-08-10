@@ -229,6 +229,30 @@ browser permission, so a control claiming to would be lying. Clearing messages
 (`workout-hide`/`-end`/`-rest-cancel`) bypass that gate, or muting would leave the
 last notification stuck on screen.
 
+**The app asks for the permission on its own — once when you're new, then
+weekly.** A permission nobody was ever asked for reads as a missing feature, and
+`RestAlertPrompt` only fires on the workout screen, which someone who hasn't
+started training yet never sees. `NotifyNudge` is a `Sheet` mounted in the
+`(app)` shell (so never over a running workout), opened 1.2 s after mount so it
+never shifts the page under a thumb. It asks **only while
+`Notification.permission === "default"`**: a block cannot be undone from a page
+— `requestPermission()` returns instantly on `denied` — so its button would be a
+lie, and someone who granted the permission and then muted alerts in settings
+made a deliberate choice a weekly popup must not reopen. The clock
+(`pump.notify-nudge`) is stamped when the sheet **opens**, not when it closes,
+or a force-quit with it on screen reopens it on the next load; `RestAlertPrompt`
+stamps the same key, since the two ask the identical question and answering one
+mid-set must not earn a modal on the feed a minute later.
+
+**The opt-in sequence lives once, in `lib/notify-client.ts`.** `enableNotifications`
+is permission → register `/sw.js` → `serviceWorker.ready` → un-mute → *then*, only
+when a VAPID key is passed, `subscribeToPush`. Push is last and non-fatal by
+construction: rest alerts, the lock-screen line and the badge are already working
+by the time it runs, so a refused endpoint must not report "off" about three
+features that are on. `WorkoutAlertSettings` calls it with no key (those alerts
+need no subscription); `NotifyNudge` passes `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, so one
+tap covers both channels where the deployment has them.
+
 **The delay lives in the service worker, held open by `waitUntil`.** A
 backgrounded tab has its timers clamped to roughly once a minute and an
 installed iOS PWA is suspended outright, so a page-side `setTimeout` is

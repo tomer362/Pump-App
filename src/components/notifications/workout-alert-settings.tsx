@@ -10,6 +10,7 @@ import {
   workoutAlertsMuted,
   workoutAlertsSupported,
 } from "@/lib/workout-activity";
+import { enableNotifications, isIOS, isStandalone } from "@/lib/notify-client";
 
 type State = "loading" | "needs-install" | "unsupported" | "denied" | "off" | "on";
 
@@ -60,18 +61,14 @@ export function WorkoutAlertSettings() {
     setBusy(true);
     setError(null);
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setState(permission === "denied" ? "denied" : "off");
+      // This card is the workout alerts, which need no VAPID key pair and no
+      // subscription — hence no key passed. Web push is `PushSettings` below.
+      const res = await enableNotifications();
+      if (!res.ok) {
+        setState(res.permission === "denied" ? "denied" : "off");
+        if (res.error) setError(res.error);
         return;
       }
-      // The worker is what actually posts these, so make sure one exists before
-      // claiming the feature is on.
-      if (!(await navigator.serviceWorker.getRegistration())) {
-        await navigator.serviceWorker.register("/sw.js");
-      }
-      await navigator.serviceWorker.ready;
-      setWorkoutAlertsMuted(false);
       setMuted(false);
       setState("on");
     } catch (err) {
@@ -171,20 +168,5 @@ export function WorkoutAlertSettings() {
         </p>
       </Card>
     </div>
-  );
-}
-
-function isIOS() {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    // iPadOS reports as a Mac, distinguished only by touch support.
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-function isStandalone() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true
   );
 }

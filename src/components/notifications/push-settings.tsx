@@ -4,10 +4,8 @@ import { useEffect, useState } from "react";
 import { Bell, BellOff, Info, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/primitives";
-import {
-  removePushSubscription,
-  savePushSubscription,
-} from "@/lib/actions/push";
+import { removePushSubscription } from "@/lib/actions/push";
+import { isIOS, isStandalone, subscribeToPush } from "@/lib/notify-client";
 
 type State = "unsupported" | "needs-install" | "denied" | "off" | "on";
 
@@ -61,20 +59,7 @@ export function PushSettings({
         (await navigator.serviceWorker.register("/sw.js"));
       await navigator.serviceWorker.ready;
 
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-      });
-
-      const json = sub.toJSON() as {
-        endpoint: string;
-        keys: { p256dh: string; auth: string };
-      };
-      const res = await savePushSubscription({
-        endpoint: json.endpoint,
-        keys: json.keys,
-      });
-      if (!res.ok) throw new Error(res.error);
+      await subscribeToPush(reg, vapidPublicKey);
       setState("on");
     } catch (err) {
       setError(
@@ -179,29 +164,4 @@ export function PushSettings({
       </p>
     </div>
   );
-}
-
-function isIOS() {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    // iPadOS reports as a Mac, distinguished only by touch support.
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-function isStandalone() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true
-  );
-}
-
-/** VAPID keys are base64url; PushManager wants raw bytes. */
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = window.atob(base64);
-  const output = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; ++i) output[i] = raw.charCodeAt(i);
-  return output;
 }
