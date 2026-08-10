@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { haptic } from "@/lib/utils";
+import { markNotifyAsked } from "@/lib/notify-client";
 import { workoutAlertsSupported } from "@/lib/workout-activity";
 
 const DISMISSED_KEY = "pump.rest-alert-prompt";
@@ -46,6 +47,10 @@ export function RestAlertPrompt() {
   if (!show) return null;
 
   const dismiss = () => {
+    // The periodic nudge asks the identical question from the app shell, so
+    // answering it here has to restart its weekly clock too — otherwise this
+    // line is dismissed mid-set and a modal opens on the feed a minute later.
+    markNotifyAsked();
     try {
       window.localStorage.setItem(DISMISSED_KEY, "1");
     } catch {
