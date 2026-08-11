@@ -216,6 +216,16 @@ export const exercise = pgTable(
     // Postgres unique indexes permit many NULLs, so every custom exercise
     // (slug null) coexists here without a partial-index WHERE clause.
     uniqueIndex("exercise_slug_idx").on(t.slug),
+    // Serves the `word_similarity` comparison behind spelling-tolerant search
+    // (lib/queries/exercise.ts). Headroom rather than a fix: at a few hundred
+    // rows the planner is right to scan, and that pass only runs when a literal
+    // search found nothing. The custom-exercise tail is what grows with the
+    // user base, and this is what keeps the rescue from growing with it.
+    //
+    // `gin_trgm_ops` needs the pg_trgm extension to exist first, and drizzle-kit
+    // won't emit a CREATE EXTENSION — that line is hand-added at the top of
+    // 0013. Re-generating that migration would drop it.
+    index("exercise_name_trgm_idx").using("gin", sql`${t.name} gin_trgm_ops`),
   ],
 );
 

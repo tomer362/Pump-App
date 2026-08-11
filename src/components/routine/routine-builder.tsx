@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   Ellipsis,
   GripVertical,
+  Info,
   Plus,
   Repeat2,
   Timer,
@@ -29,9 +30,14 @@ import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 
-// Behind a gesture, so it stays out of the initial payload.
+// Behind a gesture, so they stay out of the initial payload.
 const ExercisePicker = dynamic(() =>
   import("@/components/workout/exercise-picker").then((m) => m.ExercisePicker),
+);
+const ExerciseAboutSheetBody = dynamic(() =>
+  import("@/components/exercise/exercise-about").then(
+    (m) => m.ExerciseAboutSheetBody,
+  ),
 );
 
 type DraftSet = {
@@ -129,6 +135,7 @@ export function RoutineBuilder({
 
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [infoFor, setInfoFor] = useState<string | null>(null);
   const [replaceFor, setReplaceFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -286,6 +293,7 @@ export function RoutineBuilder({
   }
 
   const menuItem = items.find((i) => i.key === menuFor) ?? null;
+  const infoItem = items.find((i) => i.key === infoFor) ?? null;
   const replaceItem = items.find((i) => i.key === replaceFor) ?? null;
 
   return (
@@ -367,6 +375,7 @@ export function RoutineBuilder({
             item={item}
             unit={unit}
             onOpenMenu={() => setMenuFor(item.key)}
+            onOpenInfo={() => setInfoFor(item.key)}
             onPatchSet={(setKey, patch) => patchSet(item.key, setKey, patch)}
             onAddSet={() =>
               patchExercise(item.key, {
@@ -424,6 +433,10 @@ export function RoutineBuilder({
           <ExerciseSettings
             item={menuItem}
             onPatch={(patch) => patchExercise(menuItem.key, patch)}
+            onViewDetails={() => {
+              setMenuFor(null);
+              setInfoFor(menuItem.key);
+            }}
             onReplace={() => {
               setMenuFor(null);
               setReplaceFor(menuItem.key);
@@ -435,6 +448,18 @@ export function RoutineBuilder({
           />
         )}
       </Sheet>
+
+      {/* Capped and scrolled: an exercise's prose runs to three paragraphs plus
+          its alternatives, and a sheet that grows to fit that is the whole
+          screen with no sign it can be dismissed. */}
+      <Sheet
+        open={infoItem != null}
+        onClose={() => setInfoFor(null)}
+        title={infoItem?.name}
+        maxHeight="88dvh"
+      >
+        {infoItem && <ExerciseAboutSheetBody exerciseId={infoItem.exerciseId} />}
+      </Sheet>
     </div>
   );
 }
@@ -445,6 +470,7 @@ function ExerciseCard({
   item,
   unit,
   onOpenMenu,
+  onOpenInfo,
   onPatchSet,
   onAddSet,
   onRemoveSet,
@@ -452,6 +478,7 @@ function ExerciseCard({
   item: DraftExercise;
   unit: "kg" | "lb";
   onOpenMenu: () => void;
+  onOpenInfo: () => void;
   onPatchSet: (setKey: string, patch: Partial<DraftSet>) => void;
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
@@ -483,15 +510,31 @@ function ExerciseCard({
             {item.supersetGroup}
           </span>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold">{item.name}</p>
-          <p className="text-text-3 text-[12px]">
+        {/* Tapping the name opens the About sheet rather than the exercise
+            page: the routine on screen is unsaved React state, so navigating
+            away would throw the whole draft out. Grayscale with a small info
+            glyph, not volt — volt marks state that matters, and the routine
+            view page's name link is plain too. Without the glyph the gesture is
+            advertised by nothing, which is how it read as missing. */}
+        <button
+          type="button"
+          onClick={onOpenInfo}
+          aria-label={`About ${item.name}`}
+          className="press min-w-0 flex-1 text-left"
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[15px] font-semibold">
+              {item.name}
+            </span>
+            <Info className="text-text-3 size-3.5 shrink-0" />
+          </span>
+          <span className="text-text-3 block text-[12px]">
             {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
             {item.sets[0]?.targetRpe != null && (
               <span className="num"> · RPE {item.sets[0].targetRpe}</span>
             )}
-          </p>
-        </div>
+          </span>
+        </button>
         {item.intervalWorkSeconds != null && (
           <Timer className="text-volt size-4" />
         )}
@@ -649,11 +692,13 @@ function TargetInput({
 function ExerciseSettings({
   item,
   onPatch,
+  onViewDetails,
   onReplace,
   onRemove,
 }: {
   item: DraftExercise;
   onPatch: (patch: Partial<DraftExercise>) => void;
+  onViewDetails: () => void;
   onReplace: () => void;
   onRemove: () => void;
 }) {
@@ -788,6 +833,15 @@ function ExerciseSettings({
       </div>
 
       <div className="space-y-2">
+        {/* Also reachable by tapping the name on the card. Repeated here
+            because this sheet is where you look when you want to do something
+            to an exercise, and "what is this movement" is the question that
+            comes before "replace it". */}
+        <Button block variant="solid" onClick={onViewDetails}>
+          <Info className="size-4" strokeWidth={2.4} />
+          View exercise details
+        </Button>
+
         <Button block variant="solid" onClick={onReplace}>
           <Repeat2 className="size-4" strokeWidth={2.4} />
           Replace exercise

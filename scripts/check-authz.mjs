@@ -656,6 +656,30 @@ try {
     );
   }
 
+  // The routine builder can't navigate to the exercise page without discarding
+  // an unsaved draft, so it reads the About panel through an action instead.
+  // That makes the 404 above reachable a second way, over POST — and
+  // `getExercise` carries no owner filter of its own, so the guard has to be in
+  // the action or this is the way to read a stranger's custom exercise.
+  const aboutAction = actionIdsFromManifest("src/lib/actions/exercise-search.ts", [
+    "getExerciseAboutAction",
+  ]);
+  requireFixture(
+    aboutAction.size === 1,
+    `expected getExerciseAboutAction in the dev manifest, found ${aboutAction.size}`,
+  );
+  for (const [name, id] of aboutAction) {
+    const res = await postAction(b.page, `${BASE}/exercises`, id, [customId]);
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    // It answers null for missing and for forbidden alike, so the only thing
+    // to assert is that nothing of A's came back in the payload.
+    check(
+      `${name} refuses another user's exercise`,
+      ran && !res.body.includes(customName),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
   // Quick-log takes a caller-supplied exercise id and writes a workout, a
   // workout_exercise, a set and a records recalculation off the back of it —
   // the one write path in the app that creates its own session. Fired at A's

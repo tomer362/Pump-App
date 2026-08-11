@@ -100,6 +100,20 @@ const cases: [string, () => Promise<unknown>][] = [
   ["workout.getPersonalRecords", () => workoutQ.getPersonalRecords(uid)],
   ["workout.getPreviousSets", () => workoutQ.getPreviousSets(uid, null, [eid])],
   ["exercise.searchExercises", () => exerciseQ.searchExercises(uid, { query: "bench" })],
+  [
+    // Multi-token search builds one OR-group per token across three columns —
+    // a different predicate shape from the single-token case above.
+    "exercise.searchExercises (multi-token)",
+    () => exerciseQ.searchExercises(uid, { query: "incline dumbbell" }),
+  ],
+  [
+    // The spelling-tolerant rescue. Only reachable through a query that matches
+    // nothing literally, which is the point: this is the one path that calls
+    // word_similarity, so pg_trgm missing from the database fails here rather
+    // than in front of a user.
+    "exercise.searchExercises (fuzzy rescue)",
+    () => exerciseQ.searchExercises(uid, { query: "incilne" }),
+  ],
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [eid])],
   ["exercise.searchExercises (mine)", () => exerciseQ.searchExercises(uid, { scope: "mine" })],
   ["exercise.searchExercises (archived)", () => exerciseQ.searchExercises(uid, { scope: "archived" })],

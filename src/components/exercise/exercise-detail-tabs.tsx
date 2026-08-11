@@ -2,25 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import {
-  ChevronRight,
-  Dumbbell,
-  ExternalLink,
-  Info,
-  Play,
-} from "lucide-react";
+import { Dumbbell } from "lucide-react";
 import { Card, EmptyState, Segmented, SectionTitle } from "@/components/ui/primitives";
+import { ExerciseAbout, type ExerciseAboutData } from "./exercise-about";
 import { ExerciseProgressChart } from "./exercise-progress-chart";
 import { RepMaxTable } from "./rep-max-table";
 import { RecordsGrid, type RecordRow } from "./records-grid";
 import type {
-  ExerciseAlternativeItem,
   ExerciseHistoryPoint,
   ExerciseSessionPoint,
   ExerciseSummary,
   RepMax,
 } from "@/lib/queries/exercise";
-import { cn, formatDayLabel, formatVolume, formatWeight, labelize } from "@/lib/utils";
+import { cn, formatDayLabel, formatVolume, formatWeight } from "@/lib/utils";
 
 type Tab = "about" | "history" | "charts" | "records";
 
@@ -31,12 +25,12 @@ const TABS = [
   { value: "records" as const, label: "Records" },
 ];
 
-export type ExerciseDetailData = {
-  bodyEffect: string | null;
-  instructions: string | null;
-  secondaryMuscles: string[];
-  video: { href: string; curated: boolean };
-  alternatives: ExerciseAlternativeItem[];
+/**
+ * The About half is its own type because the routine builder shows that panel
+ * alone, in a sheet, with none of the aggregates below it. Composed rather than
+ * restated so the two can't drift.
+ */
+export type ExerciseDetailData = ExerciseAboutData & {
   summary: ExerciseSummary;
   series: ExerciseSessionPoint[];
   history: ExerciseHistoryPoint[];
@@ -69,115 +63,10 @@ export function ExerciseDetailTabs({
     <div className={cn("space-y-5", className)}>
       <Segmented value={tab} onChange={setTab} options={TABS} />
 
-      {tab === "about" && <About data={data} />}
+      {tab === "about" && <ExerciseAbout data={data} />}
       {tab === "history" && <History data={data} unit={unit} />}
       {tab === "charts" && <Charts data={data} unit={unit} />}
       {tab === "records" && <Records data={data} unit={unit} />}
-    </div>
-  );
-}
-
-function About({ data }: { data: ExerciseDetailData }) {
-  return (
-    <div className="space-y-6">
-      {/* Why before how: what the movement does to you, then how to do it. */}
-      {data.bodyEffect && (
-        <div>
-          <SectionTitle>What it trains</SectionTitle>
-          <Card className="px-4 py-3.5">
-            <p className="text-text-2 text-[14px] leading-relaxed whitespace-pre-line">
-              {data.bodyEffect}
-            </p>
-          </Card>
-        </div>
-      )}
-
-      {data.secondaryMuscles.length > 0 && (
-        <div>
-          <SectionTitle>Also works</SectionTitle>
-          <Card className="px-4 py-3">
-            <p className="text-text-2 text-[14px]">
-              {data.secondaryMuscles.map(labelize).join(" · ")}
-            </p>
-          </Card>
-        </div>
-      )}
-
-      {data.instructions && (
-        <div>
-          <SectionTitle>How to do it</SectionTitle>
-          <Card className="px-4 py-3.5">
-            <p className="text-text-2 text-[14px] leading-relaxed whitespace-pre-line">
-              {data.instructions}
-            </p>
-          </Card>
-        </div>
-      )}
-
-      {!data.bodyEffect && !data.instructions && (
-        <EmptyState
-          icon={Info}
-          title="No notes yet"
-          body="Custom exercises start blank — edit it to add your own setup and cues."
-        />
-      )}
-
-      {/* Grayscale, not volt: a link out isn't state that matters. The label
-          never calls a search a demonstration — see lib/exercise-video.ts. */}
-      <div>
-        <SectionTitle>Form</SectionTitle>
-        <Card className="overflow-hidden">
-          <a
-            href={data.video.href}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="press flex items-center gap-3 px-4 py-3"
-          >
-            <span className="bg-surface-3 grid size-11 shrink-0 place-items-center rounded-lg">
-              <Play className="text-text-2 size-4" strokeWidth={2} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium">
-                {data.video.curated ? "Watch the form" : "Find a form demo"}
-              </span>
-              <span className="text-text-3 block text-[12px]">
-                {data.video.curated
-                  ? "Opens YouTube"
-                  : "Searches YouTube for this exercise"}
-              </span>
-            </span>
-            <ExternalLink className="text-text-3 size-4 shrink-0" />
-          </a>
-        </Card>
-      </div>
-
-      {data.alternatives.length > 0 && (
-        <div>
-          <SectionTitle>Alternatives</SectionTitle>
-          <Card className="divide-hairline divide-y overflow-hidden">
-            {data.alternatives.map((a) => (
-              <Link
-                key={a.id}
-                href={`/exercises/${a.id}`}
-                // items-start, not items-center: the note makes these rows
-                // three lines tall and a centred chevron reads as misaligned.
-                className="press flex items-start gap-3 px-4 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium">{a.name}</p>
-                  <p className="text-text-3 truncate text-[12px]">
-                    {labelize(a.primaryMuscle)} · {labelize(a.equipment)}
-                  </p>
-                  <p className="text-text-2 mt-1.5 text-[13px] leading-relaxed">
-                    {a.note}
-                  </p>
-                </div>
-                <ChevronRight className="text-text-3 mt-0.5 size-4 shrink-0" />
-              </Link>
-            ))}
-          </Card>
-        </div>
-      )}
     </div>
   );
 }
