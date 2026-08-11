@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge, Input } from "@/components/ui/primitives";
+import { Badge, HighlightedText, Input } from "@/components/ui/primitives";
 import { Chip, ExerciseForm } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
 import {
@@ -493,7 +493,7 @@ function Row({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-medium">
-          {item.name}
+          <HighlightedText text={item.name} ranges={item.matchRanges} />
         </span>
         <span className="text-text-3 block text-[12px]">
           {labelize(item.primaryMuscle)} · {labelize(item.equipment)}

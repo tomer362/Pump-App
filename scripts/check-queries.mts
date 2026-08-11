@@ -101,18 +101,13 @@ const cases: [string, () => Promise<unknown>][] = [
   ["workout.getPreviousSets", () => workoutQ.getPreviousSets(uid, null, [eid])],
   ["exercise.searchExercises", () => exerciseQ.searchExercises(uid, { query: "bench" })],
   [
-    // Multi-token search builds one OR-group per token across three columns —
-    // a different predicate shape from the single-token case above.
-    "exercise.searchExercises (multi-token)",
-    () => exerciseQ.searchExercises(uid, { query: "incline dumbbell" }),
-  ],
-  [
-    // The spelling-tolerant rescue. Only reachable through a query that matches
-    // nothing literally, which is the point: this is the one path that calls
-    // word_similarity, so pg_trgm missing from the database fails here rather
-    // than in front of a user.
-    "exercise.searchExercises (fuzzy rescue)",
-    () => exerciseQ.searchExercises(uid, { query: "incilne" }),
+    // A text search now fetches a candidate pool and scores it in JS, so its
+    // predicate is the structural filters *without* a name comparison — a
+    // different shape from the browse page above, and from the oversized-
+    // library fallback, which reuses the plain ILIKE predicate this file
+    // already covers through the cases either side of it.
+    "exercise.searchExercises (ranked pool)",
+    () => exerciseQ.searchExercises(uid, { query: "incilne bench", muscle: "chest" }),
   ],
   ["exercise.getCurrent1rmRecords", () => exerciseQ.getCurrent1rmRecords(uid, [eid])],
   ["exercise.searchExercises (mine)", () => exerciseQ.searchExercises(uid, { scope: "mine" })],
@@ -147,6 +142,12 @@ const cases: [string, () => Promise<unknown>][] = [
     },
   ],
   ["exercise.getRecentExercises", () => exerciseQ.getRecentExercises(uid)],
+  [
+    // Different SQL from the line above: the name filter is gone and the limit
+    // widens, because the matcher does the narrowing afterwards.
+    "exercise.getRecentExercises (with query)",
+    () => exerciseQ.getRecentExercises(uid, { query: "bench" }),
+  ],
   ["exercise.getExercisesByIds", () => exerciseQ.getExercisesByIds(uid, [eid])],
   ["exercise.getExercise", () => exerciseQ.getExercise(eid)],
   ["exercise.getExerciseHistory", () => exerciseQ.getExerciseHistory(uid, eid)],

@@ -2,6 +2,8 @@
 
 import { getCurrentUser } from "@/lib/session";
 import { exerciseVideoLink } from "@/lib/exercise-video";
+import { RECENT_BONUS } from "@/lib/exercise-match";
+import { tokenizeQuery } from "@/lib/exercise-search-terms";
 import {
   getExercise,
   getExerciseAlternatives,
@@ -26,7 +28,8 @@ export type ExerciseBatch = ExercisePage & {
   /**
    * Only on the opening batch of a set of filters — the recent group doesn't
    * change as you scroll, so refetching it per batch would be one wasted
-   * round-trip per scroll.
+   * round-trip per scroll. Empty while a text search is running: a search is
+   * one ranked list, and a group pinned above it would override the ranking.
    */
   recent?: ExerciseListItem[];
   /**
@@ -62,7 +65,7 @@ export async function searchExerciseBatchAction(
   params: ExerciseFilters & { after?: ExerciseCursor | null },
 ): Promise<ExerciseBatch> {
   const me = await getCurrentUser();
-  if (!me) return { items: [], cursor: null, fuzzy: false, recent: [] };
+  if (!me) return { items: [], cursor: null, recent: [] };
 
   const { after, ...filters } = params;
   if (after) return searchExercisePage(me.id, { ...filters, after });
@@ -91,19 +94,47 @@ export async function searchExerciseBatchAction(
     companions(filters),
   ]);
 
-  // The page fell back to a spelling-tolerant match, so these two were asking
-  // the wrong question — they matched literally and came back empty. Ask again
-  // the way the page ended up asking, or a typo'd search shows a list of
-  // results with an empty "Recent" above it for exercises the user trains.
-  if (page.fuzzy) {
-    const [fuzzyRecent, fuzzyImported] = await companions({
-      ...filters,
-      fuzzy: true,
-    });
-    return { ...page, recent: fuzzyRecent, imported: fuzzyImported };
+  if (tokenizeQuery(filters.query ?? "").length === 0) {
+    return { ...page, recent, imported };
   }
 
-  return { ...page, recent, imported };
+  return { ...page, items: foldInRecent(page.items, recent), recent: [], imported };
+}
+
+/**
+ * One ranked list for a text search, with what the user actually trains lifted
+ * inside it.
+ *
+ * Browsing keeps its "Recent" group; searching cannot. A group pinned above the
+ * results would put a mediocre match above a perfect one and undo the ranking
+ * that is the point of the search — but dropping recency entirely is worse in
+ * the place it matters most, a picker opened mid-session, where the bench press
+ * variation you actually use should not sit third behind the two the library
+ * happens to rank higher. So recency becomes a bonus inside the one ordering
+ * rather than a shelf above it, big enough to lift a row past its ties and too
+ * small to lift it past a better match.
+ *
+ * Recent rows that the ranked block didn't reach are appended before sorting:
+ * both lists come from the same matcher, so a row here is a row that matched,
+ * and having trained something is the strongest reason there is to show it.
+ */
+function foldInRecent(
+  items: ExerciseListItem[],
+  recent: ExerciseListItem[],
+): ExerciseListItem[] {
+  if (recent.length === 0) return items;
+
+  const boosted = new Set(recent.map((r) => r.id));
+  const merged = [...items];
+  const seen = new Set(items.map((i) => i.id));
+  for (const r of recent) if (!seen.has(r.id)) merged.push(r);
+
+  const rank = (e: ExerciseListItem) =>
+    (e.matchScore ?? 0) + (boosted.has(e.id) ? RECENT_BONUS : 0);
+
+  // Stable, so rows the bonus can't separate keep the order the ranking gave
+  // them — which already breaks ties on popularity, then name, then id.
+  return merged.sort((a, b) => rank(b) - rank(a));
 }
 
 /**

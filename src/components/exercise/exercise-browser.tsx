@@ -4,7 +4,13 @@ import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Archive, ChevronRight, Loader2, Plus, Search, X } from "lucide-react";
-import { Badge, Card, Input, Segmented } from "@/components/ui/primitives";
+import {
+  Badge,
+  Card,
+  HighlightedText,
+  Input,
+  Segmented,
+} from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/exercise/exercise-form";
 import { useExerciseBatches } from "@/components/exercise/use-exercise-batches";
@@ -212,7 +218,9 @@ function Row({
       className="press flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-medium">{item.name}</p>
+        <p className="truncate text-[15px] font-medium">
+          <HighlightedText text={item.name} ranges={item.matchRanges} />
+        </p>
         <p className="text-text-3 truncate text-[12px]">
           {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
         </p>

@@ -14,15 +14,18 @@ import {
   inArray,
 } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { escapeLike, tokenizeQuery } from "@/lib/exercise-search-terms";
 import {
-  escapeLike,
-  tokenizeQuery,
-  FUZZY_MIN_TOKEN_LEN,
-  FUZZY_THRESHOLD,
-} from "@/lib/exercise-search-terms";
+  filterMatches,
+  rankMatches,
+  type MatchRange,
+} from "@/lib/exercise-match";
 import {
   EXERCISE_PAGE_SIZE,
+  EXERCISE_POOL_CAP,
+  EXERCISE_RANKED_LIMIT,
   EXERCISE_RECENT_LIMIT,
+  EXERCISE_RECENT_POOL,
   IMPORTED_HINT_LIMIT,
 } from "@/lib/pagination";
 import {
@@ -57,7 +60,22 @@ export type ExerciseListItem = {
    * expensive in the first place.
    */
   lastPerformedAt: Date | null;
+  /**
+   * Which characters of `name` the search matched — half-open, merged and
+   * ascending, ready for `<HighlightedText>`. Only a text search fills this in;
+   * every other read leaves it undefined and the row renders as it always has.
+   */
+  matchRanges?: MatchRange[];
+  /**
+   * How well this row matched, on the scale in `lib/exercise-match.ts`. Carried
+   * so the action can fold the "Recent" group into one ranked list without a
+   * second round trip to re-derive what the query layer already worked out.
+   * Comparable only against other rows from the same search.
+   */
+  matchScore?: number;
 };
+
+export type { MatchRange };
 
 /**
  * Keyset cursor into the library: the last row of the page you have. Every
@@ -70,26 +88,15 @@ export type ExerciseCursor = {
   popularity: number;
   name: string;
   id: string;
-  /**
-   * Which pass produced the page this cursor came off. Carried so page two of
-   * a spelling-tolerant rescue keeps matching the way page one did — it is a
-   * mode, not a sort key, which is why it can ride along without joining the
-   * comparison below and disturbing the index that serves the ordering.
-   */
-  fuzzy?: boolean;
 };
 
 export type ExercisePage = {
   items: ExerciseListItem[];
-  /** Pass back as `after` for the next batch; null when the library is spent. */
-  cursor: ExerciseCursor | null;
   /**
-   * True when these rows came from the spelling-tolerant rescue rather than a
-   * literal match. The callers that fetch a companion list for the same query
-   * — "Recent", the imported-reveal probe — read it so they don't sit there
-   * empty next to a page of results.
+   * Pass back as `after` for the next batch; null when the library is spent —
+   * and always null for a text search, which comes back as one ranked block.
    */
-  fuzzy: boolean;
+  cursor: ExerciseCursor | null;
 };
 
 /**
@@ -118,59 +125,34 @@ export type ExerciseFilters = {
    * picker ever should.
    */
   scope?: ExerciseScope;
-  /**
-   * Let a token match a name it merely resembles, not only one it appears in.
-   *
-   * Never set by a caller deciding it would be nice to have. `searchExercisePage`
-   * turns it on for itself, and only after the strict pass has come back empty
-   * — see the rescue there for why spelling-tolerance has to be a second
-   * attempt rather than a wider first one.
-   */
-  fuzzy?: boolean;
 };
 
 /**
- * The text half of the filter: every token has to match, in any order, and a
- * token matches if it turns up in the name, the equipment or the primary
- * muscle.
+ * The literal text filter: every token has to appear, in any order, in the
+ * name, the equipment or the primary muscle.
+ *
+ * **This is no longer how search matches** — `lib/exercise-match.ts` is, and it
+ * is both looser and ranked. What is left here is the fallback for a library
+ * too large to score in memory (`EXERCISE_POOL_CAP`), which is why it keeps its
+ * wildcard escaping and its tests: unescaped, "%" matched the entire library.
  *
  * All three columns, because the name alone can't answer what people type. The
  * library writes equipment into the name in parentheses and the muscle not at
  * all, so "dumbbell chest" describes a shelf of exercises whose names contain
- * neither word in that arrangement. The picker's own muscle and equipment chips
- * still exist and are still the precise way to do this; typing it has to work
- * too, because on a phone mid-session nobody scrolls a chip rail.
- *
- * `AND` across tokens and `OR` within one: "incline dumbbell" means both, and
- * either word may land in any column. Order is not significant — it is a search
- * box, not a phrase.
- *
- * When `fuzzy` is on, each token additionally matches anything it merely
- * resembles, via pg_trgm's `word_similarity` (see the extension migration).
- * `word_similarity`, not `similarity`: the latter compares whole strings, so a
- * single token scored against "Incline Bench Press (Dumbbell)" is near zero no
- * matter how exactly it matches one of those words.
+ * neither word in that arrangement.
  */
-function nameWhere(f: ExerciseFilters) {
-  const tokens = tokenizeQuery(f.query ?? "");
+function nameWhere(query: string | undefined) {
+  const tokens = tokenizeQuery(query ?? "");
   if (tokens.length === 0) return undefined;
 
   return and(
     ...tokens.map((token) => {
       const like = `%${escapeLike(token)}%`;
-      const ways = [
+      return or(
         ilike(exercise.name, like),
         ilike(exercise.equipment, like),
         ilike(exercise.primaryMuscle, like),
-      ];
-      if (f.fuzzy && token.length >= FUZZY_MIN_TOKEN_LEN) {
-        ways.push(
-          sql`word_similarity(${token}, ${exercise.name}) >= ${FUZZY_THRESHOLD}`,
-          sql`word_similarity(${token}, ${exercise.equipment}) >= ${FUZZY_THRESHOLD}`,
-          sql`word_similarity(${token}, ${exercise.primaryMuscle}) >= ${FUZZY_THRESHOLD}`,
-        );
-      }
-      return or(...ways);
+      );
     }),
   );
 }
@@ -188,7 +170,15 @@ function nameWhere(f: ExerciseFilters) {
 function filterWhere(
   userId: string,
   f: ExerciseFilters,
-  { includeImported = false }: { includeImported?: boolean } = {},
+  {
+    includeImported = false,
+    /**
+     * Push the text filter into SQL as well. Off by default — matching lives in
+     * `lib/exercise-match.ts` now, and a `WHERE` clause that had already
+     * discarded the near-misses would leave it nothing to rank.
+     */
+    literalText = false,
+  }: { includeImported?: boolean; literalText?: boolean } = {},
 ) {
   const scope = f.scope ?? "available";
   const authored = and(eq(exercise.ownerId, userId), isNull(exercise.importedAt));
@@ -212,7 +202,7 @@ function filterWhere(
     scope === "archived"
       ? sql`${exercise.archivedAt} IS NOT NULL`
       : isNull(exercise.archivedAt),
-    nameWhere(f),
+    literalText ? nameWhere(f.query) : undefined,
     f.muscle && f.muscle !== "all"
       ? eq(exercise.primaryMuscle, f.muscle)
       : undefined,
@@ -247,8 +237,14 @@ type ListRow = {
   popularity: number;
 };
 
-function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
+function toListItem(
+  r: ListRow,
+  lastPerformedAt: Date | null = null,
+  match?: { score: number; ranges: MatchRange[] },
+) {
   return {
+    ...(match ? { matchScore: match.score } : null),
+    ...(match?.ranges.length ? { matchRanges: match.ranges } : null),
     id: r.id,
     name: r.name,
     primaryMuscle: r.primaryMuscle,
@@ -277,76 +273,112 @@ function toListItem(r: ListRow, lastPerformedAt: Date | null = null) {
  * which is also where custom exercises land — they are reachable through
  * "Recent" and through search either way.
  *
- * **Spelling tolerance is a rescue, not a wider net.** A text search runs
- * literally first and only re-runs with `fuzzy` when that found nothing at all.
- * Folding the trigram comparison into the one pass instead would have meant
- * ranking, because a near-miss must never outrank a real match — and a
- * computed rank is exactly what this cursor cannot carry: the ordering triple
- * works because all three are plain indexed columns. It would also be worse
- * than useless when the query is fine: "banana" resembles six real exercises
- * closely enough to clear the threshold, and pouring those in beneath a page of
- * correct results is noise nobody asked for. Only when the honest answer is
- * "nothing" is a guess an improvement on it. The cost is one extra query in
- * precisely that case, and none in the common one.
+ * **Browsing and searching are two different reads.** With no query this is a
+ * keyset walk of an indexed ordering, which is what makes scrolling the library
+ * cheap. With one it is a ranked block: the database applies only the
+ * structural filters and `lib/exercise-match.ts` decides both what matched and
+ * how well, because relevance is a computed float that no keyset can walk and
+ * because the highlight offsets have to come from the same alignment that
+ * produced the rank, or the bolded letters and the row's position disagree.
  */
 export async function searchExercisePage(
   userId: string,
   {
     after,
-    limit = EXERCISE_PAGE_SIZE,
+    limit,
     ...filters
   }: ExerciseFilters & { after?: ExerciseCursor | null; limit?: number } = {},
 ): Promise<ExercisePage> {
-  const run = async (fuzzy: boolean): Promise<ExercisePage> => {
-    const rows = await db
+  const tokens = tokenizeQuery(filters.query ?? "");
+  if (tokens.length === 0) {
+    return browsePage(userId, filters, after, limit ?? EXERCISE_PAGE_SIZE);
+  }
+  // A ranked block is single-shot, so it hands back no cursor and nothing ever
+  // asks for a second page. Defensive: a cursor left over from a batch loaded
+  // before the user started typing must not be answered with the popularity
+  // page it addresses, which has nothing to do with the query.
+  if (after) return { items: [], cursor: null };
+
+  return rankedPage(userId, tokens, filters, limit ?? EXERCISE_RANKED_LIMIT);
+}
+
+async function browsePage(
+  userId: string,
+  filters: ExerciseFilters,
+  after: ExerciseCursor | null | undefined,
+  limit: number,
+): Promise<ExercisePage> {
+  const rows = await db
+    .select(LIST_COLUMNS)
+    .from(exercise)
+    .where(
+      and(
+        filterWhere(userId, filters),
+        after
+          ? or(
+              lt(exercise.popularity, after.popularity),
+              and(
+                eq(exercise.popularity, after.popularity),
+                or(
+                  gt(exercise.name, after.name),
+                  and(eq(exercise.name, after.name), gt(exercise.id, after.id)),
+                ),
+              ),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(desc(exercise.popularity), asc(exercise.name), asc(exercise.id))
+    .limit(limit);
+
+  const last = rows[rows.length - 1];
+  return {
+    items: rows.map((r) => toListItem(r)),
+    // A short page means the library is spent — no extra count query, and no
+    // trailing request that comes back empty.
+    cursor:
+      last && rows.length === limit
+        ? { popularity: last.popularity, name: last.name, id: last.id }
+        : null,
+  };
+}
+
+/**
+ * Score the whole in-scope library against the query and return the best of it.
+ *
+ * The pool query orders by popularity even though the ranking re-sorts it:
+ * that ordering decides *which* rows survive `EXERCISE_POOL_CAP`, and the
+ * most-trained ones are the right ones to keep.
+ */
+async function rankedPage(
+  userId: string,
+  tokens: string[],
+  filters: ExerciseFilters,
+  limit: number,
+): Promise<ExercisePage> {
+  const pool = async (literalText: boolean, take: number) =>
+    db
       .select(LIST_COLUMNS)
       .from(exercise)
-      .where(
-        and(
-          filterWhere(userId, { ...filters, fuzzy }),
-          after
-            ? or(
-                lt(exercise.popularity, after.popularity),
-                and(
-                  eq(exercise.popularity, after.popularity),
-                  or(
-                    gt(exercise.name, after.name),
-                    and(
-                      eq(exercise.name, after.name),
-                      gt(exercise.id, after.id),
-                    ),
-                  ),
-                ),
-              )
-            : undefined,
-        ),
-      )
+      .where(filterWhere(userId, filters, { literalText }))
       .orderBy(desc(exercise.popularity), asc(exercise.name), asc(exercise.id))
-      .limit(limit);
+      .limit(take);
 
-    const last = rows[rows.length - 1];
-    return {
-      items: rows.map((r) => toListItem(r)),
-      // A short page means the library is spent — no extra count query, and no
-      // trailing request that comes back empty.
-      cursor:
-        last && rows.length === limit
-          ? { popularity: last.popularity, name: last.name, id: last.id, fuzzy }
-          : null,
-      fuzzy,
-    };
-  };
-
-  // Paging stays in whichever pass opened the search: re-deciding per batch
-  // would let the mode flip mid-scroll and hand back rows the earlier pages
-  // already showed.
-  if (after) return run(after.fuzzy === true);
-
-  const strict = await run(false);
-  if (strict.items.length > 0 || tokenizeQuery(filters.query ?? "").length === 0) {
-    return strict;
+  let rows = await pool(false, EXERCISE_POOL_CAP + 1);
+  if (rows.length > EXERCISE_POOL_CAP) {
+    // Somebody's library is too big to score in memory. Let SQL narrow it
+    // literally first and rank what comes back: ordering and highlighting still
+    // work, and only the near-misses are lost — for the one person who has
+    // thousands of custom exercises rather than for everybody.
+    rows = await pool(true, EXERCISE_POOL_CAP);
   }
-  return run(true);
+
+  return {
+    items: rankMatches(tokens, rows, { limit }).map(({ row, match }) =>
+      toListItem(row, null, match),
+    ),
+    cursor: null,
+  };
 }
 
 /**
@@ -361,6 +393,7 @@ export async function getRecentExercises(
   userId: string,
   { limit = EXERCISE_RECENT_LIMIT, ...filters }: ExerciseFilters & { limit?: number } = {},
 ): Promise<ExerciseListItem[]> {
+  const tokens = tokenizeQuery(filters.query ?? "");
   const rows = await db
     .select({
       ...LIST_COLUMNS,
@@ -377,12 +410,26 @@ export async function getRecentExercises(
     // column is functionally dependent on it.
     .groupBy(exercise.id)
     .orderBy(sql`MAX(${workout.startedAt}) DESC`)
-    .limit(limit);
+    // A query is matched in JS below, so the twelve most recent are no longer
+    // the right twelve rows to fetch — the match may be the twentieth.
+    .limit(tokens.length > 0 ? EXERCISE_RECENT_POOL : limit);
 
   // Drizzle has no column definition to decode a raw `sql` fragment against,
   // so this arrives as whatever the driver produced — normalise rather than
   // assume it is already a Date.
-  return rows.map((r) => toListItem(r, new Date(r.lastPerformedAt)));
+  if (tokens.length === 0) {
+    return rows.map((r) => toListItem(r, new Date(r.lastPerformedAt)));
+  }
+
+  // Filtered by the matcher, still ordered by recency. Recent means "what you
+  // have trained"; re-ranking it by relevance would answer a question nobody
+  // asked. It has to agree with the ranked page about what *matches*, though,
+  // which is why both go through the same scorer.
+  return filterMatches(tokens, rows)
+    .slice(0, limit)
+    .map(({ row, match }) =>
+      toListItem(row, new Date(row.lastPerformedAt), match),
+    );
 }
 
 /**
@@ -402,13 +449,21 @@ export async function getImportedMatches(
   filters: ExerciseFilters = {},
   limit = IMPORTED_HINT_LIMIT,
 ): Promise<ExerciseListItem[]> {
+  const tokens = tokenizeQuery(filters.query ?? "");
   const rows = await db
     .select(LIST_COLUMNS)
     .from(exercise)
     .where(filterWhere(userId, { ...filters, scope: "imported" }))
     .orderBy(desc(exercise.popularity), asc(exercise.name), asc(exercise.id))
-    .limit(limit + 1);
-  return rows.map((r) => toListItem(r));
+    // With a query the cap has to cover the pool the matcher will score, not
+    // the hint's own limit — bounded either way by this user's own rows.
+    .limit(tokens.length > 0 ? EXERCISE_POOL_CAP : limit + 1);
+
+  if (tokens.length === 0) return rows.map((r) => toListItem(r));
+
+  return rankMatches(tokens, rows, { limit: limit + 1 }).map(({ row, match }) =>
+    toListItem(row, null, match),
+  );
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   searchExercises,
   type ExerciseListItem,
 } from "@/lib/queries/exercise";
+import { EXERCISE_RANKED_LIMIT } from "@/lib/pagination";
 import { cleanup, makeExercise, makeFinishedWorkout, makeUser } from "./helpers";
 
 /**
@@ -148,11 +149,16 @@ describe("exercise search matching", () => {
     users.push(userId);
 
     const both = await searchExercises(userId, { query: "incline dumbbell" });
-    // An OR would drag in every incline and every dumbbell movement.
+    // An OR would drag in every incline and every dumbbell movement. Matching
+    // is loose now — "decline" is a plausible misspelling of "incline", and it
+    // is in this list, ranked below the real ones — so the claim can no longer
+    // be "every row literally says incline". It is that a row satisfying only
+    // one of the two words is not a result at all.
     expect(both.length).toBeGreaterThan(0);
-    for (const e of both) {
-      expect(e.name.toLowerCase(), e.name).toContain("incline");
-    }
+    const names = both.map((e) => e.name);
+    expect(names).toContain("Incline Bench Press (Dumbbell)");
+    expect(names).not.toContain("Bench Press (Barbell)");
+    expect(names).not.toContain("Incline Push Up");
   });
 
   it("matches the equipment and muscle columns, not only the name", async () => {
@@ -164,62 +170,88 @@ describe("exercise search matching", () => {
     expect(hits.map((e) => e.name)).toContain("Pec Deck");
   });
 
-  it("still finds the movement when a word is misspelled", async () => {
+  // Misspellings, subsequences and the ranking between them are covered
+  // exhaustively and without a database in `exercise-match.test.ts`. What the
+  // three below prove is the part only a real query can: that the ranked path
+  // reaches that matcher instead of handing the text to SQL on the way past.
+  it("leads with the exact match rather than rescuing after an empty pass", async () => {
     const userId = await makeUser();
     users.push(userId);
 
-    // A transposition, which scores worst of all typos under word_similarity
-    // and is why the threshold is 0.35 rather than the 0.6 default.
-    const typo = await searchExercises(userId, { query: "incilne bench" });
-    expect(typo.map((e) => e.name)).toContain("Incline Bench Press (Barbell)");
-
-    const dropped = await searchExercises(userId, { query: "dumbell curl" });
-    expect(dropped.length).toBeGreaterThan(0);
-  });
-
-  it("only guesses when the literal search found nothing", async () => {
-    const userId = await makeUser();
-    users.push(userId);
-
-    // "banana" resembles six real exercises closely enough to clear the
-    // threshold, so a single widened pass would pour them in under every good
-    // result. A spelled-correctly query must never reach the rescue.
+    // Spelling tolerance used to be a second query, run only when the literal
+    // one came back with nothing — so a query that was fine never saw a
+    // near-miss, and a query that wasn't got them in popularity order. There
+    // is one pass now, and the ranking is what keeps the near-misses honest:
+    // present, and strictly below anything that actually contains the words.
     const exact = await searchExercisePage(userId, { query: "bench press" });
-    expect(exact.items.length).toBeGreaterThan(0);
-    expect(exact.fuzzy).toBe(false);
+    expect(exact.items[0]?.name).toBe("Bench Press (Barbell)");
 
-    const rescued = await searchExercisePage(userId, { query: "incilne" });
-    expect(rescued.items.length).toBeGreaterThan(0);
-    expect(rescued.fuzzy).toBe(true);
+    const typo = await searchExercisePage(userId, { query: "incilne bench" });
+    expect(typo.items[0]?.name).toBe("Incline Bench Press (Barbell)");
   });
 
-  it("keeps paging in the pass that opened the search", async () => {
+  it("carries the matched characters back with the row", async () => {
     const userId = await makeUser();
     users.push(userId);
 
-    // A rescued search long enough to page. If page two re-decided the mode it
-    // would run strictly, come back empty, and truncate the results.
-    const first = await searchExercisePage(userId, { query: "dumbell", limit: 5 });
-    expect(first.fuzzy).toBe(true);
-    expect(first.cursor).not.toBeNull();
+    // The offsets the highlight draws. They come from the same alignment that
+    // produced the rank, so a row cannot be ordered by one reading of the
+    // query and bolded by another.
+    const [first] = (await searchExercisePage(userId, { query: "bench" })).items;
+    expect(first.matchRanges?.length).toBeGreaterThan(0);
+    for (const [start, end] of first.matchRanges ?? []) {
+      expect(first.name.slice(start, end).toLowerCase()).toBe("bench");
+    }
 
-    const second = await searchExercisePage(userId, {
-      query: "dumbell",
-      limit: 5,
-      after: first.cursor,
+    // …and nothing pays for them while browsing.
+    const browsing = await searchExercisePage(userId, { limit: 3 });
+    expect(browsing.items.every((e) => e.matchRanges === undefined)).toBe(true);
+  });
+
+  it("answers a text search as one ranked block, not a keyset walk", async () => {
+    const userId = await makeUser();
+    users.push(userId);
+
+    // Relevance is a computed float; a keyset cursor can only walk indexed
+    // columns. So a search is single-shot, and a cursor left over from the
+    // batches loaded before the user started typing addresses a page of the
+    // popularity ordering that has nothing to do with the query.
+    const ranked = await searchExercisePage(userId, { query: "press" });
+    expect(ranked.items.length).toBeGreaterThan(1);
+    expect(ranked.items.length).toBeLessThanOrEqual(EXERCISE_RANKED_LIMIT);
+    expect(ranked.cursor).toBeNull();
+
+    const stale = await searchExercisePage(userId, { limit: 5 });
+    expect(stale.cursor).not.toBeNull();
+    const withQuery = await searchExercisePage(userId, {
+      query: "press",
+      after: stale.cursor,
     });
-    expect(second.items.length).toBeGreaterThan(0);
-    expect(second.fuzzy).toBe(true);
-    // And it advances rather than repeating the first batch.
-    const firstIds = new Set(first.items.map((e) => e.id));
-    expect(second.items.some((e) => firstIds.has(e.id))).toBe(false);
+    expect(withQuery.items).toHaveLength(0);
   });
 
-  it("treats ILIKE wildcards as literal characters", async () => {
+  it("honours an explicit limit past the ranked default", async () => {
     const userId = await makeUser();
     users.push(userId);
 
-    // Unescaped, "%" matched the entire library.
+    // `searchExercises` and `check-queries` read the whole library in one go,
+    // so the ranked block's default size must be a default and not a ceiling.
+    const wide = await searchExercises(userId, { query: "barbell", limit: 500 });
+    expect(wide.length).toBeGreaterThan(EXERCISE_RANKED_LIMIT);
+
+    const capped = await searchExercisePage(userId, { query: "barbell" });
+    expect(capped.items).toHaveLength(EXERCISE_RANKED_LIMIT);
+  });
+
+  it("treats punctuation as characters that aren't there", async () => {
+    const userId = await makeUser();
+    users.push(userId);
+
+    // Unescaped, "%" matched the entire library. The reason it doesn't now is
+    // a different one — there is no LIKE pattern on this path at all, and the
+    // matcher holds a one-character token to a literal appearance — but
+    // `escapeLike` still guards the oversized-library fallback, and its own
+    // tests are in `pure.test.ts`.
     const pct = await searchExercisePage(userId, { query: "%" });
     expect(pct.items).toHaveLength(0);
     const underscore = await searchExercisePage(userId, { query: "____" });
