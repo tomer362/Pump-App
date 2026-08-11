@@ -18,6 +18,11 @@ import {
   shiftDay,
   toDayKey,
 } from "@/lib/day";
+import {
+  escapeLike,
+  tokenizeQuery,
+  MAX_QUERY_TOKENS,
+} from "@/lib/exercise-search-terms";
 
 describe("estimate1RM (Epley)", () => {
   it("is the weight itself at one rep", () => {
@@ -265,5 +270,49 @@ describe("formatDayLabel", () => {
   it("carries the year only when it isn't this one", () => {
     const old = daysAgo(30);
     expect(formatDayLabel(old).includes(String(old.getFullYear()))).toBe(false);
+  });
+});
+
+describe("exercise search terms", () => {
+  it("splits a query into tokens in the order typed", () => {
+    expect(tokenizeQuery("incline dumbbell")).toEqual(["incline", "dumbbell"]);
+    expect(tokenizeQuery("  bench   press  barbell ")).toEqual([
+      "bench",
+      "press",
+      "barbell",
+    ]);
+  });
+
+  it("treats a blank query as no filter at all", () => {
+    // The callers read `[]` as "don't constrain the name", so a stray space
+    // must not become a token that matches everything.
+    expect(tokenizeQuery("")).toEqual([]);
+    expect(tokenizeQuery("   ")).toEqual([]);
+    expect(tokenizeQuery("\n\t")).toEqual([]);
+  });
+
+  it("caps how many tokens one query contributes", () => {
+    const long = tokenizeQuery("a b c d e f g h i j k");
+    expect(long).toHaveLength(MAX_QUERY_TOKENS);
+    expect(long[0]).toBe("a");
+  });
+
+  it("neutralises ILIKE wildcards", () => {
+    // Before this, searching "%" matched the whole library and "_" matched
+    // anything at least one character long.
+    expect(escapeLike("%")).toBe("\\%");
+    expect(escapeLike("_")).toBe("\\_");
+    expect(escapeLike("100%_pure")).toBe("100\\%\\_pure");
+  });
+
+  it("escapes the backslash before the wildcards it introduces", () => {
+    // Order matters: escaping % first and \ second would double-escape and
+    // turn a literal backslash into an escape for the character after it.
+    expect(escapeLike("\\")).toBe("\\\\");
+    expect(escapeLike("\\%")).toBe("\\\\\\%");
+  });
+
+  it("leaves ordinary exercise names alone", () => {
+    expect(escapeLike("Bench Press (Barbell)")).toBe("Bench Press (Barbell)");
   });
 });

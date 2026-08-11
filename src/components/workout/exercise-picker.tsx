@@ -57,7 +57,12 @@ export function ExercisePicker({
   const [muscle, setMuscle] = useState<(typeof MUSCLE_FILTERS)[number]>("all");
   const [equipment, setEquipment] =
     useState<(typeof EQUIPMENT_FILTERS)[number]>("all");
-  const [selected, setSelected] = useState<string[]>([]);
+  // Tagged with the exercise being replaced; see the derivation below. `null`
+  // is add mode, where there is no exercise for the choice to belong to.
+  const [selectedFor, setSelectedFor] = useState<{
+    for: string | null;
+    ids: string[];
+  }>({ for: null, ids: [] });
   const [creating, setCreating] = useState(startCreating);
   const [showImported, setShowImported] = useState(false);
 
@@ -96,9 +101,37 @@ export function ExercisePicker({
     };
   }, [replacingId]);
 
-  // Reset on the way out rather than in an effect keyed on `open`. Memoised so
-  // the sheet below gets a stable prop across the re-render per keystroke.
-  const close = useCallback(() => {
+  // A tick belongs to the exercise it was made for, so it carries that id and
+  // is disregarded under any other — the same shape as `suggestions` above,
+  // for the same reason. `reset` on both exits is what keeps this from
+  // mattering in practice, but this component outlives every sheet it draws
+  // (the call sites mount it once and toggle `open`), and of all the state
+  // here this is the piece that can act on the user's behalf: a tick left over
+  // from the last exercise makes the footer live, and one tap swaps in a
+  // movement they never chose for the exercise in front of them.
+  const selected = selectedFor.for === replacingId ? selectedFor.ids : [];
+
+  // Re-tags on every write, so the rest of the component goes on treating the
+  // selection as a plain string[].
+  const setSelected = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) =>
+      setSelectedFor((s) => ({
+        for: replacingId,
+        ids: typeof next === "function" ? next(s.for === replacingId ? s.ids : []) : next,
+      })),
+    [replacingId],
+  );
+
+  // Reset on the way out rather than in an effect keyed on `open`: the Sheet
+  // keeps its children mounted through the exit animation, so clearing on
+  // `!open` would visibly wipe the ticks and the search box as the panel slides
+  // away. "The way out" means *both* exits — dismissing and confirming. It only
+  // covered dismissal before, and because every call site mounts this component
+  // permanently and merely toggles `open`, confirming a replacement left the
+  // chosen row ticked for the next exercise you opened the sheet on. That was
+  // not just a stale tick: the footer read "Replace exercise" and was live, so
+  // one tap swapped in whatever was picked last time.
+  const reset = useCallback(() => {
     setSelected([]);
     setQuery("");
     setCreating(startCreating);
@@ -108,8 +141,22 @@ export function ExercisePicker({
     // lasting preference belongs, and a hidden per-device copy of it would
     // eventually disagree with them for no visible reason.
     setShowImported(false);
+  }, [setSelected, startCreating]);
+
+  // Memoised so the sheet below gets a stable prop across the re-render per
+  // keystroke.
+  const close = useCallback(() => {
+    reset();
     onClose();
-  }, [onClose, startCreating]);
+  }, [reset, onClose]);
+
+  const confirm = useCallback(
+    (ids: string[]) => {
+      reset();
+      onConfirm(ids);
+    },
+    [reset, onConfirm],
+  );
 
   // The exercise being replaced is never a candidate to replace itself.
   const excludeId = single ? (replacing?.id ?? null) : null;
@@ -203,7 +250,7 @@ export function ExercisePicker({
             block
             variant="volt"
             disabled={selected.length === 0}
-            onClick={() => onConfirm(selected)}
+            onClick={() => confirm(selected)}
           >
             {single
               ? selected.length === 0
@@ -222,7 +269,7 @@ export function ExercisePicker({
           // to a search the user never opened would be a dead end.
           onCancel={() => (startCreating ? close() : setCreating(false))}
           onSaved={(id) => {
-            if (startCreating) return onConfirm([id]);
+            if (startCreating) return confirm([id]);
             setCreating(false);
             setQuery("");
             setSelected((s) => (single ? [id] : [...s, id]));

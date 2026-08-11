@@ -1,7 +1,10 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/session";
+import { exerciseVideoLink } from "@/lib/exercise-video";
 import {
+  getExercise,
+  getExerciseAlternatives,
   getExercisesByIds,
   getImportedMatches,
   getRecentExercises,
@@ -12,6 +15,7 @@ import {
   type ExerciseListItem,
   type ExercisePage,
 } from "@/lib/queries/exercise";
+import type { ExerciseAboutData } from "@/components/exercise/exercise-about";
 
 /**
  * Client-callable wrappers around the exercise reads. Kept separate from the
@@ -58,7 +62,7 @@ export async function searchExerciseBatchAction(
   params: ExerciseFilters & { after?: ExerciseCursor | null },
 ): Promise<ExerciseBatch> {
   const me = await getCurrentUser();
-  if (!me) return { items: [], cursor: null, recent: [] };
+  if (!me) return { items: [], cursor: null, fuzzy: false, recent: [] };
 
   const { after, ...filters } = params;
   if (after) return searchExercisePage(me.id, { ...filters, after });
@@ -70,18 +74,81 @@ export async function searchExerciseBatchAction(
   const probeImported =
     (filters.scope ?? "available") === "available" && hasNarrowed(filters);
 
-  const [page, recent, imported] = await Promise.all([
+  const companions = (f: ExerciseFilters) =>
+    Promise.all([
+      // Archived entries are a management view, not something you reach for
+      // mid-workout — a recent group there would only push the list down.
+      f.scope === "archived"
+        ? Promise.resolve<ExerciseListItem[]>([])
+        : getRecentExercises(me.id, f),
+      probeImported
+        ? getImportedMatches(me.id, f)
+        : Promise.resolve<ExerciseListItem[]>([]),
+    ]);
+
+  const [page, [recent, imported]] = await Promise.all([
     searchExercisePage(me.id, filters),
-    // Archived entries are a management view, not something you reach for
-    // mid-workout — a recent group there would only push the list down.
-    filters.scope === "archived"
-      ? Promise.resolve<ExerciseListItem[]>([])
-      : getRecentExercises(me.id, filters),
-    probeImported
-      ? getImportedMatches(me.id, filters)
-      : Promise.resolve<ExerciseListItem[]>([]),
+    companions(filters),
   ]);
+
+  // The page fell back to a spelling-tolerant match, so these two were asking
+  // the wrong question — they matched literally and came back empty. Ask again
+  // the way the page ended up asking, or a typo'd search shows a list of
+  // results with an empty "Recent" above it for exercises the user trains.
+  if (page.fuzzy) {
+    const [fuzzyRecent, fuzzyImported] = await companions({
+      ...filters,
+      fuzzy: true,
+    });
+    return { ...page, recent: fuzzyRecent, imported: fuzzyImported };
+  }
+
   return { ...page, recent, imported };
+}
+
+/**
+ * The About panel for one exercise, for a sheet that has an id and no page
+ * behind it — the routine builder, which can't navigate to `/exercises/[id]`
+ * without discarding the unsaved routine.
+ *
+ * **The ownership check is this function's own job.** `getExercise` deliberately
+ * takes no owner filter; the detail page applies one and 404s. Every export of
+ * a `"use server"` module is a public POST endpoint, so relying on the caller
+ * would make this the way to read a stranger's custom exercise — the one thing
+ * `scripts/check-authz.mjs` already pins for the page. Missing and forbidden
+ * both return null: the caller renders the same thing either way, and telling
+ * them apart would confirm the id exists.
+ *
+ * Sequential rather than parallel with the alternatives read, so an id that
+ * isn't the caller's costs one query and touches nothing else.
+ */
+export async function getExerciseAboutAction(
+  exerciseId: string,
+): Promise<
+  | (ExerciseAboutData & {
+      name: string;
+      primaryMuscle: string;
+      equipment: string;
+    })
+  | null
+> {
+  const me = await getCurrentUser();
+  if (!me) return null;
+
+  const row = await getExercise(exerciseId);
+  if (!row) return null;
+  if (row.ownerId && row.ownerId !== me.id) return null;
+
+  return {
+    name: row.name,
+    primaryMuscle: row.primaryMuscle,
+    equipment: row.equipment,
+    bodyEffect: row.bodyEffect,
+    instructions: row.instructions,
+    secondaryMuscles: row.secondaryMuscles,
+    video: exerciseVideoLink(row),
+    alternatives: await getExerciseAlternatives(exerciseId),
+  };
 }
 
 /**
