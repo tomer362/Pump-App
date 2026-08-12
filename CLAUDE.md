@@ -399,6 +399,16 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - Presentational primitives (`components/ui/primitives.tsx`) deliberately have **no** `"use client"`, so server components can pass them icons and render them directly.
 - Photo upload goes **browser → Blob directly** via a token from `/api/blob/upload`; the client downscales to 1280 px first. Stored URLs are validated with `isBlobUrl` before they're written. No `BLOB_READ_WRITE_TOKEN` → the control simply isn't offered, same as push.
 - The feed and history paginate on a **keyset cursor**, never `OFFSET` — new rows push onto the front of both.
+- **A check-in names a gym you picked, and `null` is one of the answers.** The
+  broadcast sheet on `/feed` lists your gym memberships plus "Don't say where",
+  seeded from your current presence row or your home gym. So `checkInAtGym`
+  distinguishes an *absent* `gymId` (inherit the home gym — what the old
+  single-button flow meant) from an explicit `null`; `input.gymId ?? homeGymId`
+  collapses the two and makes "don't say where" impossible to express. The id
+  is then re-checked against `gym_member`: the gym's name goes out in a
+  notification to every friend, so it can't be an arbitrary uuid off the wire,
+  and an unjoined gym is refused rather than silently dropped
+  (`check-authz` asserts it).
 
 ---
 

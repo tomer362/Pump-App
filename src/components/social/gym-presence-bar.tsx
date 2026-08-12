@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { MapPin, Radio, X } from "lucide-react";
+import { Check, MapPin, Radio, X } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -16,6 +16,8 @@ import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 const DURATIONS = [45, 60, 90, 120];
 
+export type PresenceGym = { id: string; name: string; city: string | null };
+
 /**
  * "Who's training right now" strip plus your own check-in control.
  * Presence is a TTL row, so this is accurate at page load without any live
@@ -24,11 +26,13 @@ const DURATIONS = [45, 60, 90, 120];
 export function GymPresenceBar({
   friends,
   checkedIn,
-  homeGymName,
+  gyms,
+  defaultGymId,
 }: {
   friends: PresenceEntry[];
   checkedIn: boolean;
-  homeGymName: string | null;
+  gyms: PresenceGym[];
+  defaultGymId: string | null;
 }) {
   const { enabled } = useMotionPreset();
   const [sheet, setSheet] = useState(false);
@@ -36,13 +40,18 @@ export function GymPresenceBar({
   const [minutes, setMinutes] = useState(90);
   const [pending, startTransition] = useTransition();
   const [active, setActive] = useState(checkedIn);
+  const [gymId, setGymId] = useState<string | null>(defaultGymId);
+
+  const gymName = gyms.find((g) => g.id === gymId)?.name ?? null;
 
   function submit() {
     haptic.success();
     setActive(true);
     setSheet(false);
     startTransition(async () => {
-      await checkInAtGym({ note: note || null, minutes });
+      // `null` is a deliberate "don't name a gym", not "unspecified" — the
+      // action only falls back to the home gym when the field is absent.
+      await checkInAtGym({ gymId, note: note || null, minutes });
     });
   }
 
@@ -93,7 +102,9 @@ export function GymPresenceBar({
           {friends.length > 0 && (
             <motion.div
               initial={enabled ? { height: 0, opacity: 0 } : { opacity: 0 }}
-              animate={enabled ? { height: "auto", opacity: 1 } : { opacity: 1 }}
+              animate={
+                enabled ? { height: "auto", opacity: 1 } : { opacity: 1 }
+              }
               exit={enabled ? { height: 0, opacity: 0 } : { opacity: 0 }}
               className="overflow-hidden"
             >
@@ -126,7 +137,9 @@ export function GymPresenceBar({
               <span className="bg-volt relative inline-flex size-2 rounded-full" />
             </span>
             <p className="text-volt text-[12px] font-semibold">
-              Your friends can see you&apos;re training
+              {gymName
+                ? `Your friends can see you're at ${gymName}`
+                : "Your friends can see you're training"}
             </p>
           </div>
         )}
@@ -143,14 +156,44 @@ export function GymPresenceBar({
         }
       >
         <div className="px-4 pb-4">
-          {homeGymName && (
-            <p className="text-text-3 mb-4 flex items-center gap-1.5 text-[13px]">
-              <MapPin className="size-3.5" />
-              {homeGymName}
+          <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+            Which gym?
+          </p>
+          {gyms.length === 0 ? (
+            <p className="text-text-3 mb-1 text-[13px] leading-relaxed">
+              You haven&apos;t joined a gym yet.{" "}
+              <Link href="/gyms" className="text-volt font-semibold">
+                Add one
+              </Link>{" "}
+              and your check-ins can name it.
             </p>
+          ) : (
+            <div className="border-hairline rounded-card divide-hairline overflow-hidden border divide-y">
+              {gyms.map((g) => (
+                <GymOption
+                  key={g.id}
+                  label={g.name}
+                  sub={g.city}
+                  selected={gymId === g.id}
+                  onSelect={() => {
+                    haptic.light();
+                    setGymId(g.id);
+                  }}
+                />
+              ))}
+              <GymOption
+                label="Don't say where"
+                sub="Friends see you're training, not the gym"
+                selected={gymId === null}
+                onSelect={() => {
+                  haptic.light();
+                  setGymId(null);
+                }}
+              />
+            </div>
           )}
 
-          <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+          <p className="text-text-3 mt-5 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
             Add a note (optional)
           </p>
           <Input
@@ -187,5 +230,57 @@ export function GymPresenceBar({
         </div>
       </Sheet>
     </div>
+  );
+}
+
+/**
+ * One row of the gym picker. A row, not a chip: gym names are long enough to
+ * wrap and there is no useful upper bound on how many gyms someone belongs to.
+ */
+function GymOption({
+  label,
+  sub,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  sub: string | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={cn(
+        "press tap flex w-full items-center gap-3 px-3.5 py-2.5 text-left",
+        selected ? "bg-volt-fade" : "bg-surface-2",
+      )}
+    >
+      <MapPin
+        className={cn(
+          "size-4 shrink-0",
+          selected ? "text-volt" : "text-text-3",
+        )}
+        strokeWidth={2.2}
+      />
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "block truncate text-[14px] font-semibold",
+            selected ? "text-volt" : "text-text-1",
+          )}
+        >
+          {label}
+        </span>
+        {sub && (
+          <span className="text-text-3 block truncate text-[12px]">{sub}</span>
+        )}
+      </span>
+      {selected && (
+        <Check className="text-volt size-4 shrink-0" strokeWidth={2.8} />
+      )}
+    </button>
   );
 }

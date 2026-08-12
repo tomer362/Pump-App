@@ -32,14 +32,13 @@ export async function toggleFollow(
 ): Promise<ActionResult<{ following: boolean }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
-  if (me.id === targetId) return { ok: false, error: "You can't follow yourself" };
+  if (me.id === targetId)
+    return { ok: false, error: "You can't follow yourself" };
 
   const [existing] = await db
     .select()
     .from(follow)
-    .where(
-      and(eq(follow.followerId, me.id), eq(follow.followingId, targetId)),
-    )
+    .where(and(eq(follow.followerId, me.id), eq(follow.followingId, targetId)))
     .limit(1);
 
   if (existing) {
@@ -273,7 +272,12 @@ export async function toggleLike(
   });
 
   if (result.liked) {
-    await notifyPostAuthor(postId, me.id, "like", `${me.name} liked your workout`);
+    await notifyPostAuthor(
+      postId,
+      me.id,
+      "like",
+      `${me.name} liked your workout`,
+    );
   }
 
   return { ok: true, data: result };
@@ -528,20 +532,52 @@ export async function checkInAtGym(input: {
   const minutes = Math.min(240, Math.max(15, input.minutes ?? 90));
   const expiresAt = new Date(Date.now() + minutes * 60_000);
 
+  // `null` and "absent" are different answers: the picker sends `null` for
+  // "don't say where", and only a caller that never mentioned a gym at all
+  // should inherit the home gym.
+  const requested = "gymId" in input ? (input.gymId ?? null) : me.homeGymId;
+
+  // A gym name reaches every friend's notification, so it can't be an
+  // arbitrary id off the wire — you may only broadcast from a gym you joined.
+  let gymId: string | null = null;
+  let gymName: string | null = null;
+  if (requested) {
+    const [row] = await db
+      .select({ id: gym.id, name: gym.name })
+      .from(gym)
+      .innerJoin(
+        gymMember,
+        and(eq(gymMember.gymId, gym.id), eq(gymMember.userId, me.id)),
+      )
+      .where(eq(gym.id, requested))
+      .limit(1);
+    if (!row) {
+      // An explicit pick that isn't yours is a refusal; a stale home gym just
+      // means the broadcast doesn't name a place.
+      if ("gymId" in input)
+        return { ok: false, error: "You're not a member of that gym" };
+    } else {
+      gymId = row.id;
+      gymName = row.name;
+    }
+  }
+
+  const note = input.note?.trim() || null;
+
   await db
     .insert(gymPresence)
     .values({
       userId: me.id,
-      gymId: input.gymId ?? me.homeGymId ?? null,
-      note: input.note?.trim() || null,
+      gymId,
+      note,
       startedAt: new Date(),
       expiresAt,
     })
     .onConflictDoUpdate({
       target: gymPresence.userId,
       set: {
-        gymId: input.gymId ?? me.homeGymId ?? null,
-        note: input.note?.trim() || null,
+        gymId,
+        note,
         startedAt: new Date(),
         expiresAt,
       },
@@ -560,22 +596,22 @@ export async function checkInAtGym(input: {
     )
     .limit(200);
 
+  const where = gymName ? `is at ${gymName}` : "is at the gym";
+
   if (friendIds.length) {
     await db.insert(notification).values(
       friendIds.map((f) => ({
         userId: f.id,
         actorId: me.id,
         type: "gym_presence" as const,
-        body: input.note?.trim()
-          ? `${me.name} is at the gym — ${input.note.trim()}`
-          : `${me.name} is at the gym`,
+        body: note ? `${me.name} ${where} — ${note}` : `${me.name} ${where}`,
       })),
     );
   }
 
   await notifyFriends(me.id, {
-    title: `${me.name} is at the gym`,
-    body: input.note?.trim() || "Training now — come join.",
+    title: `${me.name} ${where}`,
+    body: note || "Training now — come join.",
     url: "/feed",
   });
 
