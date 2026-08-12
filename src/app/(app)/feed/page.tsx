@@ -11,35 +11,31 @@ import {
   getDiscoveryFeed,
   getFollowingFeed,
   getFriendsAtGym,
+  getMyGyms,
   getMyPresence,
 } from "@/lib/queries/social";
 import { FEED_PAGE_SIZE } from "@/lib/pagination";
-import { db } from "@/lib/db";
-import { gym } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 
 export default async function FeedPage() {
   const me = await requireUser();
 
-  // The home-gym lookup used to run *after* this fan-out resolved — a fifth
-  // serial round trip on the most-visited route, and on a scaled-to-zero Neon
-  // that is a cold start the user waits through for one string. It depends on
-  // nothing else here, so it belongs in the same batch.
-  const [items, atGym, presence, discovery, homeGym] = await Promise.all([
+  // The gym lookup used to run *after* this fan-out resolved — a fifth serial
+  // round trip on the most-visited route, and on a scaled-to-zero Neon that is
+  // a cold start the user waits through. It depends on nothing else here, so
+  // it belongs in the same batch.
+  const [items, atGym, presence, discovery, myGyms] = await Promise.all([
     getFollowingFeed(me.id, { limit: FEED_PAGE_SIZE }),
     getFriendsAtGym(me.id),
     getMyPresence(me.id),
     getDiscoveryFeed(me.id, 6),
-    me.homeGymId
-      ? db
-          .select({ name: gym.name })
-          .from(gym)
-          .where(eq(gym.id, me.homeGymId))
-          .limit(1)
-      : Promise.resolve([]),
+    getMyGyms(me.id),
   ]);
 
-  const homeGymName = homeGym[0]?.name ?? null;
+  // The picker only ever offers gyms you belong to, which is also what
+  // `checkInAtGym` enforces — so a stale home-gym id can't be preselected.
+  const gyms = myGyms.map((g) => ({ id: g.id, name: g.name, city: g.city }));
+  const isMember = (id: string | null) =>
+    id != null && gyms.some((g) => g.id === id);
 
   return (
     <div className="pb-6">
@@ -59,7 +55,14 @@ export default async function FeedPage() {
       <GymPresenceBar
         friends={atGym}
         checkedIn={presence != null}
-        homeGymName={homeGymName}
+        gyms={gyms}
+        defaultGymId={
+          isMember(presence?.gymId ?? null)
+            ? (presence?.gymId ?? null)
+            : isMember(me.homeGymId)
+              ? me.homeGymId
+              : null
+        }
       />
 
       {items.length === 0 ? (

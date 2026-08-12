@@ -532,6 +532,29 @@ try {
     `status ${gymRes.status()}`,
   );
 
+  // 4b. Nor may B broadcast from A's gym: the chosen gym's name reaches every
+  //     one of B's friends as a notification, so it has to be a gym B joined.
+  const checkInAction = actionIdsFromManifest("src/lib/actions/social.ts", [
+    "checkInAtGym",
+  ]);
+  requireFixture(
+    checkInAction.size === 1,
+    "expected checkInAtGym in the dev manifest",
+  );
+  const foreignGymId = gymLink.split("/").pop();
+  const checkIn = await postAction(
+    b.page,
+    `${BASE}/feed`,
+    checkInAction.get("checkInAtGym"),
+    [{ gymId: foreignGymId, note: null, minutes: 45 }],
+  );
+  const checkInRan = !/Failed to find Server Action/i.test(checkIn.body);
+  check(
+    "checkInAtGym refuses a gym the caller hasn't joined",
+    checkInRan && !/"ok"\s*:\s*true/.test(checkIn.body),
+    checkInRan ? "" : "INCONCLUSIVE: action did not run",
+  );
+
   // 5. A's in-progress workout must not be readable.
   await a.page.goto(`${BASE}/start`, { waitUntil: "networkidle" });
   const resume = a.page.locator('a[href^="/workout/"]').first();
