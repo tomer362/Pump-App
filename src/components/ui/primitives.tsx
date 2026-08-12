@@ -338,3 +338,61 @@ export function SectionTitle({
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Search-match highlighting                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Text with the characters a search matched left as they are and everything
+ * else recessed.
+ *
+ * Inverted on purpose: the row already says what its own text should look like,
+ * so a match adds nothing and the *unmatched* run is what changes. That keeps
+ * the bright/dim contrast doing all the work with one class, and — more to the
+ * point — a row rendered without ranges comes out byte-identical to before, so
+ * browsing the library is untouched by a feature that only exists while
+ * somebody is typing.
+ *
+ * Nothing here is volt. Volt is a completed set, a running timer, a PR — state
+ * that matters. A letter you typed is not that, and spending the accent on
+ * sixty rows at once is exactly what the accent rule forbids.
+ *
+ * Ranges must be in-bounds, ascending and non-overlapping. That is
+ * `lib/exercise-match.ts`'s job and is property-tested there; this component
+ * stays dumb so there is one place where the invariant lives.
+ */
+export function HighlightedText({
+  text,
+  ranges,
+  dimClassName = "text-text-3 font-normal",
+}: {
+  text: string;
+  ranges?: readonly (readonly [number, number])[];
+  dimClassName?: string;
+}) {
+  if (!ranges?.length) return <>{text}</>;
+
+  const out: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) {
+      out.push(
+        <span key={at} className={dimClassName}>
+          {text.slice(at, start)}
+        </span>,
+      );
+    }
+    // Bare, so it inherits the row's own colour and weight.
+    out.push(text.slice(start, end));
+    at = end;
+  }
+  if (at < text.length) {
+    out.push(
+      <span key={at} className={dimClassName}>
+        {text.slice(at)}
+      </span>,
+    );
+  }
+  return <>{out}</>;
+}
