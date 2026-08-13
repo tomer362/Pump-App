@@ -184,13 +184,26 @@ rects rather than using an IntersectionObserver because both questions are
 thresholds on a live position, and an observer's numbers are stale between
 threshold crossings.
 
-**Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, 52 px + safe
-area. Anything else docked to the bottom must clear it (`ActiveWorkoutPill` at
-`bottom-[52px]`) or sit above it (`CommentThread` composer, `z-50`). The
-exercise page's `QuickLogDock` clears *both*: `bottom-[52px]` normally, and
-`108px` when a workout is running so it stacks on top of the pill rather than
-under it. The active workout screen lives **outside** the `(app)` group so it
-has no tab bar at all.
+**Fixed-element stacking.** The tab bar is `z-40` at `bottom-0`, and how much of
+the screen it occupies is `--bottom-dock` (`--tab-row` 52 px + `--safe-b`).
+Anything else docked to the bottom derives from that token — `ActiveWorkoutPill`
+is `bottom-dock`, `CommentThread`'s composer sits above the bar at `z-50`, and
+the exercise page's `QuickLogDock` clears *both*, at `--bottom-dock` normally and
+`+ 56px` when a workout is running so it stacks on top of the pill rather than
+under it. The active workout screen lives **outside** the `(app)` group so it has
+no tab bar at all, and everything docked there wants `mb-safe`, not the dock.
+
+**An explicit height absorbs its own padding, so `h-[52px] pb-safe` is 52 px.**
+That was `TabBarSpacer`, against a `<nav>` that set no height and so measured
+52 px *plus* the inset — every page in the app hid the bottom of its last row
+behind the bar, and on a phone the strip below the icons read as a dead band
+where the app had simply stopped. Both now use `h-dock`, so they cannot disagree:
+`nav.getBoundingClientRect().height === spacer…height` is the regression check,
+and setting `--safe-b` inline on `<html>` in devtools (24 px Android gesture,
+34 px iPhone, 48 px Android 3-button) reproduces a phone — it has to be the
+inline style, since `:root` outranks any `html` rule you add. The bar is
+`glass-dock` (surface-1) rather than `glass` (bg) for the same reason: against a
+`bg`-coloured page, a chin painted `bg` is invisible and reads as void.
 
 **A running workout is visible outside the browser too.** Locking the phone
 between sets used to end the session as far as the OS was concerned, and the
@@ -204,13 +217,26 @@ fulfilled by the `message` handler in `public/sw.js`):
   is frozen while hidden, so there is nothing to update it with, and posting on
   every ticked set would put a banner over the set table and buzz the phone once
   per rep on any platform that ignores `silent`.
-- A **rest-over alert** — same notification tag, so it replaces the quiet line
-  rather than stacking, with `renotify` and a vibrate pattern so it actually
-  interrupts. Skipped if any client is still visible, since the volt bar and the
-  chime have already said it.
+- A **rest-over alert** — same notification tag, with `renotify` and a vibrate
+  pattern so it actually interrupts. Skipped if any client is still visible,
+  since the volt bar and the chime have already said it.
 - The **app-icon badge** (`navigator.setAppBadge`) carries sets still owed. The
   only one of the three that needs no permission, so it works for someone who
   installed the app and declined push.
+
+**Replace a notification by closing it, not by asking.** `tag` is supposed to
+make the rest alert and the quiet line replace each other; iOS honours it
+inconsistently and ignores `renotify` outright, so both `sw.js` paths now
+`closeWorkoutNotifications()` first. That was only half of it: `useWorkoutActivity`
+listens on `visibilitychange` **and** `pagehide`, both of which report `hidden`
+for one backgrounding, so it posted twice each time — the transition is the
+event now, not the state. And `endWorkoutActivity()` fires from finish and
+discard only, so a session that was merely abandoned left its banner up forever;
+`ClearStaleWorkoutActivity` in the `(app)` shell calls it whenever the server
+says no workout is live. Separately, the progress line has its own mute
+(`pump.workout-progress`) — it is the one that appears every time you leave the
+app, so it is the one somebody quietening their lock screen means, and muting
+the pair would take the alert with it.
 
 **Workout alerts need a permission and nothing else — no VAPID, no subscription,
 no server** — so their opt-in cannot live in `PushSettings`, which hides its
@@ -251,7 +277,29 @@ construction: rest alerts, the lock-screen line and the badge are already workin
 by the time it runs, so a refused endpoint must not report "off" about three
 features that are on. `WorkoutAlertSettings` calls it with no key (those alerts
 need no subscription); `NotifyNudge` passes `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, so one
-tap covers both channels where the deployment has them.
+tap covers both channels where the deployment has them. `RestAlertPrompt` goes
+through it too — it used to call `Notification.requestPermission()` bare, which
+grants the permission without registering the worker that posts the alerts, and
+`WorkoutAlertSettings` then correctly reported "off" about a permission the
+lifter had just granted.
+
+**The only thing that can make a noise on a locked phone is an audio session**
+(`lib/rest-audio.ts`). A notification cannot carry a sound — the `sound` option
+is implemented by nobody, so a banner gets the OS tone and `vibrate` and that is
+all — and every timer the page or the worker could use is throttled or stopped
+by exactly the case that matters. But a page *playing audio* is kept running by
+the OS, and a Web Audio node scheduled on the audio clock fires at its sample
+whatever is happening to JavaScript. So the tap that starts a rest primes the
+context (iOS unlocks audio on a gesture and nothing else), schedules
+`public/sounds/rest-over.wav` for the instant the rest ends, and starts an
+inaudible loop that holds the session open until it does — `silence.wav` is one
+LSB rather than digital silence, and a *file* rather than a muted element,
+because iOS ignores `volume` on media entirely. Both assets are generated by
+`scripts/generate-sounds.mjs`, so the whole of each is twenty lines of
+arithmetic. The chime is keyed on `endsAt`, which is what lets the foreground
+timer hitting zero and the scheduled node be the same event and sound once. It
+is still an enhancement: a phone call takes the session, Safari refuses a
+context that no tap primed, and the volt bar stays the source of truth.
 
 **The delay lives in the service worker, held open by `waitUntil`.** A
 backgrounded tab has its timers clamped to roughly once a minute and an
@@ -261,14 +309,18 @@ push is impossible here — Hobby cron is twice a day and a function can't sleep
 for two minutes. So the alarm is armed the instant the rest starts, while the app
 is still in the foreground, because nothing will be running later that could arm
 it. It is best-effort by construction: a browser may stop a worker whenever it
-likes, and iOS does. The in-app bar stays the source of truth.
+likes, and iOS does — which is why the *banner* is what this channel delivers and
+the sound comes from the audio session above, the more reliable of the two. The
+in-app bar stays the source of truth.
 
 `workout-hide` (app came back) deliberately does **not** cancel the armed alarm —
 only `workout-end` does. Opening Pump mid-rest and putting it away again must not
 lose the alert. `endWorkoutActivity()` is called from the finish action's success
 path and from discard, the only two places that know the session stopped being
 live; the finish call happens before the celebration, which is dismissed by a tap
-that may never come.
+that may never come. It also cancels the scheduled chime — the fourth thing a
+finished session leaves running, and the only one that would make a noise — so
+"the workout is over" stays a single call.
 
 **Dense screens are solid, not translucent.** `glass` is for browsing chrome.
 The workout and routine-builder headers use `bg-bg` — a device that fails to
@@ -434,6 +486,7 @@ node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, s
 node scripts/smoke.mjs         # every route + two-user social/co-op flow + mid-workout paths
 node scripts/check-authz.mjs   # sign in as B, call actions against A's ids, assert refusal
 node scripts/generate-icons.mjs # regenerate PWA PNGs from public/icon.svg
+node scripts/generate-sounds.mjs # regenerate public/sounds (rest chime + keep-alive loop)
 ```
 
 `pnpm test` runs against the **real** database (`.env.local`), not a mock: the

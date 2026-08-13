@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { haptic } from "@/lib/utils";
-import { markNotifyAsked } from "@/lib/notify-client";
+import { enableNotifications, markNotifyAsked } from "@/lib/notify-client";
+import { primeRestAudio } from "@/lib/rest-audio";
 import { workoutAlertsSupported } from "@/lib/workout-activity";
 
 const DISMISSED_KEY = "pump.rest-alert-prompt";
@@ -68,9 +69,14 @@ export function RestAlertPrompt() {
       <button
         onClick={async () => {
           haptic.light();
-          // The grant itself is all this needs — the worker posts the alerts
-          // locally, so there is no subscription to set up and nothing to save.
-          await Notification.requestPermission();
+          // Through `enableNotifications`, not a bare `requestPermission()`:
+          // the grant alone isn't enough, because the worker is what posts the
+          // alerts and a grant with no registration reports "on" everywhere and
+          // then does nothing. No VAPID key — these need no subscription.
+          await enableNotifications();
+          // Also unlocks the chime, since this is a tap and iOS only lets a
+          // gesture do that. The alert and the sound are one answer here.
+          primeRestAudio();
           // Either way this line is answered and shouldn't come back.
           dismiss();
         }}

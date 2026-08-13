@@ -69,23 +69,29 @@ export function useWorkoutActivity({
   }, [restEndsAt]);
 
   useEffect(() => {
+    // The *transition* is the event, not the state. Both listeners below can
+    // fire for a single backgrounding — on iOS `pagehide` arrives with
+    // `visibilityState` already "hidden" — and posting twice showed two banners
+    // on any platform whose tag-replacement is unreliable, which is how leaving
+    // the app repeatedly built a stack.
+    let hidden = document.visibilityState === "hidden";
+
     const sync = () => {
+      const nowHidden = document.visibilityState === "hidden";
+      if (nowHidden === hidden) return;
+      hidden = nowHidden;
       const { url, title, progressBody } = latest.current;
-      if (document.visibilityState === "hidden") {
-        showWorkoutProgress({ title, body: progressBody, url });
-      } else {
-        hideWorkoutProgress();
-      }
+      if (nowHidden) showWorkoutProgress({ title, body: progressBody, url });
+      else hideWorkoutProgress();
     };
 
     // On mount the app is by definition on screen, so this also clears anything
     // a previous session left behind.
-    sync();
+    hideWorkoutProgress();
     document.addEventListener("visibilitychange", sync);
     // iOS backgrounds an installed PWA hard enough that the visibility event
     // can be the last thing the page gets; `pagehide` is the more reliable of
-    // the two there. `sync` reads the current state, so a double call is a
-    // no-op rather than a duplicate notification.
+    // the two there.
     window.addEventListener("pagehide", sync);
     return () => {
       document.removeEventListener("visibilitychange", sync);

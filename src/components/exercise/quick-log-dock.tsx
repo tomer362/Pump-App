@@ -11,9 +11,9 @@ import { QuickLogSheet, type QuickLogSetValues } from "./quick-log-sheet";
  * the screen, which is the worst place a thumb can reach, and the primary
  * action on a phone belongs in the bottom third.
  *
- * Geometry mirrors `ActiveWorkoutPill` — 52px is the tab bar, and when a
- * workout *is* running the pill already occupies that strip, so this stacks
- * above it rather than under it.
+ * Geometry mirrors `ActiveWorkoutPill` — `--bottom-dock` is the tab bar plus
+ * the system inset below it, and when a workout *is* running the pill already
+ * occupies that strip, so this stacks above it rather than under it.
  */
 export function QuickLogDock({
   exerciseId,
@@ -38,8 +38,14 @@ export function QuickLogDock({
       <div aria-hidden className="h-16" />
 
       <div
-        className="fixed inset-x-0 z-30 mb-safe px-3 pb-2"
-        style={{ bottom: activeWorkoutId ? 108 : 52 }}
+        className="fixed inset-x-0 z-30 px-3 pb-2"
+        // Clears the tab bar, and the active-workout pill on top of it when
+        // there is one — 56px is the pill's own height.
+        style={{
+          bottom: activeWorkoutId
+            ? "calc(var(--bottom-dock) + 56px)"
+            : "var(--bottom-dock)",
+        }}
       >
         <button
           onClick={() => setOpen(true)}

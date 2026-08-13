@@ -87,7 +87,14 @@ async function appIsOnScreen() {
 }
 
 /** The quiet one: what the session is at, replaced silently each time. */
-function showWorkoutProgress(msg) {
+async function showWorkoutProgress(msg) {
+  // Close first, then show. `tag` is *supposed* to make this replacement
+  // automatic, but iOS honours it inconsistently and ignores `renotify`
+  // entirely — so leaving it to the tag is how a lock screen ended up with one
+  // banner per time the app was backgrounded. Closing explicitly makes
+  // "replace" true on every platform, at the cost of nothing: an identical
+  // banner going away and coming back in the same tick is invisible.
+  await closeWorkoutNotifications();
   return self.registration.showNotification(msg.title || "Workout in progress", {
     body: msg.body || "",
     icon: "/icon-192.png",
@@ -106,6 +113,8 @@ async function fireRestAlarm(msg) {
   // Pump is on screen — the bar has already gone volt and the chime has
   // played. A banner over the top of that is noise.
   if (await appIsOnScreen()) return;
+  // Same reason as the progress line: replace by closing, not by hoping.
+  await closeWorkoutNotifications();
   await self.registration.showNotification("Rest over", {
     body: msg.body || "Back to it.",
     icon: "/icon-192.png",

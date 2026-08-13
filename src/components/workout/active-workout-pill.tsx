@@ -33,7 +33,7 @@ export function ActiveWorkoutPill({
           animate={{ y: 0, opacity: 1 }}
           exit={enabled ? { y: 60, opacity: 0 } : { opacity: 0 }}
           transition={enabled ? SPRING.snappy : REDUCED}
-          className="fixed inset-x-0 bottom-[52px] z-40 mb-safe px-3 pb-2"
+          className="bottom-dock fixed inset-x-0 z-40 px-3 pb-2"
         >
           <Link
             href={`/workout/${workout.id}`}

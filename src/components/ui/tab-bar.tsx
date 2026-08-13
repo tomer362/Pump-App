@@ -23,10 +23,13 @@ export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
 
   return (
     <nav
-      className="glass hairline-t fixed inset-x-0 bottom-0 z-40 pb-safe inset-safe-x"
+      className="glass-dock hairline-t fixed inset-x-0 bottom-0 z-40 h-dock inset-safe-x"
       aria-label="Primary"
     >
-      <ul className="mx-auto flex max-w-lg items-stretch">
+      {/* The row pins to the top of the dock; what's left below it is the
+          system inset, painted by the bar but kept clear of tap targets so a
+          thumb never fights the home indicator. */}
+      <ul className="mx-auto flex h-[var(--tab-row)] max-w-lg items-stretch">
         {TABS.map(({ href, label, icon: Icon, ...rest }) => {
           const primary = "primary" in rest && rest.primary;
           const active =
@@ -38,7 +41,7 @@ export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
                 prefetch
                 onClick={() => haptic.light()}
                 aria-current={active ? "page" : undefined}
-                className="press relative flex h-[52px] flex-col items-center justify-center gap-[3px] text-[10px] font-medium tracking-[0.01em]"
+                className="press relative flex h-full flex-col items-center justify-center gap-[3px] text-[10px] font-medium tracking-[0.01em]"
               >
                 {/* Unread marker lives on the profile tab, which is where the
                     inbox is reached from. A dot, not a number: the exact count
@@ -108,7 +111,14 @@ function TabContent({
   );
 }
 
-/** Spacer so scrolling content clears the fixed tab bar + home indicator. */
+/**
+ * Spacer so scrolling content clears the fixed tab bar + home indicator.
+ *
+ * `h-dock`, the same utility the bar itself uses, and no padding: this was
+ * `h-[52px] pb-safe`, and under border-box an explicit height *absorbs* its own
+ * padding — so the spacer was 52px while the bar was 52px + the inset, and
+ * every page in the app hid the bottom of its last row behind the bar.
+ */
 export function TabBarSpacer() {
-  return <div aria-hidden className="h-[52px] pb-safe" />;
+  return <div aria-hidden className="h-dock" />;
 }

@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Minus, Plus, X } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
+import {
+  armRestChime,
+  cancelRestChime,
+  playRestChime,
+  primeRestAudio,
+} from "@/lib/rest-audio";
 import { SPRING } from "@/lib/motion";
 import { REDUCED } from "@/lib/motion";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
@@ -101,7 +107,7 @@ function writeStorage(state: RestTimerState, workoutId: string | null) {
 let remainingNow = 0;
 let ticker: number | null = null;
 let clearTimer: number | null = null;
-/** The `endsAt` that has already chimed, so an extended rest can chime again. */
+/** The `endsAt` that has already buzzed, so an extended rest can buzz again. */
 let chimedFor: number | null = null;
 
 function secondsLeft(state: RestTimerState) {
@@ -114,8 +120,10 @@ function recompute(): boolean {
   if (current && next === 0 && chimedFor !== current.endsAt) {
     chimedFor = current.endsAt;
     haptic.success();
-    // Timer finishing while the phone is in a pocket needs a sound too.
-    void playChime();
+    // The sound is keyed on the same `endsAt` inside `rest-audio`, so this and
+    // the copy that was scheduled to fire while the phone was asleep are the
+    // same event and only one of them is ever heard.
+    void playRestChime(current.endsAt);
   }
   if (next === remainingNow) return false;
   remainingNow = next;
@@ -168,6 +176,11 @@ function setTimerState(next: RestTimerState) {
   writeStorage(current, currentWorkoutId);
   if (next) startTicker();
   else stopTicker();
+  // Schedule the sound the instant the rest starts, while the app is still in
+  // the foreground — by the time the phone is in a pocket there is nothing left
+  // running that could do it. See `lib/rest-audio.ts`.
+  if (next) armRestChime(next.endsAt);
+  else cancelRestChime();
   // Before the emit, so subscribers see the new state and its seconds together.
   recompute();
   scheduleAutoClear();
@@ -215,6 +228,9 @@ export function useRestTimer(workoutId?: string) {
   const start = useCallback(
     (seconds: number, setId: string | null = null) => {
       if (seconds <= 0) return;
+      // Inside the tap that ticked the set: iOS only lets a gesture unlock
+      // audio, and every later scheduling depends on that having happened.
+      primeRestAudio();
       currentWorkoutId = workoutId ?? null;
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
@@ -230,6 +246,10 @@ export function useRestTimer(workoutId?: string) {
   /** Shift the end time by `delta` seconds, never below "now". */
   const adjust = useCallback((delta: number) => {
     if (!current) return;
+    // Also a tap, so also a chance to unlock audio — this is the one that
+    // rescues a rest restored from storage after a reload, which had no gesture
+    // of its own to prime from.
+    primeRestAudio();
     const now = Date.now();
     // Clamp against the present, not against epoch zero — clamping the
     // absolute timestamp to 0 would jump the timer back to 1970.
@@ -248,6 +268,7 @@ export function useRestTimer(workoutId?: string) {
   const setDuration = useCallback(
     (seconds: number) => {
       if (seconds <= 0) return;
+      primeRestAudio();
       currentWorkoutId = workoutId ?? null;
       setTimerState({
         endsAt: Date.now() + seconds * 1000,
@@ -301,36 +322,6 @@ export function useRemaining() {
     () => remainingNow,
     () => 0,
   );
-}
-
-/** Short synthesised beep — avoids shipping an audio asset. */
-async function playChime() {
-  try {
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    // iOS suspends contexts created without a gesture; resume is a no-op if allowed.
-    if (ctx.state === "suspended") await ctx.resume();
-    const now = ctx.currentTime;
-    for (const [i, freq] of [880, 1320].entries()) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + i * 0.16);
-      gain.gain.exponentialRampToValueAtTime(0.25, now + i * 0.16 + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.16 + 0.15);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(now + i * 0.16);
-      osc.stop(now + i * 0.16 + 0.2);
-    }
-    window.setTimeout(() => void ctx.close(), 800);
-  } catch {
-    /* Audio is a nicety; never let it break the workout. */
-  }
 }
 
 /** What the rest is for: the set the lifter stands up and does next. */
