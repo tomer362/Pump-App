@@ -16,6 +16,8 @@
  * `public/sw.js`.
  */
 
+import { cancelRestChime } from "./rest-audio";
+
 type Message =
   | { type: "workout-rest"; endsAt: number; body: string; url: string }
   | { type: "workout-rest-cancel" }
@@ -59,6 +61,35 @@ export function setWorkoutAlertsMuted(muted: boolean) {
     else window.localStorage.removeItem(PREF_KEY);
   } catch {
     /* Private mode; the session still behaves as opted in. */
+  }
+}
+
+/**
+ * The quiet progress line, separately from the rest-over alert.
+ *
+ * These are two different things to want. The alert is the point of the whole
+ * feature — it is what tells you the rest is up while the phone is in a pocket.
+ * The progress line is a convenience, and it is the one that appears every time
+ * you leave the app, so it is the one somebody trying to quieten their lock
+ * screen actually means. Muting the pair (`PREF_KEY`) would take the alert with
+ * it, so this is its own switch and defaults on.
+ */
+const PROGRESS_KEY = "pump.workout-progress";
+
+export function workoutProgressMuted() {
+  try {
+    return window.localStorage.getItem(PROGRESS_KEY) === "off";
+  } catch {
+    return false;
+  }
+}
+
+export function setWorkoutProgressMuted(muted: boolean) {
+  try {
+    if (muted) window.localStorage.setItem(PROGRESS_KEY, "off");
+    else window.localStorage.removeItem(PROGRESS_KEY);
+  } catch {
+    /* Same. */
   }
 }
 
@@ -115,6 +146,7 @@ export function showWorkoutProgress(input: {
   body: string;
   url: string;
 }) {
+  if (workoutProgressMuted()) return;
   void post({ type: "workout-show", ...input });
 }
 
@@ -130,6 +162,10 @@ export function hideWorkoutProgress() {
  */
 export function endWorkoutActivity() {
   void post({ type: "workout-end" });
+  // The scheduled chime is the fourth thing a finished session leaves running,
+  // and unlike the other three it would make a noise. It lives here rather than
+  // at the call sites so "the workout is over" stays one call.
+  cancelRestChime();
   setWorkoutBadge(0);
 }
 

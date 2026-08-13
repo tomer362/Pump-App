@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { TabBar, TabBarSpacer } from "@/components/ui/tab-bar";
 import { ActiveWorkoutPill } from "@/components/workout/active-workout-pill";
+import { ClearStaleWorkoutActivity } from "@/components/workout/clear-stale-workout-activity";
 import { RouteProgress } from "@/components/ui/route-progress";
 import { NotifyNudge } from "@/components/notifications/notify-nudge";
 import { requireUser } from "@/lib/session";
@@ -52,7 +53,11 @@ async function AppChrome({ userId }: { userId: string }) {
     <>
       {/* Docked above the tab bar so an in-progress workout is never lost by
           navigating away — the single biggest complaint about web trackers. */}
-      {active && <ActiveWorkoutPill workout={active} />}
+      {active ? (
+        <ActiveWorkoutPill workout={active} />
+      ) : (
+        <ClearStaleWorkoutActivity />
+      )}
       <TabBar unreadCount={unread} />
     </>
   );

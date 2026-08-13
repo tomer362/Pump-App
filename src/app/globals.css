@@ -71,6 +71,24 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+:root {
+  /* The bottom of the screen, in one place.
+
+     `--safe-b` is the home indicator on iOS and the gesture/button navigation
+     strip on Android — a browser only reports it because of
+     `viewport-fit=cover` in the root layout. `--bottom-dock` is how much of the
+     screen the tab bar occupies in total, and every element that docks above
+     the bar derives from it rather than re-deriving `52px + inset` for itself.
+     Setting `--safe-b` on the `<html>` element's own style attribute simulates
+     a phone in devtools — 24px is Android gesture nav, 34px an iPhone, 48px
+     Android 3-button. It has to be the inline style or this very rule: a
+     `html { --safe-b: … }` you add elsewhere loses, because `:root` is a
+     pseudo-class and outranks a type selector whatever the order. */
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --tab-row: 52px;
+  --bottom-dock: calc(var(--tab-row) + var(--safe-b));
+}
+
 html {
   background: var(--color-bg);
   color-scheme: dark;
@@ -182,6 +200,19 @@ input[type="number"]::-webkit-inner-spin-button {
 @utility mb-safe {
   margin-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* The tab bar's full footprint — its 52px row plus the system inset below it.
+   `h-dock` sizes the bar and its scroll spacer from the same number, which is
+   the only way the two can't drift: a spacer written `h-[52px] pb-safe` is 52px
+   *total* under border-box, so the padding silently vanished and every page's
+   last row sat under the bar. Use `bottom-dock` for chrome that stacks on top
+   of the bar; anything on a screen with no tab bar wants `mb-safe`. */
+@utility h-dock {
+  height: var(--bottom-dock);
+}
+@utility bottom-dock {
+  bottom: var(--bottom-dock);
+}
 /* Use ONLY on elements that have no horizontal padding of their own. Combining
    it with `px-4` sets padding-left twice and one of them silently wins — in
    portrait, where the inset is 0px, that collapsed several large titles flush
@@ -219,9 +250,23 @@ input[type="number"]::-webkit-inner-spin-button {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
+/* The tab bar's material. Deliberately surface-1, not bg: the bar's safe-area
+   chin is padding it paints itself, and against a `bg`-coloured page that strip
+   is pixel-identical to the page — so on a phone the app appeared to stop 52px
+   above the screen edge with a dead black band below it. A surface tint makes
+   the chin read as part of the bar all the way down. */
+@utility glass-dock {
+  background: color-mix(in srgb, var(--color-surface-1) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass {
     background: var(--color-bg);
+  }
+  .glass-dock {
+    background: var(--color-surface-1);
   }
 }
 

@@ -13,7 +13,7 @@ import { useMotionPreset } from "@/hooks/use-motion-preset";
 import { REDUCED } from "@/lib/motion";
 
 /** Height of the fixed tab bar, plus the iPhone home indicator. */
-const TAB_BAR_OFFSET = "calc(52px + env(safe-area-inset-bottom, 0px))";
+const TAB_BAR_OFFSET = "var(--bottom-dock)";
 
 type Comment = {
   id: string;
