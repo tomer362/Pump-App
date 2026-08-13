@@ -71,6 +71,7 @@ import { setCoopResting } from "@/lib/actions/coop";
 import type { FullWorkout } from "@/lib/queries/workout";
 import { cn, estimate1RM, formatDuration, formatWeight, haptic } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
+import { prescribedToken } from "@/lib/rpe";
 import { DUR, EASE_OUT_QUART, REDUCED, SPRING } from "@/lib/motion";
 
 // All three open from a tap and none of them is on screen when the workout
@@ -471,9 +472,12 @@ export function WorkoutScreen({
                   reps: last?.reps ?? null,
                   seconds: last?.seconds ?? null,
                   distanceM: last?.distanceM ?? null,
-                  rpe: last?.rpe ?? null,
-                  // Mirrors `addSet` on the server, which carries the previous
-                  // set's rest override forward with everything else.
+                  // Mirrors `addSet` on the server: the prescription carries
+                  // forward, the rating does not — an appended set has not been
+                  // performed, so it cannot already have felt like anything.
+                  rpe: null,
+                  targetRpe: last?.targetRpe ?? null,
+                  // Same reasoning for the previous set's rest override.
                   restSeconds: last?.restSeconds ?? null,
                   completed: false,
                 },
@@ -572,6 +576,9 @@ export function WorkoutScreen({
                   seconds: null,
                   distanceM: null,
                   rpe: null,
+                  // The prescription went with the movement being replaced, same
+                  // as on the server.
+                  targetRpe: null,
                   restSeconds: null,
                   completed: false,
                 })),
@@ -619,6 +626,8 @@ export function WorkoutScreen({
               seconds: null,
               distanceM: null,
               rpe: null,
+              // Added by hand mid-workout, so nothing prescribed it.
+              targetRpe: null,
               restSeconds: null,
               completed: false,
             },
@@ -1904,7 +1913,23 @@ function SetOptions({
           <Gauge className="size-3.5" />
           Effort (RPE)
         </SheetLabel>
-        <RpePicker value={set.rpe} onChange={onSetRpe} idPrefix="set-options" />
+        <RpePicker
+          value={set.rpe}
+          onChange={onSetRpe}
+          idPrefix="set-options"
+          hint={
+            set.targetRpe != null ? (
+              <>
+                The routine prescribed{" "}
+                <span className="num text-text-2">
+                  {prescribedToken(set.targetRpe)}
+                </span>
+                . Pick what it actually felt like — 10 is a set you couldn&apos;t
+                have added a rep to.
+              </>
+            ) : undefined
+          }
+        />
       </div>
 
       {SET_TYPES.map(([value, label, desc]) => (
@@ -2207,6 +2232,13 @@ function setLabel(set: SetDraft, index: number) {
  * into the row, falling back to what was done on this set last session — the
  * same two sources the row itself shows. Null when neither knows anything,
  * which is the first time a lift is ever performed.
+ *
+ * A prescribed effort is appended when the routine gave one. This is the most
+ * useful place in the app for it: the rest bar, the jump pill and the
+ * lock-screen line all read from here, and they are what someone looks at
+ * between sets, which is exactly when "how hard should this one be" is the
+ * question. Never a bare `@8` on its own though — an effort with no load or reps
+ * beside it is not a set anyone can walk up to and do.
  */
 function targetLabel(
   block: Block,
@@ -2223,13 +2255,15 @@ function targetLabel(
 
   // The one combination lifters read as a single quantity, so it keeps the
   // "×" rather than being listed like unrelated fields.
+  const effort = set.targetRpe != null ? ` ${prescribedToken(set.targetRpe)}` : "";
+
   if (
     columns.includes("weight") &&
     columns.includes("reps") &&
     weightKg != null &&
     reps != null
   ) {
-    return `${formatWeight(weightKg, unit)} ${unit} × ${reps}`;
+    return `${formatWeight(weightKg, unit)} ${unit} × ${reps}${effort}`;
   }
 
   const parts: string[] = [];
@@ -2244,7 +2278,7 @@ function targetLabel(
       parts.push(`${distanceM} m`);
     }
   }
-  return parts.length ? parts.join(" · ") : null;
+  return parts.length ? `${parts.join(" · ")}${effort}` : null;
 }
 
 /** The value fields a typed cell can carry down the rows below it. */
@@ -2307,6 +2341,7 @@ function toBlock(e: FullWorkout["exercises"][number]): Block {
       seconds: s.seconds,
       distanceM: s.distanceM,
       rpe: s.rpe,
+      targetRpe: s.targetRpe,
       restSeconds: s.restSeconds,
       completed: s.completedAt != null,
     })),

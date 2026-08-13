@@ -66,7 +66,10 @@ export type WorkoutSetRow = {
   reps: number | null;
   seconds: number | null;
   distanceM: number | null;
+  /** What it felt like, rated by the lifter. */
   rpe: number | null;
+  /** What the routine prescribed, snapshotted at start. Never a rating. */
+  targetRpe: number | null;
   /** Rest after this set, overriding the exercise. Null inherits. */
   restSeconds: number | null;
   completedAt: Date | null;
@@ -180,6 +183,7 @@ export async function getFullWorkout(
       seconds: s.seconds,
       distanceM: s.distanceM,
       rpe: s.rpe,
+      targetRpe: s.targetRpe,
       restSeconds: s.restSeconds,
       completedAt: s.completedAt,
       estimated1rm: s.estimated1rm,

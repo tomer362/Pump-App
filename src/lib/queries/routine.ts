@@ -23,6 +23,13 @@ export type RoutineListItem = {
   saveCount: number;
   exerciseCount: number;
   setCount: number;
+  /**
+   * The span of prescribed effort across the whole routine, so the start card
+   * can say `@8` or `@7–9` without loading every set. Both null when nothing is
+   * prescribed. Rendered through `rpeRangeLabel`, never formatted in SQL.
+   */
+  rpeMin: number | null;
+  rpeMax: number | null;
   /** First few exercise names, for the card preview. */
   preview: string[];
   ownerName: string;
@@ -55,6 +62,18 @@ export async function getRoutines(userId: string): Promise<RoutineListItem[]> {
         SELECT COUNT(*)::int FROM ${routineSet} rs
         JOIN ${routineExercise} re2 ON re2.id = rs.routine_exercise_id
         WHERE re2.routine_id = ${routine.id}
+      )`,
+      // Same shape as setCount: correlated, no extra round trip, and MIN/MAX
+      // ignore the sets with no prescription rather than counting them as zero.
+      rpeMin: sql<number | null>`(
+        SELECT MIN(rs2.target_rpe) FROM ${routineSet} rs2
+        JOIN ${routineExercise} re5 ON re5.id = rs2.routine_exercise_id
+        WHERE re5.routine_id = ${routine.id}
+      )`,
+      rpeMax: sql<number | null>`(
+        SELECT MAX(rs3.target_rpe) FROM ${routineSet} rs3
+        JOIN ${routineExercise} re6 ON re6.id = rs3.routine_exercise_id
+        WHERE re6.routine_id = ${routine.id}
       )`,
       preview: sql<string[]>`(
         SELECT COALESCE(ARRAY_AGG(t.name ORDER BY t.position), ARRAY[]::text[])

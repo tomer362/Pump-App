@@ -178,7 +178,7 @@ Rules
     weight_time    targetWeightKg + targetSeconds
 - "setType": "warmup" for warm-up sets (Pump excludes them from volume and records), "normal" for working sets, "drop" and "failure" where they apply.
 - "supersetGroup": exercises sharing a letter ("A", "B", …) are performed back to back as a superset; keep them next to each other in the list and give everything else null.
-- "restSeconds" is 0–1800 or null. "targetRpe" is 1–10 or null.
+- "restSeconds" is 0–1800 or null. "targetRpe" is a half point from 6 to 10 (6, 6.5, … 10) or null — Pump snaps anything else to the nearest half point and drops anything under 6.
 - "intervalWorkSeconds" and "intervalRestSeconds" are for timed interval work only; null everywhere else.
 - Limits: at most 50 exercises and at most 30 sets per exercise. Routine name at most 80 characters, routine notes 1000, exercise notes 500, instructions 1000.
 

@@ -18,6 +18,7 @@ import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { dayKeyBounds, dayKeyToNoonUtc, isDayKey, shiftDay } from "@/lib/day";
 import { estimate1RM } from "@/lib/utils";
+import { rpeValue } from "@/lib/rpe";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
 
@@ -68,7 +69,9 @@ const quickLogSchema = z.object({
   reps: z.number().int().min(0).max(1000).nullable().optional(),
   seconds: z.number().int().min(0).max(86_400).nullable().optional(),
   distanceM: z.number().min(0).max(1_000_000).nullable().optional(),
-  rpe: z.number().min(1).max(10).nullable().optional(),
+  // The scale itself: the only caller is `RpePicker` in the quick-log sheet, so
+  // an off-grid value is a bug rather than an intent to honour.
+  rpe: rpeValue.nullable().optional(),
   /**
    * The calendar day the set happened on, in the caller's local time. A day
    * rather than an instant: the sheet only ever asks for a date.

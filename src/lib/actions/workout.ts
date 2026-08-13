@@ -23,6 +23,7 @@ import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { estimate1RM } from "@/lib/utils";
+import { rpeValue } from "@/lib/rpe";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
 
@@ -211,9 +212,14 @@ export async function startWorkoutFromRoutine(
             reps: rs.targetReps,
             seconds: rs.targetSeconds,
             distanceM: rs.targetDistanceM,
-            // The prescribed effort, pre-filled like every other target so an
-            // unchanged set is one tap. Editable per set on the row.
-            rpe: rs.targetRpe,
+            // The prescribed effort is *not* pre-filled into `rpe`. Weight and
+            // reps can be, because they land in text inputs that visibly are
+            // targets you type over; RPE has no input, only the result-shaped
+            // `@8` subscript, so pre-filling it there claimed the lifter had
+            // rated a set they hadn't performed. It goes in its own column and
+            // the row renders it as `→8`.
+            rpe: null,
+            targetRpe: rs.targetRpe,
             completedAt: null,
           },
         ];
@@ -458,6 +464,10 @@ export async function replaceWorkoutExercise(
         seconds: null,
         distanceM: null,
         rpe: null,
+        // The prescription belonged to the movement being swapped out — an
+        // effort written for a barbell squat says nothing about the machine
+        // that replaced it.
+        targetRpe: null,
         estimated1rm: null,
         completedAt: null,
       })
@@ -544,7 +554,12 @@ export async function addSet(
       reps: last?.reps ?? null,
       seconds: last?.seconds ?? null,
       distanceM: last?.distanceM ?? null,
-      rpe: last?.rpe ?? null,
+      // Not the rating: the previous set's effort is a fact about that set, and
+      // copying it here would manufacture a rating for a set nobody has done.
+      rpe: null,
+      // The prescription does carry forward, same argument as the rest override
+      // below — an appended set continues the pattern being prescribed.
+      targetRpe: last?.targetRpe ?? null,
       // Including the rest override, if the previous set carried one. A set
       // appended after one pushed to 3m is the next set of that same heavy
       // pattern, not a return to the exercise's default.
@@ -597,7 +612,11 @@ const setPatchSchema = z.object({
   reps: z.number().int().min(0).max(1000).nullable().optional(),
   seconds: z.number().int().min(0).max(86_400).nullable().optional(),
   distanceM: z.number().min(0).max(1_000_000).nullable().optional(),
-  rpe: z.number().min(1).max(10).nullable().optional(),
+  // The scale itself, not a range around it: every caller is a chip in
+  // `RpePicker`, so anything off the half-point grid is a bug rather than an
+  // intent worth honouring. `targetRpe` is deliberately absent — a prescription
+  // is what the routine said, and nothing mid-workout gets to rewrite it.
+  rpe: rpeValue.nullable().optional(),
   // Per-set rest override. Same bound as the exercise-level column; `null`
   // inherits the exercise, `0` means no rest at all.
   restSeconds: z.number().int().min(0).max(1800).nullable().optional(),

@@ -100,9 +100,17 @@ export function LoadPickerSheet({
           <LoadGrid value={value} onChange={onChange} />
         </div>
 
+        {/* The prescribed effort deliberately isn't scaled, and saying so
+            matters: RPE maps to a percentage of 1RM differently at every rep
+            count, so any arithmetic here would be invented. The old wording
+            ("sets and reps stay as written") quietly implied the prescription
+            still held at 80%, when a set written @8 lifted that light is the
+            whole point of a deload. */}
         <p className="text-text-3 mt-4 text-[12px] leading-relaxed">
-          Only weights change — sets and reps stay as written. Records set
-          during a scaled session still count.
+          Only weights scale — sets and reps stay as written, and so does any
+          prescribed effort. Below 100% a set written{" "}
+          <span className="num">@8</span> should feel easier than that; that is
+          what a deload is. Records set during a scaled session still count.
         </p>
       </div>
     </Sheet>

@@ -499,7 +499,21 @@ export const workoutSet = pgTable(
     reps: integer("reps"),
     seconds: integer("seconds"),
     distanceM: real("distance_m"),
+    /** What the set *felt* like, rated by the lifter after doing it. */
     rpe: real("rpe"),
+    /**
+     * What the routine told them to aim for, copied from `routine_set.target_rpe`
+     * when the workout started. A snapshot, like `weight_kg` already is once the
+     * load multiplier is baked in: editing the template afterwards must not
+     * rewrite a session, and there is nothing to join back to anyway — a set
+     * added mid-workout has no `routine_set`, and a replaced exercise points at
+     * a movement the routine never mentioned.
+     *
+     * Separate from `rpe` because these are two different facts. Pre-filling the
+     * prescription into `rpe` made every untouched set read as already rated.
+     * Never editable mid-workout: it is what the routine said.
+     */
+    targetRpe: real("target_rpe"),
     /**
      * Rest owed *after* this set, overriding the exercise's own value. Null is
      * the normal case and means "inherit", so the resolution order is

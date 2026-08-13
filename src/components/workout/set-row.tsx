@@ -19,6 +19,7 @@ import {
   lbToKg,
 } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
+import { rpeSubscript } from "@/lib/rpe";
 import { EASE_OUT_QUART } from "@/lib/motion";
 import { useRemaining } from "./rest-timer";
 
@@ -30,7 +31,10 @@ export type SetDraft = {
   reps: number | null;
   seconds: number | null;
   distanceM: number | null;
+  /** What it felt like, rated by the lifter. */
   rpe: number | null;
+  /** What the routine prescribed. Rendered as `→8`, never as a rating. */
+  targetRpe: number | null;
   /** Rest after this set, overriding the exercise's. Null inherits. */
   restSeconds: number | null;
   completed: boolean;
@@ -161,6 +165,7 @@ export function SetRow({
   }, [set.id, x]);
 
   const columns = setColumns(trackingType);
+  const subscript = rpeSubscript(set);
 
   const remove = () => {
     haptic.medium();
@@ -240,11 +245,20 @@ export function SetRow({
               no one-tap version of this scale that fits a phone, which is why
               it is a sheet.)
 
-              The `@` slot shows on every completed set, empty as `@–`. It used
-              to appear only once a rating existed, so the one gesture that sets
-              an RPE was advertised by the state it produced and by nothing else
-              — the feature read as missing entirely. The button is a fixed h-9
-              either way, so the placeholder costs no reflow. */}
+              The subscript carries one of three things (`rpeSubscript` owns the
+              table): `@8` you rated it, `@–` it's done and you haven't, `→8`
+              the routine prescribed it. The `@–` placeholder shows on every
+              completed set because it used to appear only once a rating existed,
+              so the one gesture that sets an RPE was advertised by the state it
+              produced and by nothing else — the feature read as missing
+              entirely. The button is a fixed h-9 whichever it shows, so none of
+              them costs a reflow.
+
+              A prescription is a *glyph* apart, not a shade apart: two greys at
+              9px on a phone in a gym are not a difference, and on a completed
+              row's volt tint they collapse. Volt is out of the question — it
+              marks state the lifter produced, and a target is the one thing here
+              they haven't. */}
           <button
             onClick={() => {
               haptic.light();
@@ -261,25 +275,27 @@ export function SetRow({
             aria-label={
               set.rpe != null
                 ? `Set ${index} options — effort ${set.rpe}`
-                : `Set ${index} options — no effort rating`
+                : subscript?.kind === "prescribed"
+                  ? `Set ${index} options — target effort ${set.targetRpe}, not yet rated`
+                  : `Set ${index} options — no effort rating`
             }
           >
             <span className="num block text-[14px] font-bold">
               {set.setType === "normal" ? index : TYPE_LABEL[set.setType]}
             </span>
-            {(set.rpe != null || set.completed) && (
+            {subscript && (
               <span
                 aria-hidden
                 className={cn(
                   "num mt-0.5 block text-[9px] font-bold",
                   set.completed
-                    ? set.rpe != null
+                    ? subscript.kind === "rated"
                       ? "text-black/45"
                       : "text-black/25"
                     : "text-text-3",
                 )}
               >
-                @{set.rpe ?? "–"}
+                {subscript.text}
               </span>
             )}
           </button>
