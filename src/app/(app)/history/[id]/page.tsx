@@ -15,6 +15,7 @@ import {
   formatWeight,
   labelize,
 } from "@/lib/utils";
+import { prescribedToken, ratedWord } from "@/lib/rpe";
 
 export default async function WorkoutDetailPage(
   props: PageProps<"/history/[id]">,
@@ -202,6 +203,7 @@ export default async function WorkoutDetailPage(
                           key={s.id}
                           setId={s.id}
                           initialRpe={s.rpe}
+                          targetRpe={s.targetRpe}
                           title={`${e.name} · ${
                             s.setType === "normal"
                               ? `Set ${workingIndex}`
@@ -228,9 +230,16 @@ export default async function WorkoutDetailPage(
                             Skipped
                           </span>
                         )}
-                        {done && s.rpe != null && (
-                          <span className="num text-text-3 ml-auto text-[12px]">
-                            RPE {s.rpe}
+                        {/* Someone else's workout, so read only — but it still
+                            shows both facts when it has them. */}
+                        {done && (s.rpe != null || s.targetRpe != null) && (
+                          <span className="num text-text-3 ml-auto flex items-baseline gap-1.5 text-[12px]">
+                            {s.targetRpe != null && (
+                              <span className="text-text-3/55">
+                                {prescribedToken(s.targetRpe)}
+                              </span>
+                            )}
+                            {s.rpe != null && <span>{ratedWord(s.rpe)}</span>}
                           </span>
                         )}
                       </div>

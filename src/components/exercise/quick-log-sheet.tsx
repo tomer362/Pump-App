@@ -32,6 +32,7 @@ import {
   kgToLb,
   lbToKg,
 } from "@/lib/utils";
+import { ratedToken } from "@/lib/rpe";
 
 /** Matches MAX_BACKDATE_DAYS in `lib/actions/quick-log.ts`. */
 const MAX_BACKDATE_DAYS = 365;
@@ -656,6 +657,7 @@ function describe(
     parts.push(`${values.distance}m`);
   }
   const label = parts.join(" ") || "Logged";
-  // Same shorthand the set row uses under the set number.
-  return rpe != null ? `${label} @${rpe}` : label;
+  // Same shorthand the set row uses under the set number. A quick log is always
+  // a rating — there is no routine behind it to have prescribed anything.
+  return rpe != null ? `${label} ${ratedToken(rpe)}` : label;
 }

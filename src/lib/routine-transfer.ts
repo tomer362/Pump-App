@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EQUIPMENT, MUSCLES, SET_TYPES, TRACKING_TYPES } from "@/lib/db/schema";
 import type { FullRoutine } from "@/lib/queries/routine";
+import { rpeInput } from "@/lib/rpe";
 
 /**
  * The routine interchange format — what `Export file` writes and what `Import`
@@ -72,7 +73,9 @@ const setSchema = z
     targetReps: z.number().int().min(0).max(1000).nullable(),
     targetSeconds: z.number().int().min(0).max(86_400).nullable(),
     targetDistanceM: z.number().min(0).max(1_000_000).nullable(),
-    targetRpe: z.number().min(1).max(10).nullable(),
+    // Same 1–10 band as `routineInputSchema`, and snapped to the half-point
+    // scale on the way in by the shared `rpeInput`.
+    targetRpe: rpeInput.nullable(),
   })
   .strict();
 

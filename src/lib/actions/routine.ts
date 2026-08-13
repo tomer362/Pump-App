@@ -21,6 +21,7 @@ import {
   type Tx,
 } from "@/lib/routine-write";
 import { getCurrentUser } from "@/lib/session";
+import { rpeInput } from "@/lib/rpe";
 import { notify } from "./notify";
 import type { ActionResult } from "./user";
 
@@ -61,7 +62,10 @@ const routineInputSchema = z.object({
               targetReps: z.number().int().min(0).max(1000).nullable().optional(),
               targetSeconds: z.number().int().min(0).max(86_400).nullable().optional(),
               targetDistanceM: z.number().min(0).max(1_000_000).nullable().optional(),
-              targetRpe: z.number().min(1).max(10).nullable().optional(),
+              // Snapped, not rejected: a draft can arrive here from an imported
+              // file or an LLM plan, and one off-grid value must not sink a
+              // 50-exercise save. See `rpeInput`.
+              targetRpe: rpeInput.nullable().optional(),
             }),
           )
           .max(30),
@@ -475,7 +479,11 @@ export async function saveWorkoutAsRoutine(
         targetReps: s.reps,
         targetSeconds: s.seconds,
         targetDistanceM: s.distanceM,
-        targetRpe: s.rpe,
+        // What it actually felt like becomes the prescription, falling back to
+        // what was prescribed for the sets that were never rated. Reading `rpe`
+        // alone dropped the prescription off every unrated set, which is most of
+        // them now that starting a routine no longer pre-fills a rating.
+        targetRpe: s.rpe ?? s.targetRpe,
       }));
     });
 

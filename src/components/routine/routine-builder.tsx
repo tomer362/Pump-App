@@ -28,6 +28,7 @@ import { createFolder } from "@/lib/actions/routine-folder";
 import { folderRail } from "@/lib/folder-color";
 import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
+import { prescribedToken, rpeRangeLabel, uniformRpe } from "@/lib/rpe";
 import type { SetType } from "@/lib/db/schema";
 
 // Behind a gesture, so they stay out of the initial payload.
@@ -137,6 +138,16 @@ export function RoutineBuilder({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [replaceFor, setReplaceFor] = useState<string | null>(null);
+  /**
+   * Which set's prescribed effort is being picked. A sheet rather than a chip
+   * strip on the row for the same reason the workout screen uses one: nine half
+   * points at a usable tap size is ~400px of chips, which no set row on a phone
+   * has. Keyed by both halves because set keys are only unique within their
+   * exercise.
+   */
+  const [rpeFor, setRpeFor] = useState<{ exKey: string; setKey: string } | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -296,6 +307,19 @@ export function RoutineBuilder({
   const infoItem = items.find((i) => i.key === infoFor) ?? null;
   const replaceItem = items.find((i) => i.key === replaceFor) ?? null;
 
+  const rpeItem = rpeFor
+    ? (items.find((i) => i.key === rpeFor.exKey) ?? null)
+    : null;
+  const rpeSet = rpeItem?.sets.find((s) => s.key === rpeFor?.setKey) ?? null;
+  // The number the sheet's title carries. Warm-ups aren't numbered anywhere
+  // else in the app either, so it names them rather than counting them.
+  const rpeSetLabel =
+    rpeItem && rpeSet
+      ? rpeSet.setType === "warmup"
+        ? "warm-up"
+        : `set ${rpeItem.sets.filter((s) => s.setType !== "warmup").indexOf(rpeSet) + 1}`
+      : "";
+
   return (
     <div className="min-h-screen-d pb-32">
       <header className="bg-bg hairline-b sticky top-0 z-30 pt-safe inset-safe-x">
@@ -376,6 +400,7 @@ export function RoutineBuilder({
             unit={unit}
             onOpenMenu={() => setMenuFor(item.key)}
             onOpenInfo={() => setInfoFor(item.key)}
+            onOpenSetRpe={(setKey) => setRpeFor({ exKey: item.key, setKey })}
             onPatchSet={(setKey, patch) => patchSet(item.key, setKey, patch)}
             onAddSet={() =>
               patchExercise(item.key, {
@@ -449,6 +474,33 @@ export function RoutineBuilder({
         )}
       </Sheet>
 
+      <Sheet
+        open={rpeFor != null}
+        onClose={() => setRpeFor(null)}
+        title={rpeItem ? `${rpeItem.name} — ${rpeSetLabel}` : undefined}
+      >
+        {rpeFor && rpeSet && (
+          <div className="px-4 pb-5">
+            <Label>Target effort (RPE)</Label>
+            <RpePicker
+              value={rpeSet.targetRpe}
+              idPrefix="routine-set-target"
+              onChange={(v) => {
+                patchSet(rpeFor.exKey, rpeFor.setKey, { targetRpe: v });
+                setRpeFor(null);
+              }}
+              hint={
+                <>
+                  How hard this set should feel. Per set, so a routine can ramp —
+                  7 on the first, 9 on the last. Leave it blank to prescribe no
+                  effort at all.
+                </>
+              }
+            />
+          </div>
+        )}
+      </Sheet>
+
       {/* Capped and scrolled: an exercise's prose runs to three paragraphs plus
           its alternatives, and a sheet that grows to fit that is the whole
           screen with no sign it can be dismissed. */}
@@ -471,6 +523,7 @@ function ExerciseCard({
   unit,
   onOpenMenu,
   onOpenInfo,
+  onOpenSetRpe,
   onPatchSet,
   onAddSet,
   onRemoveSet,
@@ -479,13 +532,17 @@ function ExerciseCard({
   unit: "kg" | "lb";
   onOpenMenu: () => void;
   onOpenInfo: () => void;
+  onOpenSetRpe: (setKey: string) => void;
   onPatchSet: (setKey: string, patch: Partial<DraftSet>) => void;
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
 }) {
   const controls = useDragControls();
   const columns = setColumns(item.trackingType);
-  const template = `28px ${columns.map(() => "1fr").join(" ")} 36px`;
+  // Effort gets a track of its own between the targets and the bin. It can't be
+  // one of `columns` — those are the measurements a set records, shared with the
+  // workout screen's table, and RPE is deliberately not a column there.
+  const template = `28px ${columns.map(() => "1fr").join(" ")} 36px 36px`;
 
   return (
     <Reorder.Item
@@ -530,8 +587,14 @@ function ExerciseCard({
           </span>
           <span className="text-text-3 block text-[12px]">
             {labelize(item.primaryMuscle)} · {labelize(item.equipment)}
-            {item.sets[0]?.targetRpe != null && (
-              <span className="num"> · RPE {item.sets[0].targetRpe}</span>
+            {/* A range across the sets, not `sets[0]`: effort is prescribed per
+                set, so a lift ramping 7/8/9 announced itself as "RPE 7" and the
+                header spoke for two sets it had never read. */}
+            {rpeRangeLabel(item.sets.map((s) => s.targetRpe)) && (
+              <span className="num">
+                {" · RPE "}
+                {rpeRangeLabel(item.sets.map((s) => s.targetRpe))}
+              </span>
             )}
           </span>
         </button>
@@ -553,6 +616,7 @@ function ExerciseCard({
             {columnLabel(column, unit)}
           </span>
         ))}
+        <span className="text-center">RPE</span>
         <span />
       </div>
 
@@ -638,6 +702,28 @@ function ExerciseCard({
               ),
             )}
 
+            {/* Prescribed effort. Grayscale even when set, unlike the set-type
+                tag beside it: volt marks state produced by training, and this
+                is a target. `→8` matches what the workout screen will show on
+                the row, so the same prescription reads the same in both. */}
+            <button
+              onClick={() => {
+                haptic.light();
+                onOpenSetRpe(s.key);
+              }}
+              aria-label={
+                s.targetRpe != null
+                  ? `Target effort ${s.targetRpe} for set ${i + 1}. Change it.`
+                  : `Set a target effort for set ${i + 1}`
+              }
+              className={cn(
+                "press num h-9 rounded-lg text-[13px] font-semibold",
+                s.targetRpe != null ? "text-text-2" : "text-text-3",
+              )}
+            >
+              {s.targetRpe != null ? prescribedToken(s.targetRpe) : "—"}
+            </button>
+
             <button
               onClick={() => onRemoveSet(s.key)}
               aria-label="Remove set"
@@ -704,11 +790,15 @@ function ExerciseSettings({
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const intervalOn = item.intervalWorkSeconds != null;
-  // Shown as selected only when every set carries the same prescription.
-  const first = item.sets[0]?.targetRpe ?? null;
-  const targetRpe = item.sets.every((s) => (s.targetRpe ?? null) === first)
-    ? first
-    : null;
+  // Shown as selected only when every set carries the same prescription. When
+  // they differ, nothing is selected and the fold is spelled out above the
+  // chips — the `—` chip lighting up used to claim "no prescription" about an
+  // exercise that had three of them.
+  const targetRpe = uniformRpe(item.sets.map((s) => s.targetRpe));
+  const mixedRpe =
+    targetRpe == null &&
+    item.sets.some((s) => s.targetRpe != null) &&
+    item.sets.length > 1;
 
   return (
     <div className="space-y-6 px-4 pb-5">
@@ -756,10 +846,19 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Target effort (RPE)</Label>
+        <Label>Target effort — all sets</Label>
         {/* The shared picker, not a local copy of the scale: this hand-rolled
             its own chips and omitted 6.5, so a routine could prescribe an
-            effort the workout screen offered and not the other way round. */}
+            effort the workout screen offered and not the other way round.
+
+            This one writes every set at once, which is the common case ("3×8
+            @ 8"). A ramp is set per row instead, on the RPE cell in the table —
+            so this control has to say what it overwrites. */}
+        {mixedRpe && (
+          <p className="text-text-3 num mb-2 text-[12px]">
+            Sets differ: {item.sets.map((s) => s.targetRpe ?? "—").join(" · ")}
+          </p>
+        )}
         <RpePicker
           value={targetRpe}
           onChange={(v) =>
@@ -768,8 +867,9 @@ function ExerciseSettings({
           idPrefix="routine-target"
           hint={
             <>
-              Prescribed for every set — &ldquo;3×8 @ 8&rdquo;. 10 is a set you
-              couldn&apos;t have added a rep to.
+              Applies to every set at once. To ramp — 7, then 8, then 9 — tap the
+              RPE cell on a single set instead. 10 is a set you couldn&apos;t
+              have added a rep to.
             </>
           }
         />

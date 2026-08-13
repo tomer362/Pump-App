@@ -23,6 +23,19 @@ import {
   tokenizeQuery,
   MAX_QUERY_TOKENS,
 } from "@/lib/exercise-search-terms";
+import {
+  RPE_VALUES,
+  formatRpe,
+  prescribedToken,
+  ratedToken,
+  ratedWord,
+  rpeInput,
+  rpeRangeLabel,
+  rpeSubscript,
+  rpeValue,
+  snapRpe,
+  uniformRpe,
+} from "@/lib/rpe";
 
 describe("estimate1RM (Epley)", () => {
   it("is the weight itself at one rep", () => {
@@ -314,5 +327,122 @@ describe("exercise search terms", () => {
 
   it("leaves ordinary exercise names alone", () => {
     expect(escapeLike("Bench Press (Barbell)")).toBe("Bench Press (Barbell)");
+  });
+});
+
+describe("rpe", () => {
+  it("keeps the scale and the picker in agreement", () => {
+    // The regression test for the class of bug that lost 6.5: the builder used
+    // to hand-roll its chips from its own array, so a routine could not
+    // prescribe an effort a logged set was able to record.
+    expect(RPE_VALUES.every((v) => rpeValue.safeParse(v).success)).toBe(true);
+    expect(rpeValue.safeParse(6.25).success).toBe(false);
+    expect(rpeValue.safeParse(5.5).success).toBe(false);
+    expect(rpeValue.safeParse(11).success).toBe(false);
+  });
+
+  it("renders a rating and a prescription as different glyphs", () => {
+    // Not different shades: two greys at 9px on a phone are not a difference,
+    // and on a completed row's volt tint they collapse entirely.
+    expect(ratedToken(8)).toBe("@8");
+    expect(prescribedToken(8)).toBe("→8");
+    expect(ratedToken(null)).toBe("@–");
+    expect(ratedWord(null)).toBe("RPE —");
+    expect(ratedWord(6.5)).toBe("RPE 6.5");
+    // No trailing zero: the scale is written 8, not 8.0.
+    expect(formatRpe(8)).toBe("8");
+    expect(formatRpe(6.5)).toBe("6.5");
+  });
+
+  it("never calls a prescription a rating", () => {
+    // The whole table, both values crossed with completed — this is the bug
+    // that started all of it: a prescription rendered in the rating's slot.
+    for (const completed of [false, true]) {
+      expect(rpeSubscript({ rpe: null, targetRpe: 8, completed })?.kind).not.toBe(
+        "rated",
+      );
+    }
+
+    expect(rpeSubscript({ rpe: null, targetRpe: 8, completed: false })).toEqual({
+      text: "→8",
+      kind: "prescribed",
+    });
+    // A rating wins once it exists: what you were told to aim for stops being
+    // the useful number the moment you know what it felt like.
+    expect(rpeSubscript({ rpe: 9, targetRpe: 8, completed: false })).toEqual({
+      text: "@9",
+      kind: "rated",
+    });
+    expect(rpeSubscript({ rpe: 9, targetRpe: 8, completed: true })).toEqual({
+      text: "@9",
+      kind: "rated",
+    });
+    expect(rpeSubscript({ rpe: 9, targetRpe: null, completed: true })).toEqual({
+      text: "@9",
+      kind: "rated",
+    });
+    // Done and unrated is the `@–` affordance, prescription or not: once the
+    // set is over, the target is history and the gesture is what matters.
+    expect(rpeSubscript({ rpe: null, targetRpe: 8, completed: true })).toEqual({
+      text: "@–",
+      kind: "owed",
+    });
+    expect(rpeSubscript({ rpe: null, targetRpe: null, completed: true })).toEqual({
+      text: "@–",
+      kind: "owed",
+    });
+    // Nothing prescribed, nothing done, nothing to say.
+    expect(
+      rpeSubscript({ rpe: null, targetRpe: null, completed: false }),
+    ).toBeNull();
+  });
+
+  it("summarises a fold of sets without speaking for the first one", () => {
+    expect(rpeRangeLabel([])).toBeNull();
+    expect(rpeRangeLabel([null, null])).toBeNull();
+    expect(rpeRangeLabel([8])).toBe("8");
+    expect(rpeRangeLabel([8, 8, 8])).toBe("8");
+    // The header used to read `sets[0]`, so this ramp announced itself as "7".
+    expect(rpeRangeLabel([7, 8, 9])).toBe("7–9");
+    expect(rpeRangeLabel([9, 7])).toBe("7–9");
+    // A set with no prescription doesn't widen the range down to nothing.
+    expect(rpeRangeLabel([null, 8, null])).toBe("8");
+    expect(rpeRangeLabel([null, 7, 9])).toBe("7–9");
+    expect(rpeRangeLabel([6.5, 6.5])).toBe("6.5");
+  });
+
+  it("reports one prescription only when every set agrees", () => {
+    expect(uniformRpe([8, 8, 8])).toBe(8);
+    expect(uniformRpe([8, 9])).toBeNull();
+    // Mixed with a gap is still mixed — the picker must not light up the "—"
+    // chip and claim "no prescription" about an exercise that has one.
+    expect(uniformRpe([8, null])).toBeNull();
+    expect(uniformRpe([null, null])).toBeNull();
+    expect(uniformRpe([])).toBeNull();
+  });
+
+  it("snaps external input instead of refusing the whole import", () => {
+    expect(snapRpe(7.3)).toBe(7.5);
+    expect(snapRpe(7.2)).toBe(7);
+    expect(snapRpe(8)).toBe(8);
+    // Above the scale clamps. Below it, the snap happens first: 5.9's nearest
+    // half point is 6, which is on the scale, so it lands there. Anything that
+    // still falls short after rounding becomes "no prescription" rather than
+    // being pushed up to 6, which would invent a number nobody wrote.
+    expect(snapRpe(10.4)).toBe(10);
+    expect(snapRpe(5.9)).toBe(6);
+    expect(snapRpe(5.7)).toBeNull();
+    expect(snapRpe(3)).toBeNull();
+    expect(snapRpe(null)).toBeNull();
+    expect(snapRpe(Number.NaN)).toBeNull();
+  });
+
+  it("accepts the same 1–10 band on both sides of the import", () => {
+    // `routineInputSchema` and `routineDocumentSchema` share `rpeInput`, so a
+    // file the app writes can never be a file it then refuses to read.
+    expect(rpeInput.safeParse(7.3).data).toBe(7.5);
+    expect(rpeInput.safeParse(3).data).toBeNull();
+    expect(rpeInput.safeParse(0).success).toBe(false);
+    expect(rpeInput.safeParse(11).success).toBe(false);
   });
 });

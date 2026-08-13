@@ -9,6 +9,7 @@ import { RoutineActions } from "./routine-actions";
 import { RoutineLikeButton } from "@/components/routine/routine-like-button";
 import { folderRail } from "@/lib/folder-color";
 import { cn, formatWeight, labelize } from "@/lib/utils";
+import { prescribedToken, rpeRangeLabel } from "@/lib/rpe";
 
 export default async function RoutineDetailPage(
   props: PageProps<"/routines/[id]">,
@@ -145,6 +146,14 @@ export default async function RoutineDetailPage(
                 <p className="text-text-3 mb-2 text-[12px]">
                   {labelize(e.primaryMuscle)} · {labelize(e.equipment)}
                   {e.restSeconds ? ` · rest ${e.restSeconds}s` : ""}
+                  {/* A range, not `sets[0]`: a lift ramping 7/8/9 has to say so
+                      rather than announce itself as the first set's effort. */}
+                  {rpeRangeLabel(e.sets.map((s) => s.targetRpe)) && (
+                    <span className="num">
+                      {" · RPE "}
+                      {rpeRangeLabel(e.sets.map((s) => s.targetRpe))}
+                    </span>
+                  )}
                 </p>
 
                 {e.notes && (
@@ -158,7 +167,7 @@ export default async function RoutineDetailPage(
                        stack in one line however wide the values are. */
                     <div
                       key={s.id}
-                      className="grid grid-cols-[1.25rem_minmax(0,1fr)_0.75rem_minmax(0,1fr)] items-center gap-x-3 px-3 py-2 text-[13px]"
+                      className="grid grid-cols-[1.25rem_minmax(0,1fr)_0.75rem_minmax(0,1fr)_1.75rem] items-center gap-x-3 px-3 py-2 text-[13px]"
                     >
                       <span className="num text-text-3 font-bold">
                         {s.setType === "normal"
@@ -181,6 +190,15 @@ export default async function RoutineDetailPage(
                           : s.targetSeconds != null
                             ? `${s.targetSeconds}s`
                             : "—"}
+                      </span>
+                      {/* The prescribed effort, in the same `→8` the workout
+                          screen will show on the row: what you were told reads
+                          identically before and during. Grayscale — a target is
+                          not state you produced, so it never takes the accent.
+                          A track of its own even when empty, so the reps above
+                          it stay in one column down the table. */}
+                      <span className="num text-text-3 text-right">
+                        {s.targetRpe != null ? prescribedToken(s.targetRpe) : ""}
                       </span>
                     </div>
                   ))}

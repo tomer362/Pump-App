@@ -1,9 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-
-/** RPE is logged on the half point from 6 up — below that nobody bothers. */
-export const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+import { RPE_VALUES } from "@/lib/rpe";
 
 /**
  * The effort chips, shared by every surface that writes an RPE: the workout
@@ -16,6 +14,9 @@ export const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
  * its own chips and its array was missing 6.5, so a routine could not prescribe
  * an effort that a logged set could record. Volt marks the chosen chip; that is
  * state the user set, which is what the accent is for.
+ *
+ * The scale itself lives in `lib/rpe.ts`, not here: server actions validate
+ * against it, and they can't import a client component.
  */
 export function RpePicker({
   value,

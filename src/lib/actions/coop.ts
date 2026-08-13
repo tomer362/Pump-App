@@ -262,7 +262,11 @@ async function createLinkedWorkout(
         reps: rs.targetReps,
         seconds: rs.targetSeconds,
         distanceM: rs.targetDistanceM,
-        rpe: rs.targetRpe,
+        // Two columns, two facts — same as `startWorkoutFromRoutine`, which this
+        // is the second copy of. A prescription pre-filled into `rpe` reads as a
+        // rating the lifter gave a set they haven't started.
+        rpe: null,
+        targetRpe: rs.targetRpe,
       },
     ];
   });

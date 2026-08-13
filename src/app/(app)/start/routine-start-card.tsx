@@ -9,6 +9,7 @@ import { LoadPickerSheet } from "@/components/workout/load-picker";
 import { startWorkoutFromRoutine } from "@/lib/actions/workout";
 import type { RoutineListItem } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
+import { rpeRangeLabel } from "@/lib/rpe";
 
 export function RoutineStartCard({
   routine,
@@ -22,6 +23,7 @@ export function RoutineStartCard({
   const [multiplier, setMultiplier] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const effort = rpeRangeLabel([routine.rpeMin, routine.rpeMax]);
 
   async function start(mult: number) {
     setLoading(true);
@@ -43,6 +45,10 @@ export function RoutineStartCard({
             <p className="text-text-3 num mt-0.5 text-[12px]">
               {routine.exerciseCount} exercise
               {routine.exerciseCount === 1 ? "" : "s"} · {routine.setCount} sets
+              {/* The effort this routine asks for, before you commit to it —
+                  the one number on this card that says how hard the session
+                  will be rather than how long. */}
+              {effort && ` · @${effort}`}
             </p>
             {routine.preview.length > 0 && (
               <p className="text-text-3 mt-1.5 truncate text-[13px]">
