@@ -13,6 +13,7 @@ import {
   notifyAskedWithin,
 } from "@/lib/notify-client";
 import { workoutAlertsSupported } from "@/lib/workout-activity";
+import { claimNudgeSlot } from "@/lib/nudge-slot";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Long enough for the page under it to have painted and settled. */
@@ -50,6 +51,12 @@ export function NotifyNudge({ vapidPublicKey }: { vapidPublicKey: string }) {
       if (isIOS() && !isStandalone()) return;
       if (Notification.permission !== "default") return;
       if (notifyAskedWithin(WEEK_MS)) return;
+      // One unprompted modal per visit — the install sheet is eligible at the
+      // same moment on an uninstalled Chromium browser, and two stacked bottom
+      // sheets are unreadable. Checked before `setOpen`, so losing the claim
+      // doesn't stamp the weekly clock below: this never asked, and should ask
+      // on the next visit rather than going quiet for a week.
+      if (!claimNudgeSlot()) return;
       setOpen(true);
     }, DELAY_MS);
     return () => window.clearTimeout(id);

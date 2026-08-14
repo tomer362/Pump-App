@@ -270,6 +270,58 @@ or a force-quit with it on screen reopens it on the next load; `RestAlertPrompt`
 stamps the same key, since the two ask the identical question and answering one
 mid-set must not earn a modal on the feed a minute later.
 
+**The app also offers to install itself — and the button performs the install,
+it doesn't describe it.** Installing is the gateway on a phone: on iOS the Push
+API, the lock-screen rest alert and the icon badge exist *only* in a
+home-screen PWA, and `NotifyNudge` correctly says nothing on an uninstalled
+iPhone — so that lifter was offered neither, and nothing in the app had ever
+mentioned installing. `InstallNudge` mirrors the doctrine above (a `Sheet` in
+the `(app)` shell, 1.2 s after mount, `pump.install-nudge` stamped on open),
+with two additions the notification nudge doesn't need: **"Ask me later"** and
+a quieter **"Don't ask again"**, which writes `"never"` into the same key —
+one key, because a timestamp means "not now" and `"never"` is a timestamp that
+never expires. `markInstallAsked` refuses to overwrite `"never"`, or a later
+visit would silently restart a cycle somebody opted out of.
+
+- **The event is captured by an inline script in `<head>`, not an effect.**
+  Chromium fires `beforeinstallprompt` once, early, and never replays it, so a
+  listener registered after hydration misses it on every cold load and the
+  feature would appear to work only after a soft navigation. The script
+  `preventDefault()`s it (which is what keeps Chrome's own mini-infobar down),
+  stashes it, and dispatches `pump:installable`; `lib/install-client.ts` is the
+  only reader. `prompt()` spends the event, so it is dropped afterwards
+  whatever the answer — a second call would throw.
+- **The sheet never opens without an install to perform.** No deferred event and
+  not iOS Safari means silence, because the alternative is a button that does
+  nothing. iOS Safari gets the Share → Add to Home Screen steps instead of a
+  button, since WebKit exposes no install API at any privilege level; iOS
+  Chrome and Firefox get nothing at all, as their share sheet has no Add to
+  Home Screen either.
+- **One unprompted modal per visit** (`lib/nudge-slot.ts`). On an uninstalled
+  Chromium browser with the permission still `default`, both nudges are
+  eligible in the same instant and two stacked bottom sheets are unreadable.
+  The latch is module state, not storage, so the loser asks next visit rather
+  than going quiet for a week — which is also why the claim is checked *before*
+  `setOpen`, ahead of the stamp-on-open. Install wins by being mounted first.
+- **`InstallSettings` on `/notifications` is what makes "Don't ask again"
+  safe.** A prompt that can be dismissed forever must not be the only route to
+  the feature — the same failure the workout alerts hit when their opt-in lived
+  in a card that hid itself. It sits above the two permission cards because on
+  iPhone it is their precondition. Installing from it leaves *this* tab an
+  ordinary tab, so `isStandalone()` cannot confirm it; the `appinstalled` event
+  is the only signal.
+
+**The consistency heatmap opens on this week, not on last February.** Half a
+year of columns is wider than a phone, the newest week is the right-hand edge,
+and `scrollbar-none` leaves nothing on screen to say the grid scrolls — so at
+the browser's default `scrollLeft: 0` the one part anybody opens `/stats` for
+was the part off the edge. A `useLayoutEffect` pins the scroller to
+`scrollWidth`, keyed on `today` rather than `[]` because the grid doesn't exist
+until the store supplies a client-side date, and layout rather than passive so
+the jump lands before paint. Over-assigning is clamped, so a card wide enough
+to fit the whole grid is a no-op — and never `scrollIntoView`, which would
+scroll the document's one root scroller and move the page itself.
+
 **The opt-in sequence lives once, in `lib/notify-client.ts`.** `enableNotifications`
 is permission → register `/sw.js` → `serviceWorker.ready` → un-mute → *then*, only
 when a VAPID key is passed, `subscribeToPush`. Push is last and non-fatal by

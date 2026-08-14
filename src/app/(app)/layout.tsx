@@ -4,6 +4,7 @@ import { ActiveWorkoutPill } from "@/components/workout/active-workout-pill";
 import { ClearStaleWorkoutActivity } from "@/components/workout/clear-stale-workout-activity";
 import { RouteProgress } from "@/components/ui/route-progress";
 import { NotifyNudge } from "@/components/notifications/notify-nudge";
+import { InstallNudge } from "@/components/install/install-nudge";
 import { requireUser } from "@/lib/session";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { getUnreadNotificationCount } from "@/lib/actions/notify";
@@ -30,6 +31,12 @@ export default async function AppLayout({
           after mount — so it never blocks or shifts the page under it. Mounted
           here rather than in the root layout because the active workout screen
           sits outside this group and does its own, better-timed asking. */}
+      {/* Mounted before the notification nudge deliberately: both open
+          themselves off a timer, both claim the same one-modal-per-visit slot,
+          and effects run in tree order — so installing wins the tie. That is
+          the right precedence, because on iOS being installed is what makes
+          the notifications the other sheet asks about possible at all. */}
+      <InstallNudge />
       <NotifyNudge vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
       <div className="mx-auto w-full max-w-lg flex-1">{children}</div>
       <TabBarSpacer />
