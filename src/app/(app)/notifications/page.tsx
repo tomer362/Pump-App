@@ -3,6 +3,7 @@ import { SectionTitle } from "@/components/ui/primitives";
 import { NotificationList } from "@/components/notifications/notification-list";
 import { PushSettings } from "@/components/notifications/push-settings";
 import { WorkoutAlertSettings } from "@/components/notifications/workout-alert-settings";
+import { InstallSettings } from "@/components/install/install-settings";
 import { requireUser } from "@/lib/session";
 import { isPushConfigured } from "@/lib/actions/push";
 import { getNotifications } from "@/lib/actions/notify";
@@ -23,7 +24,16 @@ export default async function NotificationsPage() {
             drops subscriptions, so this has to stand on its own. */}
         <NotificationList items={items} />
 
-        {/* First, and not gated on `configured`: these are posted locally by
+        {/* Above the two permission cards because on iPhone it is their
+            precondition — neither push nor a lock-screen rest alert exists
+            until Pump is on the Home Screen. It's also the permanent route in
+            for anyone who told the install prompt not to ask again. */}
+        <div>
+          <SectionTitle>The app</SectionTitle>
+          <InstallSettings />
+        </div>
+
+        {/* Then, and not gated on `configured`: these are posted locally by
             the service worker, so they need permission and nothing else. */}
         <div>
           <SectionTitle>While you train</SectionTitle>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { TrainingDay } from "@/lib/queries/stats";
 import { cn, formatDayLabel } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  */
 export function ConsistencyHeatmap({ days }: { days: TrainingDay[] }) {
   const [active, setActive] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   // The grid is anchored on "today", which the server and the client resolve
   // at different instants — and a text mismatch makes React discard the
   // subtree. Reading it through a store with a null server snapshot renders
@@ -83,12 +84,30 @@ export function ConsistencyHeatmap({ days }: { days: TrainingDay[] }) {
     ? columns.flatMap((c) => c.cells).find((c) => c.day === active)
     : null;
 
+  // Half a year is wider than a phone, and the newest week is the right-hand
+  // edge — so at the browser's default `scrollLeft: 0` the screen opened on
+  // February and this month was off-screen, with `scrollbar-none` leaving
+  // nothing on screen to say the grid scrolled at all.
+  //
+  // Keyed on `today` rather than `[]`: the grid doesn't exist on the first
+  // commit (the placeholder below renders until the store supplies a
+  // client-side date), so an on-mount effect would find no element. Layout
+  // rather than passive, so the jump lands before paint instead of showing
+  // February for a frame. Over-assigning is clamped to the maximum offset, so
+  // on a card wide enough to fit the whole grid this is a no-op — and never
+  // `scrollIntoView`, which would also scroll the one root scroller the
+  // document has and drag the page itself.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [today]);
+
   // Same height as the grid below, so nothing jumps when it fills in.
   if (!today) return <div aria-hidden className="h-[116px]" />;
 
   return (
     <div>
-      <div className="scrollbar-none -mx-1 overflow-x-auto px-1">
+      <div ref={scroller} className="scrollbar-none -mx-1 overflow-x-auto px-1">
         <div className="min-w-max">
           <div className="text-text-3 relative mb-1 h-3 text-[10px]">
             {monthLabels.map((m) => (

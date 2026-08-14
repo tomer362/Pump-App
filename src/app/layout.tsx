@@ -49,6 +49,29 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${archivo.variable} antialiased`}>
+      <head>
+        {/* Chromium fires `beforeinstallprompt` once, early, and never replays
+            it — so a listener registered from a component effect misses it on
+            every cold load and the install button would work only after a soft
+            navigation. This runs before hydration, stashes the event for
+            `lib/install-client.ts`, and `preventDefault()`s it so Chrome's own
+            mini-infobar stays down and ours is the only prompt. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+              addEventListener('beforeinstallprompt',function(e){
+                e.preventDefault();
+                window.__pumpInstallPrompt=e;
+                dispatchEvent(new Event('pump:installable'));
+              });
+              addEventListener('appinstalled',function(){
+                window.__pumpInstallPrompt=null;
+                dispatchEvent(new Event('pump:installable'));
+              });
+            })();`,
+          }}
+        />
+      </head>
       {/* The document itself never scrolls: it is exactly one viewport tall and
           clipped. Content scrolls in the container below, whose rubber-band is
           contained, so an over-scroll can't drag the fixed tab bar out of
