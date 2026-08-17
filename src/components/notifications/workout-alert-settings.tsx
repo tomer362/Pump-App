@@ -15,7 +15,9 @@ import {
 import {
   playRestChime,
   primeRestAudio,
+  restSoundHoldsSession,
   restSoundMuted,
+  setRestSoundHoldsSession,
   setRestSoundMuted,
 } from "@/lib/rest-audio";
 import { enableNotifications, isIOS, isStandalone } from "@/lib/notify-client";
@@ -192,9 +194,10 @@ export function WorkoutAlertSettings() {
         <p className="text-text-2 text-[13px] leading-relaxed">
           Both the chime and the alert are set up the moment your rest starts,
           which is the only point they can be — nothing of Pump&apos;s is running
-          once your phone is in your pocket. The chime is the more reliable of
-          the two, and neither is depended on: the bar in the app is always the
-          real timer.
+          once your phone is in your pocket. With the phone away it&apos;s the
+          alert that reaches you, unless you let the chime hold the audio. Either
+          way neither is depended on: the bar in the app is always the real
+          timer.
         </p>
       </Card>
     </div>
@@ -212,12 +215,16 @@ export function WorkoutAlertSettings() {
  */
 function RestSoundCard() {
   const [off, setOff] = useState(false);
+  const [holds, setHolds] = useState(false);
 
   // localStorage doesn't exist on the server, so this can't be a `useState`
   // initialiser without the first client render disagreeing with the HTML. Same
   // deferred read as `RestAlertPrompt`.
   useEffect(() => {
-    const id = requestAnimationFrame(() => setOff(restSoundMuted()));
+    const id = requestAnimationFrame(() => {
+      setOff(restSoundMuted());
+      setHolds(restSoundHoldsSession());
+    });
     return () => cancelAnimationFrame(id);
   }, []);
 
@@ -235,8 +242,9 @@ function RestSoundCard() {
             Rest chime {off ? "off" : "on"}
           </p>
           <p className="text-text-3 text-[13px] leading-snug">
-            Two tones when your rest is up, including while your phone is locked.
-            Silent mode and your volume still apply.
+            {holds
+              ? "Two tones when your rest is up, including while your phone is locked. Your volume still applies; silent mode doesn't."
+              : "Two tones over whatever you're listening to — nothing of Pump's pauses your music. Silent mode and your volume still apply."}
           </p>
         </div>
       </div>
@@ -258,12 +266,41 @@ function RestSoundCard() {
           {off ? "Turn the chime on" : "Turn off"}
         </Button>
         {!off && (
-          <Button block variant="ghost" onClick={() => void playRestChime()}>
-            <Volume2 className="size-4" />
-            Play it
-          </Button>
+          <>
+            <Button block variant="ghost" onClick={() => void playRestChime()}>
+              <Volume2 className="size-4" />
+              Play it
+            </Button>
+            {/* The trade this switch makes is the whole of it, so the button
+                says what it costs rather than naming a setting. Holding the
+                audio session for the length of the rest is the only way the
+                chime survives a locked screen — and it is also what stops
+                Spotify, which is why it is off unless somebody asks for it. */}
+            <Button
+              block
+              variant="ghost"
+              onClick={() => {
+                const next = !holds;
+                // Inside the tap, which is what lets the keep-alive start
+                // playing straight away if a rest is running.
+                setRestSoundHoldsSession(next);
+                setHolds(next);
+                primeRestAudio();
+              }}
+            >
+              {holds
+                ? "Stop pausing my music (chime only while Pump is open)"
+                : "Chime while my phone is locked (pauses my music)"}
+            </Button>
+          </>
         )}
       </div>
+      {!off && !holds && (
+        <p className="text-text-3 mt-3 text-[13px] leading-relaxed">
+          While your phone is away, the rest alert is a notification rather than
+          the chime — turn on workout alerts above for that.
+        </p>
+      )}
     </Card>
   );
 }
