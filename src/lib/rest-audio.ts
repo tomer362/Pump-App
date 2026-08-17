@@ -14,9 +14,25 @@
  * fires at its sample regardless of how the page's JavaScript timers are being
  * throttled. So the moment a rest starts — while the app is still in the
  * foreground and can still be trusted to run — the chime is scheduled for the
- * exact instant the rest ends, and an inaudible loop holds the session open in
- * between. Both are torn down the moment the rest is over or cancelled: nothing
- * here runs between sets.
+ * exact instant the rest ends. Both are torn down the moment the rest is over or
+ * cancelled: nothing here runs between sets.
+ *
+ * **But holding that session costs you your music.** An audio session is not
+ * shared by default: an inaudible keep-alive loop is, to the OS, this page
+ * playing media, so iOS interrupts Spotify for it and Android hands Pump the
+ * audio focus — for the whole rest, every rest. Lifting to music is not a fringe
+ * case, it is most of the gym, and a chime is worth nothing bought at that
+ * price. So the default is now to **mix**: `audioSession.type = "ambient"` (the
+ * one WebKit category that plays alongside another app rather than over it), no
+ * keep-alive loop, and no media-session claim, so nothing about a rest touches
+ * what is already playing.
+ *
+ * The cost of mixing is the locked phone: an ambient session is suspended when
+ * the page is backgrounded, so the chime is only certain while Pump is on
+ * screen. That is what `holdsAudioSession()` — off unless the lifter turns it on
+ * in settings — buys back, and the settings copy names the trade in both
+ * directions. The service-worker banner and the vibration are the background
+ * channel either way.
  *
  * It is still an enhancement, not a dependency. iOS can interrupt an audio
  * session (a phone call, another app taking playback), and Safari will not
@@ -32,6 +48,13 @@ const SILENCE_URL = "/sounds/silence.wav";
 const MAX_ARM_MS = 30 * 60 * 1000;
 
 const PREF_KEY = "pump.rest-sound";
+/**
+ * Opt-in to holding the audio session for the length of the rest, which is what
+ * makes the chime survive a locked screen — and what stops whatever else the
+ * phone is playing. Absent means mix, because the default has to be the one
+ * that cannot take something away from you.
+ */
+const HOLD_KEY = "pump.rest-sound-hold";
 
 export function restSoundMuted() {
   try {
@@ -50,6 +73,37 @@ export function setRestSoundMuted(muted: boolean) {
   }
 }
 
+/** Whether this lifter chose the locked-screen chime over their music. */
+export function restSoundHoldsSession() {
+  try {
+    return window.localStorage.getItem(HOLD_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function setRestSoundHoldsSession(hold: boolean) {
+  try {
+    if (hold) window.localStorage.setItem(HOLD_KEY, "on");
+    else window.localStorage.removeItem(HOLD_KEY);
+  } catch {
+    /* Same: fall back to mixing, the option that costs nothing. */
+  }
+  // A rest may be running right now, and the whole point of the switch is that
+  // it takes effect on the music immediately rather than next session.
+  if (typeof window === "undefined") return;
+  if (hold) {
+    applyAudioSessionType();
+    if (armed) {
+      ensureKeepAlive();
+      startKeepAlive();
+    }
+  } else {
+    stopKeepAlive();
+    applyAudioSessionType();
+  }
+}
+
 let ctx: AudioContext | null = null;
 let chime: AudioBuffer | null = null;
 let keepAlive: HTMLAudioElement | null = null;
@@ -63,6 +117,33 @@ let armed: { endsAt: number; node: AudioBufferSourceNode; fallback: number } | n
 let pendingArm: number | null = null;
 /** The `endsAt` that has already sounded, so nothing chimes twice for one rest. */
 let played: number | null = null;
+
+/**
+ * Declare what kind of audio this page is making, which is the whole of the
+ * difference between the two modes on iOS.
+ *
+ * Left at its `"auto"` default, WebKit reads a looping element as media
+ * playback and hands us the session outright — the other app stops. `"ambient"`
+ * is the one category that mixes, at the price of obeying the ring/silent
+ * switch and of being suspended when the page goes to the background.
+ * `"playback"` is what the opt-in wants, and is what `"auto"` was resolving to
+ * anyway; setting it explicitly means neither mode depends on a guess.
+ *
+ * Safari 16.4+ only, and nothing else implements it — but nothing else needs
+ * it: on Android the audio focus follows from whether anything is *playing*,
+ * which in mix mode is nothing until the chime itself.
+ */
+function applyAudioSessionType() {
+  try {
+    const session = (
+      navigator as Navigator & { audioSession?: { type: string } }
+    ).audioSession;
+    if (!session) return;
+    session.type = restSoundHoldsSession() ? "playback" : "ambient";
+  } catch {
+    /* Unknown category, or a browser that exposes a read-only stub. */
+  }
+}
 
 function audioContext() {
   if (ctx) return ctx;
@@ -83,6 +164,8 @@ function audioContext() {
  */
 export function primeRestAudio() {
   if (typeof window === "undefined" || restSoundMuted()) return;
+  // Before the context exists: the category is read when the session activates.
+  applyAudioSessionType();
   const audio = audioContext();
   if (!audio) return;
   if (audio.state === "suspended") void audio.resume().catch(() => {});
@@ -104,15 +187,22 @@ export function primeRestAudio() {
       });
   }
 
-  if (!keepAlive) {
-    const el = new Audio(SILENCE_URL);
-    el.loop = true;
-    el.preload = "auto";
-    // Not in the audio element's type — it is declared on video — but Safari
-    // honours it on both, and without it iOS can take over the screen.
-    (el as HTMLMediaElement & { playsInline?: boolean }).playsInline = true;
-    keepAlive = el;
-  }
+  // Only for the lifter who asked for the locked-screen chime. The element is
+  // not merely left paused otherwise — it is never constructed, so there is
+  // nothing here that could take the audio focus from whatever they are
+  // listening to.
+  if (restSoundHoldsSession()) ensureKeepAlive();
+}
+
+function ensureKeepAlive() {
+  if (keepAlive) return;
+  const el = new Audio(SILENCE_URL);
+  el.loop = true;
+  el.preload = "auto";
+  // Not in the audio element's type — it is declared on video — but Safari
+  // honours it on both, and without it iOS can take over the screen.
+  (el as HTMLMediaElement & { playsInline?: boolean }).playsInline = true;
+  keepAlive = el;
 }
 
 function startKeepAlive() {
@@ -121,6 +211,8 @@ function startKeepAlive() {
   try {
     // Android surfaces a playing session in the notification shade; give it
     // something honest to say rather than the page title and a blank slot.
+    // Only in this mode: claiming it in mix mode would put Pump on the lock
+    // screen in place of the music app's own transport controls.
     navigator.mediaSession.metadata = new MediaMetadata({
       title: "Rest timer",
       artist: "Pump",
@@ -132,10 +224,12 @@ function startKeepAlive() {
 }
 
 function stopKeepAlive() {
-  if (keepAlive) {
-    keepAlive.pause();
-    keepAlive.currentTime = 0;
-  }
+  // No element means this mode was never entered, and there is no session of
+  // ours to release — say nothing rather than reset a media session we never
+  // claimed.
+  if (!keepAlive) return;
+  keepAlive.pause();
+  keepAlive.currentTime = 0;
   try {
     navigator.mediaSession.playbackState = "none";
   } catch {
@@ -162,7 +256,11 @@ export function armRestChime(endsAt: number) {
     return;
   }
 
+  applyAudioSessionType();
   if (audio.state === "suspended") void audio.resume().catch(() => {});
+  // A no-op in mix mode, where no element was ever built. The scheduled node
+  // below is then the only thing this module puts on the audio hardware, and it
+  // is half a second long at the end of the rest rather than the whole of it.
   startKeepAlive();
 
   const node = audio.createBufferSource();
@@ -225,6 +323,7 @@ export async function playRestChime(endsAt?: number) {
   }
 
   try {
+    applyAudioSessionType();
     const audio = audioContext();
     if (!audio) return;
     if (audio.state === "suspended") await audio.resume();
