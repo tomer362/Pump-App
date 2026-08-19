@@ -64,7 +64,7 @@ export function RestAlertPrompt() {
     <div className="bg-surface-1 hairline-b flex items-center gap-2 py-1.5 pr-1 pl-4">
       <Bell className="text-text-3 size-3.5 shrink-0" strokeWidth={2.2} />
       <span className="text-text-2 min-w-0 flex-1 text-[12px] leading-snug">
-        Get an alert when your rest is up, even with the phone locked.
+        Get an alert when your rest is up, without watching the screen.
       </span>
       <button
         onClick={async () => {

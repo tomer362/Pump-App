@@ -91,6 +91,21 @@ export function notifyAskedWithin(ms: number) {
   }
 }
 
+/**
+ * Fired once the permission is granted and a worker exists to post through.
+ *
+ * The same shape as `pump:installable` in `install-client.ts`, and for the same
+ * reason: the thing that needs to react — a rest already counting down on the
+ * workout screen — is nowhere near the button that was tapped, and its own
+ * inputs (the rest's `endsAt`) haven't changed, so nothing else would tell it.
+ */
+export const ALERTS_ENABLED_EVENT = "pump:notifications-enabled";
+
+export function announceAlertsEnabled() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ALERTS_ENABLED_EVENT));
+}
+
 export type EnableResult =
   /** Permission granted and a worker is registered. `pushed` is web push. */
   | { ok: true; pushed: boolean }
@@ -124,6 +139,9 @@ export async function enableNotifications(
       (await navigator.serviceWorker.register("/sw.js"));
     await navigator.serviceWorker.ready;
     setWorkoutAlertsMuted(false);
+    // From here the local alerts are live, so anything mid-flight that was
+    // refused an arm while the permission was still `default` can have one.
+    announceAlertsEnabled();
 
     if (!vapidPublicKey || !("PushManager" in window)) {
       return { ok: true, pushed: false };
