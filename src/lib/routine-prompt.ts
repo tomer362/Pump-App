@@ -176,6 +176,8 @@ Rules
     time           targetSeconds
     distance_time  targetDistanceM + targetSeconds
     weight_time    targetWeightKg + targetSeconds
+    assist_reps    targetWeightKg + targetReps
+- "assist_reps" is for machines that cancel part of your bodyweight (assisted pull-up and dip stations). Its "targetWeightKg" is the assistance the machine gives, so less is harder — Pump records it but never counts it as volume or turns it into a 1RM. Use "weight_reps" for anything you add load to.
 - "setType": "warmup" for warm-up sets (Pump excludes them from volume and records), "normal" for working sets, "drop" and "failure" where they apply.
 - "supersetGroup": exercises sharing a letter ("A", "B", …) are performed back to back as a superset; keep them next to each other in the list and give everything else null.
 - "restSeconds" is 0–1800 or null. "targetRpe" is a half point from 6 to 10 (6, 6.5, … 10) or null — Pump snaps anything else to the nearest half point and drops anything under 6.

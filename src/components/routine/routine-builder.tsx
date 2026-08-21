@@ -72,12 +72,14 @@ const nextKey = () => `k${++keySeq}`;
 
 /** Column key → the `DraftSet` field it edits. Weight is handled separately
     because it needs unit conversion on the way in and out. */
+// `assist` is a weight column pointing the other way, so it shares
+// `targetWeightKg` with `weight` and is handled alongside it below.
 const TARGET_FIELD = {
   reps: "targetReps",
   seconds: "targetSeconds",
   distance: "targetDistanceM",
 } as const satisfies Record<
-  Exclude<SetColumn, "weight">,
+  Exclude<SetColumn, "weight" | "assist">,
   keyof DraftSet
 >;
 
@@ -666,7 +668,7 @@ function ExerciseCard({
             </button>
 
             {columns.map((column) =>
-              column === "weight" ? (
+              column === "weight" || column === "assist" ? (
                 <TargetInput
                   key={column}
                   value={

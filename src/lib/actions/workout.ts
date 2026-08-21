@@ -24,6 +24,7 @@ import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { estimate1RM } from "@/lib/utils";
 import { rpeValue } from "@/lib/rpe";
+import { isAssistedTracking, scoringLoadKg } from "@/lib/tracking";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
 
@@ -651,6 +652,7 @@ export async function updateSet(
       set: workoutSet,
       workoutId: workout.id,
       exerciseId: workoutExercise.exerciseId,
+      trackingType: exercise.trackingType,
     })
     .from(workoutSet)
     .innerJoin(
@@ -658,6 +660,7 @@ export async function updateSet(
       eq(workoutExercise.id, workoutSet.workoutExerciseId),
     )
     .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(and(eq(workoutSet.id, setId), eq(workout.userId, me.id)))
     .limit(1);
   if (!row) return { ok: false, error: "Set not found" };
@@ -673,8 +676,14 @@ export async function updateSet(
         ? (row.set.completedAt ?? new Date())
         : null;
 
+  // An assisted machine's weight column is the counterweight, so there is no
+  // 1RM to estimate from it — and a stored estimate would be a maximum over
+  // "how much help did you need". Null keeps it out of the record rebuild too,
+  // which reads this column.
   const est =
-    weightKg != null && reps != null ? estimate1RM(weightKg, reps) : null;
+    weightKg != null && reps != null && !isAssistedTracking(row.trackingType)
+      ? estimate1RM(weightKg, reps)
+      : null;
 
   await db
     .update(workoutSet)
@@ -755,13 +764,19 @@ export async function updateSets(
   // Same ownership join as `updateSet`. Ids belonging to anyone else simply
   // don't come back, so they're never written.
   const rows = await db
-    .select({ id: workoutSet.id, weightKg: workoutSet.weightKg, reps: workoutSet.reps })
+    .select({
+      id: workoutSet.id,
+      weightKg: workoutSet.weightKg,
+      reps: workoutSet.reps,
+      trackingType: exercise.trackingType,
+    })
     .from(workoutSet)
     .innerJoin(
       workoutExercise,
       eq(workoutExercise.id, workoutSet.workoutExerciseId),
     )
     .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(and(inArray(workoutSet.id, ids.data), eq(workout.userId, me.id)));
   if (!rows.length) return { ok: true, data: { updated: 0 } };
 
@@ -782,7 +797,11 @@ export async function updateSets(
   for (const r of rows) {
     const weightKg = p.weightKg !== undefined ? p.weightKg : r.weightKg;
     const reps = p.reps !== undefined ? p.reps : r.reps;
-    const est = weightKg != null && reps != null ? estimate1RM(weightKg, reps) : null;
+    // Same rule as `updateSet`: assistance is not a load, so it has no 1RM.
+    const est =
+      weightKg != null && reps != null && !isAssistedTracking(r.trackingType)
+        ? estimate1RM(weightKg, reps)
+        : null;
     byEstimate.set(est, [...(byEstimate.get(est) ?? []), r.id]);
   }
 
@@ -911,6 +930,7 @@ export async function finishWorkout(
       id: workoutExercise.id,
       exerciseId: workoutExercise.exerciseId,
       name: exercise.name,
+      trackingType: exercise.trackingType,
     })
     .from(workoutExercise)
     .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
@@ -954,9 +974,14 @@ export async function finishWorkout(
   // Warm-ups are excluded from volume — counting them inflates every stat.
   // `sumSetTotals` owns that rule; quick-log writes the same counters.
   const scoring = completed.filter((s) => s.setType !== "warmup");
-  const { totalVolumeKg, totalReps } = sumSetTotals(completed);
-
   const byWe = new Map(wes.map((r) => [r.id, r]));
+  // The exercise's tracking type is what decides whether a set's weight column
+  // is load or assistance, and a set only knows its `workout_exercise`.
+  const trackingOf = (workoutExerciseId: string) =>
+    byWe.get(workoutExerciseId)?.trackingType ?? "weight_reps";
+  const { totalVolumeKg, totalReps } = sumSetTotals(
+    completed.map((s) => ({ ...s, trackingType: trackingOf(s.workoutExerciseId) })),
+  );
   const prs: FinishSummary["prs"] = [];
   const photoUrl =
     opts.photoUrl && isBlobUrl(opts.photoUrl) ? opts.photoUrl : null;
@@ -978,8 +1003,9 @@ export async function finishWorkout(
         .update(workoutSet)
         .set({
           completedAt: endedAt,
-          estimated1rm:
-            s.estimated1rm ?? estimate1RM(s.weightKg ?? 0, s.reps ?? 0),
+          estimated1rm: isAssistedTracking(trackingOf(s.workoutExerciseId))
+            ? null
+            : (s.estimated1rm ?? estimate1RM(s.weightKg ?? 0, s.reps ?? 0)),
         })
         .where(eq(workoutSet.id, s.id));
     }
@@ -1000,17 +1026,27 @@ export async function finishWorkout(
           { value: number; setId: string; weightKg: number | null; reps: number | null } | null
         >);
 
-      const e1 = s.estimated1rm ?? estimate1RM(s.weightKg ?? 0, s.reps ?? 0);
-      const vol = (s.weightKg ?? 0) * (s.reps ?? 0);
+      // Assistance is not load, so it scores zero and the three weight-derived
+      // kinds fall out on `consider`'s own `<= 0` guard — without which the
+      // heaviest counterweight would be crowned as this exercise's best set.
+      // Reps still count: more reps at the same assistance is a real result,
+      // and it is the only record kind an assisted machine can set. Mirrors the
+      // `CASE` in `recalculatePersonalRecords`, which rebuilds these rows.
+      const load = scoringLoadKg(trackingOf(s.workoutExerciseId), s.weightKg);
+      const e1 = load > 0 ? (s.estimated1rm ?? estimate1RM(load, s.reps ?? 0)) : 0;
+      const vol = load * (s.reps ?? 0);
 
       const consider = (kind: PrKind, value: number) => {
         if (value <= 0) return;
         if (!cur[kind] || value > cur[kind]!.value) {
-          cur[kind] = { value, setId: s.id, weightKg: s.weightKg, reps: s.reps };
+          // `weight_kg` on a record row is rendered as the load that set it, so
+          // an assisted set contributes none — same as the rebuild's `CASE`.
+          const weightKg = load > 0 ? s.weightKg : null;
+          cur[kind] = { value, setId: s.id, weightKg, reps: s.reps };
         }
       };
       consider("1rm", e1);
-      consider("weight", s.weightKg ?? 0);
+      consider("weight", load);
       consider("volume", vol);
       consider("reps", s.reps ?? 0);
 

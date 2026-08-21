@@ -133,6 +133,16 @@ export type Equipment = (typeof EQUIPMENT)[number];
  * How a set is measured. `reps` covers ordinary lifting; `time` drives the
  * interval/TTS mode; the rest exist so cardio and loaded carries aren't
  * shoehorned into weight×reps.
+ *
+ * `assist_reps` is weight×reps with the sign of progress reversed: the machine
+ * cancels part of your bodyweight, so `weight_kg` is *help received*, not load
+ * lifted, and 40 kg of assistance is a worse set than 20. It gets its own type
+ * rather than reusing `weight_reps` because every scoring path in the app
+ * multiplies `weight_kg` by reps and takes the maximum — under `weight_reps` an
+ * assisted machine would award its biggest volume figure and its best estimated
+ * 1RM to the day you were weakest. `lib/tracking.ts` owns that rule; the column
+ * is still recorded and shown, because the assistance coming down *is* the
+ * progress and reps alone can't express it.
  */
 export const TRACKING_TYPES = [
   "weight_reps",
@@ -140,6 +150,7 @@ export const TRACKING_TYPES = [
   "time",
   "distance_time",
   "weight_time",
+  "assist_reps",
 ] as const;
 export type TrackingType = (typeof TRACKING_TYPES)[number];
 

@@ -16,6 +16,7 @@ import {
   labelize,
 } from "@/lib/utils";
 import { prescribedToken, ratedWord } from "@/lib/rpe";
+import { isAssistedTracking, scoringLoadKg } from "@/lib/tracking";
 
 export default async function WorkoutDetailPage(
   props: PageProps<"/history/[id]">,
@@ -100,9 +101,16 @@ export default async function WorkoutDetailPage(
             // unfinished. They're shown, but they count for nothing.
             const performed = e.sets.filter((s) => s.completedAt != null);
             const skipped = e.sets.length - performed.length;
+            // An assisted machine's weight column is the counterweight the
+            // machine gave, so it is not tonnage — `scoringLoadKg` is the same
+            // rule `finishWorkout` used to write this workout's own total.
+            const assisted = isAssistedTracking(e.trackingType);
             const volume = performed
               .filter((s) => s.setType !== "warmup")
-              .reduce((n, s) => n + (s.weightKg ?? 0) * (s.reps ?? 0), 0);
+              .reduce(
+                (n, s) => n + scoringLoadKg(e.trackingType, s.weightKg) * (s.reps ?? 0),
+                0,
+              );
             // Warm-ups don't consume a set number, matching how lifters count.
             let workingIndex = 0;
             return (
@@ -129,8 +137,9 @@ export default async function WorkoutDetailPage(
 
                 <p className="text-text-3 mb-2 text-[12px]">
                   {labelize(e.primaryMuscle)} · {performed.length} set
-                  {performed.length === 1 ? "" : "s"} ·{" "}
-                  {formatVolume(volume, me.unit)} {me.unit}
+                  {performed.length === 1 ? "" : "s"}
+                  {/* No tonnage line on an assisted machine: it would read 0. */}
+                  {!assisted && ` · ${formatVolume(volume, me.unit)} ${me.unit}`}
                   {skipped > 0 && ` · ${skipped} skipped`}
                 </p>
 
@@ -146,7 +155,7 @@ export default async function WorkoutDetailPage(
                     // plank has no weight, a barbell row has no distance.
                     const parts = [
                       s.weightKg != null &&
-                        `${formatWeight(s.weightKg, me.unit)} ${me.unit}`,
+                        `${assisted ? "−" : ""}${formatWeight(s.weightKg, me.unit)} ${me.unit}`,
                       s.reps != null && `${s.reps} reps`,
                       s.distanceM != null && `${s.distanceM} m`,
                       s.seconds != null && `${s.seconds}s`,

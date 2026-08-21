@@ -15,6 +15,18 @@ const METRICS: { value: Metric; label: string; weighted: boolean }[] = [
   { value: "reps", label: "Reps", weighted: false },
 ];
 
+/**
+ * An assisted machine has two of these and neither means what the pill above
+ * says: `weight` is the session's *lowest* counterweight (the query flips the
+ * aggregate), and the other two would be an estimated 1RM for being weak and a
+ * tonnage total of help received. Offering three pills where two are nonsense
+ * is how the number gets misread, so they are not offered.
+ */
+const ASSISTED_METRICS: typeof METRICS = [
+  { value: "weight", label: "Assist", weighted: true },
+  { value: "reps", label: "Reps", weighted: false },
+];
+
 function valueOf(p: ExerciseSessionPoint, metric: Metric): number {
   switch (metric) {
     case "est1rm":
@@ -41,16 +53,20 @@ function valueOf(p: ExerciseSessionPoint, metric: Metric): number {
 export function ExerciseProgressChart({
   data,
   unit,
+  assisted = false,
 }: {
   data: ExerciseSessionPoint[];
   unit: "kg" | "lb";
+  /** Weight is the machine's counterweight, not load. See ASSISTED_METRICS. */
+  assisted?: boolean;
 }) {
-  const [metric, setMetric] = useState<Metric>("est1rm");
+  const metrics = assisted ? ASSISTED_METRICS : METRICS;
+  const [metric, setMetric] = useState<Metric>(assisted ? "weight" : "est1rm");
   const [range, setRange] = useState<ChartRangeKey>("1y");
   const [asTable, setAsTable] = useState(false);
   const [active, setActive] = useState<number | null>(null);
 
-  const meta = METRICS.find((m) => m.value === metric)!;
+  const meta = metrics.find((m) => m.value === metric)!;
   const days = CHART_RANGES.find((r) => r.key === range)!.days;
 
   // The series arrives oldest-first, which is also how a time axis reads.
@@ -60,13 +76,18 @@ export function ExerciseProgressChart({
     [points, metric],
   );
 
+  // The minus travels with every printed figure, on the axis and in the table
+  // as well as the tooltip: a line trending down is only good news if the
+  // reader can see the number is help received.
   const format = (v: number) =>
-    meta.weighted ? `${formatWeight(v, unit)} ${unit}` : `${Math.round(v)}`;
+    meta.weighted
+      ? `${assisted ? "−" : ""}${formatWeight(v, unit)} ${unit}`
+      : `${Math.round(v)}`;
 
   const controls = (
     <>
       <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <Pill
             key={m.value}
             label={m.label}

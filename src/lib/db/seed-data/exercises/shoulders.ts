@@ -407,7 +407,7 @@ export const SHOULDERS: SeedExercise[] = [
     primaryMuscle: "shoulders",
     secondaryMuscles: ["traps", "back"],
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold the bells in front of the thighs, hinge slightly and dip.\nDrive up and pull the bells out and up with the elbows high and wide.\nLower under control and reset.",
     bodyEffect:
@@ -481,7 +481,7 @@ export const SHOULDERS: SeedExercise[] = [
     name: "Plate Front Raise",
     primaryMuscle: "shoulders",
     equipment: "plate",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold a plate at the edges with both hands in front of the thighs.\nRaise it straight out to eye level with the arms extended.\nLower slowly under control.",
     bodyEffect:
@@ -706,7 +706,7 @@ export const SHOULDERS: SeedExercise[] = [
     primaryMuscle: "shoulders",
     secondaryMuscles: ["traps"],
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Lie face down on an incline bench holding very light bells, thumbs up.\nRaise the arms overhead into a Y shape.\nLower slowly. Use tiny weights or none at all.",
     bodyEffect:

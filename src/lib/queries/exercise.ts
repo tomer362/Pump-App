@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { escapeLike, tokenizeQuery } from "@/lib/exercise-search-terms";
+import { isAssistedTracking, scoringLoadKg, scoringLoadSql } from "@/lib/tracking";
 import {
   filterMatches,
   rankMatches,
@@ -642,6 +643,7 @@ export async function getExerciseHistory(
       reps: workoutSet.reps,
       setType: workoutSet.setType,
       est: workoutSet.estimated1rm,
+      trackingType: exercise.trackingType,
     })
     .from(workoutSet)
     .innerJoin(
@@ -649,6 +651,7 @@ export async function getExerciseHistory(
       eq(workoutExercise.id, workoutSet.workoutExerciseId),
     )
     .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(
       and(
         eq(workout.userId, userId),
@@ -675,11 +678,20 @@ export async function getExerciseHistory(
     }
     point.sets.push({ weightKg: r.weightKg, reps: r.reps, setType: r.setType });
     if (r.setType !== "warmup") {
-      point.totalVolumeKg += (r.weightKg ?? 0) * (r.reps ?? 0);
-      if (r.weightKg != null && (point.bestWeightKg ?? -1) < r.weightKg) {
+      // On an assisted machine the weight column is the counterweight, so it is
+      // not tonnage and the *best* set is the one that needed the least help.
+      // Both figures flip rather than being dropped: the session summary would
+      // otherwise say nothing at all about a session's actual result.
+      const assisted = isAssistedTracking(r.trackingType);
+      point.totalVolumeKg += scoringLoadKg(r.trackingType, r.weightKg) * (r.reps ?? 0);
+      if (
+        r.weightKg != null &&
+        (point.bestWeightKg == null ||
+          (assisted ? r.weightKg < point.bestWeightKg : r.weightKg > point.bestWeightKg))
+      ) {
         point.bestWeightKg = r.weightKg;
       }
-      if (r.est != null && (point.bestEst1rm ?? -1) < r.est) {
+      if (!assisted && r.est != null && (point.bestEst1rm ?? -1) < r.est) {
         point.bestEst1rm = r.est;
       }
     }
@@ -720,6 +732,7 @@ export async function getLastLoggedSet(
       eq(workoutExercise.id, workoutSet.workoutExerciseId),
     )
     .innerJoin(workout, eq(workout.id, workoutExercise.workoutId))
+    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(
       and(
         eq(workout.userId, userId),
@@ -732,10 +745,12 @@ export async function getLastLoggedSet(
       ),
     )
     // Most recent session first, then its heaviest set — the number you would
-    // be trying to match.
+    // be trying to match. On an assisted machine that is the set with the
+    // *least* counterweight, for the same reason: it is the one to beat.
     .orderBy(
       desc(workout.startedAt),
-      desc(workoutSet.weightKg),
+      sql`CASE WHEN ${exercise.trackingType} = 'assist_reps'
+               THEN ${workoutSet.weightKg} ELSE -${workoutSet.weightKg} END ASC`,
       desc(workoutSet.reps),
     )
     .limit(1);
@@ -792,21 +807,27 @@ export async function getExerciseSessionSeries(
     SELECT
       w.id                                                    AS workout_id,
       w.started_at                                            AS date,
-      MAX(ws.weight_kg)                                       AS top_weight,
-      MAX(ws.estimated_1rm)                                   AS best_e1rm,
-      COALESCE(SUM(COALESCE(ws.weight_kg, 0)
+      -- Assistance is not load: the best set of the session is the one that
+      -- needed the least of it, there is no 1RM to estimate, and none of it is
+      -- tonnage. The chart relabels the series accordingly.
+      CASE WHEN e.tracking_type = 'assist_reps' THEN MIN(ws.weight_kg)
+           ELSE MAX(ws.weight_kg) END                         AS top_weight,
+      CASE WHEN e.tracking_type = 'assist_reps' THEN NULL
+           ELSE MAX(ws.estimated_1rm) END                     AS best_e1rm,
+      COALESCE(SUM(${sql.raw(scoringLoadSql("e", "ws"))}
                  * COALESCE(ws.reps, 0)), 0)::real            AS volume,
       COALESCE(SUM(COALESCE(ws.reps, 0)), 0)::int             AS reps,
       COUNT(*)::int                                           AS sets
     FROM workout_set ws
     JOIN workout_exercise we ON we.id = ws.workout_exercise_id
     JOIN workout w           ON w.id = we.workout_id
+    JOIN exercise e          ON e.id = we.exercise_id
     WHERE w.user_id = ${userId}
       AND we.exercise_id = ${exerciseId}::uuid
       AND w.ended_at IS NOT NULL
       AND ws.completed_at IS NOT NULL
       AND ws.set_type <> 'warmup'
-    GROUP BY w.id, w.started_at
+    GROUP BY w.id, w.started_at, e.tracking_type
     ORDER BY w.started_at ASC
   `);
 
@@ -824,8 +845,12 @@ export async function getExerciseSessionSeries(
 export type RepMax = {
   reps: number;
   weightKg: number;
-  /** Epley estimate for this weight × reps, so rows are comparable. */
-  estimated1rm: number;
+  /**
+   * Epley estimate for this weight × reps, so rows are comparable. Null on an
+   * assisted machine, where the weight is help received and an estimate from it
+   * would be a 1RM for being weak.
+   */
+  estimated1rm: number | null;
   achievedAt: Date;
   workoutId: string;
 };
@@ -836,6 +861,10 @@ export type RepMax = {
  * The "best performance at each rep" table: two lifters with the same 1RM can
  * have very different rep strength, and it's the row you actually pick a
  * working weight from.
+ *
+ * On an assisted machine "best" inverts — the row worth keeping is the one that
+ * needed the *least* counterweight — so the tie-break flips rather than the
+ * table being dropped. Reading down it is still how you pick today's setting.
  */
 export async function getExerciseRepMaxes(
   userId: string,
@@ -848,16 +877,19 @@ export async function getExerciseRepMaxes(
     estimated_1rm: number | null;
     achieved_at: string | Date;
     workout_id: string;
+    tracking_type: string;
   }>(sql`
     SELECT DISTINCT ON (ws.reps)
       ws.reps,
       ws.weight_kg,
       ws.estimated_1rm,
-      w.started_at AS achieved_at,
-      w.id         AS workout_id
+      w.started_at    AS achieved_at,
+      w.id            AS workout_id,
+      e.tracking_type
     FROM workout_set ws
     JOIN workout_exercise we ON we.id = ws.workout_exercise_id
     JOIN workout w           ON w.id = we.workout_id
+    JOIN exercise e          ON e.id = we.exercise_id
     WHERE w.user_id = ${userId}
       AND we.exercise_id = ${exerciseId}::uuid
       AND w.ended_at IS NOT NULL
@@ -865,13 +897,24 @@ export async function getExerciseRepMaxes(
       AND ws.set_type <> 'warmup'
       AND ws.reps BETWEEN 1 AND ${maxReps}
       AND COALESCE(ws.weight_kg, 0) > 0
-    ORDER BY ws.reps ASC, ws.weight_kg DESC, w.started_at ASC
+    -- Negating for the assisted case rather than branching the direction keeps
+    -- this one sort key, which is what DISTINCT ON requires it to be.
+    ORDER BY ws.reps ASC,
+             CASE WHEN e.tracking_type = 'assist_reps' THEN ws.weight_kg
+                  ELSE -ws.weight_kg END ASC,
+             w.started_at ASC
   `);
 
   return res.rows.map((r) => ({
     reps: r.reps,
     weightKg: r.weight_kg,
-    estimated1rm: r.estimated_1rm ?? r.weight_kg * (1 + r.reps / 30),
+    // `estimated_1rm` is already null for every assisted set, written that way
+    // at log time — so the fallback must not quietly compute one back.
+    estimated1rm:
+      r.estimated_1rm ??
+      (isAssistedTracking(r.tracking_type)
+        ? null
+        : r.weight_kg * (1 + r.reps / 30)),
     achievedAt: new Date(r.achieved_at),
     workoutId: r.workout_id,
   }));
@@ -903,13 +946,14 @@ export async function getExerciseSummary(
       COUNT(DISTINCT w.id)::int                              AS sessions,
       COUNT(ws.id)::int                                      AS sets,
       COALESCE(SUM(COALESCE(ws.reps, 0)), 0)::int            AS reps,
-      COALESCE(SUM(COALESCE(ws.weight_kg, 0)
+      COALESCE(SUM(${sql.raw(scoringLoadSql("e", "ws"))}
                  * COALESCE(ws.reps, 0)), 0)::real           AS volume,
       MIN(w.started_at)                                      AS first_at,
       MAX(w.started_at)                                      AS last_at
     FROM workout_set ws
     JOIN workout_exercise we ON we.id = ws.workout_exercise_id
     JOIN workout w           ON w.id = we.workout_id
+    JOIN exercise e          ON e.id = we.exercise_id
     WHERE w.user_id = ${userId}
       AND we.exercise_id = ${exerciseId}::uuid
       AND w.ended_at IS NOT NULL

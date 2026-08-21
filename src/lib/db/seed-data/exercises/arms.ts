@@ -349,7 +349,7 @@ export const ARMS: SeedExercise[] = [
     primaryMuscle: "biceps",
     secondaryMuscles: ["lats", "back"],
     equipment: "bodyweight",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hang from a bar with an underhand grip and weight on a belt or between the feet.\nPull until the chin clears the bar.\nLower to a full hang under control.",
     bodyEffect:

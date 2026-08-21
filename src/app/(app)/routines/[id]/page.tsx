@@ -9,6 +9,7 @@ import { RoutineActions } from "./routine-actions";
 import { RoutineLikeButton } from "@/components/routine/routine-like-button";
 import { folderRail } from "@/lib/folder-color";
 import { cn, formatWeight, labelize } from "@/lib/utils";
+import { isAssistedTracking } from "@/lib/tracking";
 import { restLabel } from "@/lib/rest";
 import { prescribedToken, rpeRangeLabel } from "@/lib/rpe";
 
@@ -186,7 +187,7 @@ export default async function RoutineDetailPage(
                       </span>
                       <span className="num text-text-1 truncate text-right font-semibold">
                         {s.targetWeightKg != null
-                          ? `${formatWeight(s.targetWeightKg, me.unit)} ${me.unit}`
+                          ? `${isAssistedTracking(e.trackingType) ? "−" : ""}${formatWeight(s.targetWeightKg, me.unit)} ${me.unit}`
                           : "—"}
                       </span>
                       <span className="text-text-3 text-center">×</span>

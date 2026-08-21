@@ -43,14 +43,24 @@ export async function recalculatePersonalRecords(
         we.exercise_id,
         ws.id                                              AS set_id,
         w.id                                               AS workout_id,
-        ws.weight_kg,
+        -- On an assisted machine the weight column is the counterweight, so
+        -- every weight-derived kind below has to fall out rather than crown the
+        -- set you needed the most help on. Nulling it here is what does that:
+        -- the weight, 1rm and volume branches are each guarded by a > 0, so
+        -- they select no row for the exercise at all, while reps -- the one
+        -- that still means something -- is untouched.
+        CASE WHEN e.tracking_type = 'assist_reps' THEN NULL
+             ELSE ws.weight_kg END                         AS weight_kg,
         ws.reps,
-        COALESCE(ws.estimated_1rm, 0)                      AS e1rm,
-        COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0)   AS volume,
+        CASE WHEN e.tracking_type = 'assist_reps' THEN 0
+             ELSE COALESCE(ws.estimated_1rm, 0) END        AS e1rm,
+        CASE WHEN e.tracking_type = 'assist_reps' THEN 0
+             ELSE COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0) END AS volume,
         w.ended_at
       FROM workout_set ws
       JOIN workout_exercise we ON we.id = ws.workout_exercise_id
       JOIN workout w           ON w.id = we.workout_id
+      JOIN exercise e          ON e.id = we.exercise_id
       WHERE w.user_id = ${userId}
         AND w.ended_at IS NOT NULL
         AND ws.completed_at IS NOT NULL

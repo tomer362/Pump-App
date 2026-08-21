@@ -488,7 +488,7 @@ export const CORE: SeedExercise[] = [
     primaryMuscle: "obliques",
     secondaryMuscles: ["abs", "shoulders"],
     equipment: "barbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold the end of a landmine bar at chest height with both hands, arms extended.\nSweep it in an arc from hip to hip, pivoting the feet as you go.\nControl the return; do not let it drop.",
     bodyEffect:
@@ -514,7 +514,7 @@ export const CORE: SeedExercise[] = [
     primaryMuscle: "obliques",
     secondaryMuscles: ["abs"],
     equipment: "plate",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Sit with the knees bent and the torso leaned back, feet down or lifted.\nRotate the weight from one side to the other, turning the ribcage rather than just the arms.\nKeep the chest up and the spine long.",
     bodyEffect:
@@ -590,7 +590,7 @@ export const CORE: SeedExercise[] = [
     name: "Dumbbell Side Bend",
     primaryMuscle: "obliques",
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Stand tall with one heavy bell at your side.\nBend sideways toward the weight, then pull straight back upright.\nDo not lean forward or back. Repeat on the other side.",
     bodyEffect:

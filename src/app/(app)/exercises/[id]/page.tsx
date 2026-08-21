@@ -63,6 +63,7 @@ export default async function ExerciseDetailPage(
             userId={me.id}
             unit={me.unit}
             exerciseId={exercise.id}
+            trackingType={exercise.trackingType}
             about={{
               bodyEffect: exercise.bodyEffect,
               instructions: exercise.instructions,
@@ -155,11 +156,13 @@ async function DetailPanels({
   userId,
   unit,
   exerciseId,
+  trackingType,
   about,
 }: {
   userId: string;
   unit: "kg" | "lb";
   exerciseId: string;
+  trackingType: string;
   about: Pick<
     ExerciseDetailData,
     "bodyEffect" | "instructions" | "secondaryMuscles" | "video"
@@ -184,6 +187,7 @@ async function DetailPanels({
       unit={unit}
       data={{
         ...about,
+        trackingType,
         alternatives,
         summary,
         series,

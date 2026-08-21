@@ -60,6 +60,49 @@ describe("seed exercise library", () => {
     }
   });
 
+  it("records a load for every exercise that has one", () => {
+    // The bug this catches: an exercise you obviously add weight to — a
+    // dumbbell walking lunge, a plate front raise, a weighted chin-up —
+    // configured `reps`, so the app offered nowhere to write the one number
+    // that changes between sessions. Reps-only is for exercises with no load
+    // to record at all, which in this library means bodyweight and bands.
+    const loadedEquipment = new Set([
+      "barbell",
+      "dumbbell",
+      "kettlebell",
+      "plate",
+      "machine",
+      "cable",
+    ]);
+    const repsOnlyButLoaded = SEED_EXERCISES.filter(
+      (e) => e.trackingType === "reps" && loadedEquipment.has(e.equipment),
+    ).map((e) => e.slug);
+    expect(repsOnlyButLoaded).toEqual([
+      // The two genuine exceptions: machines that hold *you*, not a load. Their
+      // resistance is bodyweight and the pad only sets the angle.
+      "glute-ham-raise",
+      "captains-chair-leg-raise",
+    ]);
+  });
+
+  it("gives every assisted machine the assist_reps type", () => {
+    // `weight_reps` here would be worse than `reps`: the counterweight would be
+    // multiplied into volume and turned into an estimated 1RM, so the day you
+    // needed the most help would score as your best. See `lib/tracking.ts`.
+    for (const e of SEED_EXERCISES) {
+      // A band is the exception: its help is a colour, not a number of
+      // kilograms, so there is nothing to put in the column and reps-only is
+      // the honest configuration.
+      const assisted = /assisted/i.test(e.name) && e.equipment !== "band";
+      if (assisted) {
+        expect(e.trackingType, e.slug).toBe("assist_reps");
+      }
+      if (e.trackingType === "assist_reps") {
+        expect(e.name, e.slug).toMatch(/assisted/i);
+      }
+    }
+  });
+
   it("never lists a muscle as both primary and secondary", () => {
     for (const e of SEED_EXERCISES) {
       expect(e.secondaryMuscles ?? [], e.slug).not.toContain(e.primaryMuscle);

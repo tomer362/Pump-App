@@ -46,7 +46,7 @@ export type SetDraft = {
  * so the header in `workout-screen` and the rows themselves can't drift apart
  * — the columns have to line up for this to read as a table.
  */
-export type SetColumn = "weight" | "reps" | "seconds" | "distance";
+export type SetColumn = "weight" | "assist" | "reps" | "seconds" | "distance";
 
 export function setColumns(trackingType: string): SetColumn[] {
   switch (trackingType) {
@@ -58,6 +58,13 @@ export function setColumns(trackingType: string): SetColumn[] {
       return ["distance", "seconds"];
     case "weight_time":
       return ["weight", "seconds"];
+    // Same input and same stored column as `weight`, and deliberately the same
+    // width — it is still the load cell of the table. It is a separate column
+    // only so the header can say which direction is progress: an assisted
+    // machine's number is help received, and 40 in that cell is a worse set
+    // than 20. See `lib/tracking.ts` for what that costs it downstream.
+    case "assist_reps":
+      return ["assist", "reps"];
     default:
       return ["weight", "reps"];
   }
@@ -73,6 +80,12 @@ export function columnLabel(column: SetColumn, unit: "kg" | "lb") {
   switch (column) {
     case "weight":
       return unit;
+    // The minus is the whole message: this column comes *off* your bodyweight,
+    // so the trend that means you are getting stronger is downward. A header
+    // reading plain "kg" over a counterweight is the misreading that made the
+    // machine look like it was loading you.
+    case "assist":
+      return `−${unit}`;
     case "reps":
       return "Reps";
     case "seconds":
@@ -561,6 +574,10 @@ function previousLabel(
           return previous.weightKg != null
             ? formatWeight(previous.weightKg, unit)
             : null;
+        case "assist":
+          return previous.weightKg != null
+            ? `−${formatWeight(previous.weightKg, unit)}`
+            : null;
         case "reps":
           return previous.reps != null ? String(previous.reps) : null;
         case "seconds":
@@ -590,7 +607,10 @@ function ValueCell({
     opts?: { fill?: boolean; local?: boolean },
   ) => void;
 }) {
-  if (column === "weight") {
+  // `assist` writes the same column: it is a weight, only pointing the other
+  // way, and a second storage field would have to be kept in step with this one
+  // through every fill, copy-previous and routine import.
+  if (column === "weight" || column === "assist") {
     // One parser for both channels, so what you see mid-keystroke is exactly
     // what gets written on blur — including the lb→kg conversion.
     const submit = (raw: string, local: boolean) => {

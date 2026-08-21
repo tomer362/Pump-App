@@ -15,6 +15,7 @@ import type {
   RepMax,
 } from "@/lib/queries/exercise";
 import { cn, formatDayLabel, formatVolume, formatWeight } from "@/lib/utils";
+import { isAssistedTracking } from "@/lib/tracking";
 
 type Tab = "about" | "history" | "charts" | "records";
 
@@ -31,6 +32,14 @@ const TABS = [
  * restated so the two can't drift.
  */
 export type ExerciseDetailData = ExerciseAboutData & {
+  /**
+   * Carried down because `assist_reps` reverses what these panels mean: the
+   * weight column is the machine's counterweight, so the best session is the
+   * one that needed the least, there is no estimated 1RM, and none of it is
+   * tonnage. The queries already return the flipped figures — this is what lets
+   * the labels say so.
+   */
+  trackingType: string;
   summary: ExerciseSummary;
   series: ExerciseSessionPoint[];
   history: ExerciseHistoryPoint[];
@@ -90,11 +99,27 @@ function Charts({
 }) {
   if (data.series.length === 0) return <NotLoggedYet />;
   const s = data.summary;
+  const assisted = isAssistedTracking(data.trackingType);
+  // The lightest counterweight ever needed — the figure an assisted machine has
+  // instead of a volume total, and the one the whole exercise is aimed at.
+  const leastAssist = assisted
+    ? data.series.reduce<number | null>(
+        (best, p) =>
+          p.topWeightKg != null && (best == null || p.topWeightKg < best)
+            ? p.topWeightKg
+            : best,
+        null,
+      )
+    : null;
 
   return (
     <div className="space-y-6">
       <Card className="px-4 py-4">
-        <ExerciseProgressChart data={data.series} unit={unit} />
+        <ExerciseProgressChart
+          data={data.series}
+          unit={unit}
+          assisted={assisted}
+        />
       </Card>
 
       <div>
@@ -103,10 +128,24 @@ function Charts({
           <Figure label="Sessions" value={String(s.sessions)} />
           <Figure label="Working sets" value={String(s.sets)} />
           <Figure label="Reps" value={String(s.reps)} />
-          <Figure
-            label="Volume"
-            value={`${formatVolume(s.volumeKg, unit)} ${unit}`}
-          />
+          {/* Assistance is not tonnage, so there is no volume to total — and a
+              "0 kg" tile would read as a bug rather than as a category error.
+              Least assistance is the figure that belongs in its place. */}
+          {assisted ? (
+            <Figure
+              label="Least assist"
+              value={
+                leastAssist == null
+                  ? "—"
+                  : `−${formatWeight(leastAssist, unit)} ${unit}`
+              }
+            />
+          ) : (
+            <Figure
+              label="Volume"
+              value={`${formatVolume(s.volumeKg, unit)} ${unit}`}
+            />
+          )}
         </Card>
         {s.firstPerformedAt && (
           <p className="text-text-3 mt-2 text-[12px]">
@@ -140,7 +179,11 @@ function Records({
       <div>
         <SectionTitle>Best at each rep count</SectionTitle>
         <Card className="px-4 py-3">
-          <RepMaxTable rows={data.repMaxes} unit={unit} />
+          <RepMaxTable
+            rows={data.repMaxes}
+            unit={unit}
+            assisted={isAssistedTracking(data.trackingType)}
+          />
         </Card>
       </div>
     </div>
@@ -155,6 +198,7 @@ function History({
   unit: "kg" | "lb";
 }) {
   if (data.history.length === 0) return <NotLoggedYet />;
+  const assisted = isAssistedTracking(data.trackingType);
 
   return (
     <div className="space-y-3">
@@ -165,8 +209,12 @@ function History({
               <p className="text-text-3 flex-1 text-[12px]">
                 {formatDayLabel(new Date(h.date))}
               </p>
+              {/* Assistance sums to nothing, so the session line carries the
+                  count of sets it did instead of a 0 kg total. */}
               <p className="text-text-3 num text-[12px]">
-                {formatVolume(h.totalVolumeKg, unit)} {unit}
+                {assisted
+                  ? `${h.sets.filter((s) => s.setType !== "warmup").length} sets`
+                  : `${formatVolume(h.totalVolumeKg, unit)} ${unit}`}
               </p>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -176,7 +224,9 @@ function History({
                     {s.setType === "warmup" ? "W" : i + 1}
                   </span>{" "}
                   <span className="font-semibold">
-                    {s.weightKg != null ? formatWeight(s.weightKg, unit) : "—"}
+                    {s.weightKg != null
+                      ? `${assisted ? "−" : ""}${formatWeight(s.weightKg, unit)}`
+                      : "—"}
                   </span>
                   <span className="text-text-3">×{s.reps ?? "—"}</span>
                 </span>

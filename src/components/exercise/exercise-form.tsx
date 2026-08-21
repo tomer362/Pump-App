@@ -26,6 +26,10 @@ const TRACKING_OPTIONS: { value: TrackingType; label: string }[] = [
   { value: "time", label: "Time" },
   { value: "distance_time", label: "Distance & time" },
   { value: "weight_time", label: "Weight & time" },
+  // Spelled out because picking it changes what the numbers mean, not just
+  // which cells appear: assistance is logged and compared, but never counted as
+  // volume and never turned into a 1RM. See `lib/tracking.ts`.
+  { value: "assist_reps", label: "Assistance & reps" },
 ];
 
 /**
