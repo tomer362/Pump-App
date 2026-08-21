@@ -22,6 +22,7 @@ import {
   setColumns,
   type SetColumn,
 } from "@/components/workout/set-row";
+import { RestPicker } from "@/components/workout/rest-picker";
 import { RpePicker } from "@/components/workout/rpe-picker";
 import { createRoutine, updateRoutine, type RoutineInput } from "@/lib/actions/routine";
 import { createFolder } from "@/lib/actions/routine-folder";
@@ -391,7 +392,10 @@ export function RoutineBuilder({
         axis="y"
         values={items}
         onReorder={setItems}
-        className="mt-4"
+        // A drag started on a grip travels across every name and column header
+        // below it, and dragging across text is how a selection gets painted.
+        // Inputs opt back in — see globals.css.
+        className="mt-4 select-none"
       >
         {items.map((item) => (
           <ExerciseCard
@@ -457,6 +461,7 @@ export function RoutineBuilder({
         {menuItem && (
           <ExerciseSettings
             item={menuItem}
+            defaultRestSeconds={defaultRestSeconds}
             onPatch={(patch) => patchExercise(menuItem.key, patch)}
             onViewDetails={() => {
               setMenuFor(null);
@@ -777,12 +782,14 @@ function TargetInput({
 
 function ExerciseSettings({
   item,
+  defaultRestSeconds,
   onPatch,
   onViewDetails,
   onReplace,
   onRemove,
 }: {
   item: DraftExercise;
+  defaultRestSeconds: number;
   onPatch: (patch: Partial<DraftExercise>) => void;
   onViewDetails: () => void;
   onReplace: () => void;
@@ -804,22 +811,21 @@ function ExerciseSettings({
     <div className="space-y-6 px-4 pb-5">
       <div>
         <Label>Rest between sets</Label>
-        <div className="flex gap-2">
-          {[0, 60, 90, 120, 180, 240].map((s) => (
-            <button
-              key={s}
-              onClick={() => onPatch({ restSeconds: s === 0 ? null : s })}
-              className={cn(
-                "press num rounded-field h-10 flex-1 border text-[13px] font-semibold",
-                (s === 0 ? item.restSeconds == null : item.restSeconds === s)
-                  ? "border-volt bg-volt-fade text-volt"
-                  : "border-hairline bg-surface-2 text-text-2",
-              )}
-            >
-              {s === 0 ? "Off" : s < 60 ? `${s}s` : `${s / 60}m`}
-            </button>
-          ))}
-        </div>
+        {/* The shared picker, so a routine and the workout started from it can't
+            disagree about the durations or about what "no rest" means. The old
+            row here was hardcoded to six values, so a routine resting 45s — one
+            tap away on the workout screen, and what "save workout as routine"
+            copies over — opened with nothing selected and nothing naming it.
+            Worse, its "Off" chip wrote `null`, which `startWorkoutFromRoutine`
+            reads as "inherit the default": a routine that said Off rested. */}
+        <RestPicker
+          value={item.restSeconds}
+          inherited={defaultRestSeconds}
+          inheritLabel="your default"
+          onChange={(seconds) => onPatch({ restSeconds: seconds })}
+          idPrefix="routine-exercise-rest"
+          hint="Every set of this exercise. A routine prescribes one rest per exercise — single sets can only be overridden mid-workout."
+        />
       </div>
 
       <div>

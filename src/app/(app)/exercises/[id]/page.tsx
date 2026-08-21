@@ -1,13 +1,12 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { Archive } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Skeleton, SkeletonSegmented } from "@/components/ui/skeleton";
 import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
 import type { ExerciseDetailData } from "@/components/exercise/exercise-detail-tabs";
 import { QuickLogDock } from "@/components/exercise/quick-log-dock";
 import { ManageExercise } from "./manage-exercise";
-import { AdoptImported } from "./adopt-imported";
+import { ExerciseStateStrips } from "@/components/exercise/exercise-state-strips";
 import { requireUser } from "@/lib/session";
 import {
   getExercise,
@@ -48,17 +47,11 @@ export default async function ExerciseDetailPage(
       />
 
       <div className="space-y-6 px-4">
-        {archived && (
-          <div className="bg-surface-2 text-text-2 flex items-start gap-2.5 rounded-[var(--radius-card)] px-4 py-3 text-[13px] leading-relaxed">
-            <Archive className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Archived — hidden from search and the exercise picker. Everything
-              below is still yours.
-            </p>
-          </div>
-        )}
-
-        {imported && <AdoptImported exerciseId={exercise.id} />}
+        <ExerciseStateStrips
+          exerciseId={exercise.id}
+          archived={archived}
+          imported={imported}
+        />
 
         {/* Only the exercise row blocks — it names the page and decides the
             404. The six history/records aggregates stream in behind it, which

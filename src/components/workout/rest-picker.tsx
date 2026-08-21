@@ -1,17 +1,7 @@
 "use client";
 
-import { cn, formatDuration } from "@/lib/utils";
-
-/**
- * The durations offered anywhere rest is chosen. `0` is genuinely no rest — the
- * timer never starts — and is distinct from inheriting, which is `null`.
- */
-export const REST_PRESETS = [0, 30, 45, 60, 90, 120, 180, 240] as const;
-
-export function restLabel(seconds: number) {
-  if (seconds === 0) return "Off";
-  return seconds < 60 ? `${seconds}s` : formatDuration(seconds);
-}
+import { REST_PRESETS, restLabel } from "@/lib/rest";
+import { cn } from "@/lib/utils";
 
 /**
  * Rest duration chips, shared by the exercise sheet and the per-set sheet.
@@ -44,6 +34,18 @@ export function RestPicker({
   idPrefix?: string;
   hint?: React.ReactNode;
 }) {
+  /**
+   * A value that isn't one of ours still has to read back. Imports, an LLM plan
+   * and the API all accept 0–1800, so `150` is reachable — and a control that
+   * highlights nothing is indistinguishable from one saying "no rest set",
+   * which is how a routine's rest looked lost. Sorted in, so the odd one out
+   * sits where its duration belongs rather than tacked on the end.
+   */
+  const presets =
+    value != null && !(REST_PRESETS as readonly number[]).includes(value)
+      ? [...REST_PRESETS, value].sort((a, b) => a - b)
+      : REST_PRESETS;
+
   return (
     <>
       <div
@@ -72,7 +74,7 @@ export function RestPicker({
           <span className="num text-text-3">({restLabel(inherited)})</span>
         </button>
 
-        {REST_PRESETS.map((s) => (
+        {presets.map((s) => (
           <button
             key={s}
             type="button"

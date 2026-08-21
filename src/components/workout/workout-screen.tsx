@@ -1437,7 +1437,10 @@ function ReorderList({
         setOrder(next);
         onChange(next);
       }}
-      className="divide-hairline divide-y pb-2"
+      // The grip is a <button>, so the press itself can't select — but a drag
+      // that travels across the names below it paints a selection the same way
+      // dragging across any text does.
+      className="divide-hairline divide-y pb-2 select-none"
     >
       {order.map((id) => {
         const block = byId.get(id);

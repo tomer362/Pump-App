@@ -17,7 +17,7 @@ import {
   type ExerciseListItem,
   type ExercisePage,
 } from "@/lib/queries/exercise";
-import type { ExerciseAboutData } from "@/components/exercise/exercise-about";
+import type { ExerciseAboutSheetData } from "@/components/exercise/exercise-about";
 
 /**
  * Client-callable wrappers around the exercise reads. Kept separate from the
@@ -155,14 +155,7 @@ function foldInRecent(
  */
 export async function getExerciseAboutAction(
   exerciseId: string,
-): Promise<
-  | (ExerciseAboutData & {
-      name: string;
-      primaryMuscle: string;
-      equipment: string;
-    })
-  | null
-> {
+): Promise<ExerciseAboutSheetData | null> {
   const me = await getCurrentUser();
   if (!me) return null;
 
@@ -170,10 +163,17 @@ export async function getExerciseAboutAction(
   if (!row) return null;
   if (row.ownerId && row.ownerId !== me.id) return null;
 
+  // The same two facts the detail page puts above its tabs, computed the same
+  // way, so the sheet the routine builder opens instead of navigating can't
+  // say less about the exercise than the page would.
+  const archived = row.archivedAt != null;
+
   return {
     name: row.name,
     primaryMuscle: row.primaryMuscle,
     equipment: row.equipment,
+    archived,
+    imported: row.ownerId === me.id && !archived && row.importedAt != null,
     bodyEffect: row.bodyEffect,
     instructions: row.instructions,
     secondaryMuscles: row.secondaryMuscles,
