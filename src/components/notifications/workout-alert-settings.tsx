@@ -5,6 +5,7 @@ import { BellRing, Info, Smartphone, Timer, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/primitives";
 import {
+  sendDelayedTestAlert,
   sendTestWorkoutAlert,
   setWorkoutAlertsMuted,
   setWorkoutProgressMuted,
@@ -20,7 +21,12 @@ import {
   setRestSoundHoldsSession,
   setRestSoundMuted,
 } from "@/lib/rest-audio";
-import { enableNotifications, isIOS, isStandalone } from "@/lib/notify-client";
+import {
+  announceAlertsEnabled,
+  enableNotifications,
+  isIOS,
+  isStandalone,
+} from "@/lib/notify-client";
 
 type State = "loading" | "needs-install" | "unsupported" | "denied" | "off" | "on";
 
@@ -42,6 +48,7 @@ export function WorkoutAlertSettings() {
   const [progressOff, setProgressOff] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tested, setTested] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,6 +102,10 @@ export function WorkoutAlertSettings() {
     setWorkoutAlertsMuted(next);
     setMuted(next);
     setTested(false);
+    setArmed(false);
+    // Un-muting is the same event as granting: a rest may be running right now
+    // in another tab, and every arm it made while muted was refused.
+    if (!next) announceAlertsEnabled();
   }
 
   function toggleProgress() {
@@ -175,6 +186,33 @@ export function WorkoutAlertSettings() {
                   <BellRing className="size-4" />
                   {tested ? "Sent — check your notifications" : "Send a test alert"}
                 </Button>
+                {/* The button above proves the permission is granted and
+                    nothing else. The question that actually decides whether
+                    this feature works on a given phone is whether a *delayed*
+                    alert survives the app being put away — and on an installed
+                    iPhone the two give opposite answers. There is no way to
+                    find that out from a development machine, so the only
+                    honest thing is to let the device answer it. */}
+                <Button
+                  block
+                  variant="ghost"
+                  onClick={() => {
+                    sendDelayedTestAlert();
+                    setArmed(true);
+                  }}
+                >
+                  <Timer className="size-4" />
+                  {armed
+                    ? "Armed — put your phone down now"
+                    : "Test the background alert (15s)"}
+                </Button>
+                {armed && (
+                  <p className="text-text-3 text-[13px] leading-relaxed">
+                    Lock your phone or switch apps. If nothing arrives in
+                    fifteen seconds, this device stops Pump in the background
+                    and the chime below is the channel that reaches you.
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -194,10 +232,13 @@ export function WorkoutAlertSettings() {
         <p className="text-text-2 text-[13px] leading-relaxed">
           Both the chime and the alert are set up the moment your rest starts,
           which is the only point they can be — nothing of Pump&apos;s is running
-          once your phone is in your pocket. With the phone away it&apos;s the
-          alert that reaches you, unless you let the chime hold the audio. Either
-          way neither is depended on: the bar in the app is always the real
-          timer.
+          once your phone is in your pocket. The alert is reliable while
+          Pump is open or merely behind another window. On a{" "}
+          <span className="text-text-1">locked iPhone</span> it often
+          isn&apos;t: iOS stops the app and the part of it that posts the alert
+          at the same moment, and only the chime holding the audio gets through.
+          Neither is depended on either way — the bar in the app is always the
+          real timer.
         </p>
       </Card>
     </div>
@@ -297,8 +338,10 @@ function RestSoundCard() {
       </div>
       {!off && !holds && (
         <p className="text-text-3 mt-3 text-[13px] leading-relaxed">
-          While your phone is away, the rest alert is a notification rather than
-          the chime — turn on workout alerts above for that.
+          While your phone is away it&apos;s the notification that reaches you —
+          turn on workout alerts above for that. On a locked iPhone that
+          notification is unreliable, and this switch is the only thing that
+          isn&apos;t.
         </p>
       )}
     </Card>
