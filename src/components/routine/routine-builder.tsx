@@ -457,6 +457,9 @@ export function RoutineBuilder({
         open={menuItem != null}
         onClose={() => setMenuFor(null)}
         title={menuItem?.name}
+        // Same as the workout screen's exercise sheet: it commits as you tap,
+        // so without this there is nothing on screen that closes it.
+        dismissLabel="Done"
       >
         {menuItem && (
           <ExerciseSettings
@@ -514,6 +517,9 @@ export function RoutineBuilder({
         onClose={() => setInfoFor(null)}
         title={infoItem?.name}
         maxHeight="88dvh"
+        // Capped and scrolled, so the drag handle is often scrolled away from
+        // the prose you are reading. This is the way out.
+        dismissLabel="Done"
       >
         {infoItem && <ExerciseAboutSheetBody exerciseId={infoItem.exerciseId} />}
       </Sheet>

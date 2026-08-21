@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Button } from "@/components/ui/button";
 import { cn, haptic } from "@/lib/utils";
 import { SPRING } from "@/lib/motion";
 
@@ -17,6 +18,7 @@ export function Sheet({
   /** Sheet grows to content by default; set to cap it and scroll inside. */
   maxHeight = "88dvh",
   footer,
+  dismissLabel,
   dragToDismiss = true,
 }: {
   open: boolean;
@@ -25,6 +27,18 @@ export function Sheet({
   children: React.ReactNode;
   maxHeight?: string;
   footer?: React.ReactNode;
+  /**
+   * Renders a full-width button that just closes the sheet, for content that
+   * commits as you touch it and so has nothing to confirm.
+   *
+   * A settings sheet without one is dismissible only by dragging the handle,
+   * tapping the backdrop, or Escape — none of which is drawn on the screen, so
+   * the sheet reads as having no way out. The footer is where a phone's dismiss
+   * belongs anyway (a corner X is out of thumb reach, which is why this
+   * component has never had one). Ignored when `footer` is given: a sheet with a
+   * real action already answers "how do I finish".
+   */
+  dismissLabel?: string;
   /**
    * Set false when the content owns the vertical drag itself. Motion arbitrates
    * two overlapping y-drags with a single global lock claimed by whichever pan
@@ -144,6 +158,17 @@ export function Sheet({
     };
   }, [open]);
 
+  // Neutral, not volt: nothing is being committed — these sheets have already
+  // written every change as it was tapped — and the accent is reserved for
+  // state that matters.
+  const foot =
+    footer ??
+    (dismissLabel ? (
+      <Button block variant="solid" onClick={onClose}>
+        {dismissLabel}
+      </Button>
+    ) : null);
+
   return (
     <AnimatePresence>
       {open && (
@@ -201,9 +226,9 @@ export function Sheet({
               {children}
             </div>
 
-            {footer ? (
+            {foot ? (
               <div className="hairline-t bg-surface-1 px-4 pt-3 pb-3 mb-safe">
-                {footer}
+                {foot}
               </div>
             ) : (
               <div className="pb-safe" />
