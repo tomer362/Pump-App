@@ -8,6 +8,7 @@ import {
   setWorkoutBadge,
   showWorkoutProgress,
 } from "@/lib/workout-activity";
+import { ALERTS_ENABLED_EVENT } from "@/lib/notify-client";
 
 /**
  * Keeps the out-of-browser view of a live workout in step with the screen.
@@ -48,13 +49,13 @@ export function useWorkoutActivity({
   // Read at fire time rather than depended on: the body is a formatted string
   // that changes on every keystroke in the set table, and re-arming the alarm
   // or re-posting the notification for that would be pure churn.
-  const latest = useRef({ url, title, progressBody, restBody });
+  const latest = useRef({ url, title, progressBody, restBody, restEndsAt });
 
-  // Declared first on purpose: effects run in order within a commit, so the two
-  // below always read this render's strings rather than the previous one's.
+  // Declared first on purpose: effects run in order within a commit, so the
+  // ones below always read this render's values rather than the previous one's.
   useEffect(() => {
-    latest.current = { url, title, progressBody, restBody };
-  }, [url, title, progressBody, restBody]);
+    latest.current = { url, title, progressBody, restBody, restEndsAt };
+  }, [url, title, progressBody, restBody, restEndsAt]);
 
   // Only `endsAt` re-arms. A rest that is extended by ±15s gets a new end time
   // and so a new alarm, which is exactly right; a rest that is merely being
@@ -68,6 +69,24 @@ export function useWorkoutActivity({
     scheduleRestAlarm({ endsAt: restEndsAt, body: restBody, url });
   }, [restEndsAt]);
 
+  // Granting the permission mid-rest has to arm the rest that is running.
+  //
+  // Every arm above is dropped on the floor while the permission is still
+  // `default` — `post()` refuses to send one — and the effect that arms depends
+  // only on `endsAt`, which hasn't changed. So a lifter who starts a set, reads
+  // the prompt that says "get an alert when your rest is up", and taps yes, got
+  // no alert for that rest: the first one they were promised, and the one that
+  // decides whether they believe the feature works.
+  useEffect(() => {
+    const rearm = () => {
+      const { url, restBody, restEndsAt } = latest.current;
+      if (restEndsAt == null) return;
+      scheduleRestAlarm({ endsAt: restEndsAt, body: restBody, url });
+    };
+    window.addEventListener(ALERTS_ENABLED_EVENT, rearm);
+    return () => window.removeEventListener(ALERTS_ENABLED_EVENT, rearm);
+  }, []);
+
   useEffect(() => {
     // The *transition* is the event, not the state. Both listeners below can
     // fire for a single backgrounding — on iOS `pagehide` arrives with
@@ -80,8 +99,15 @@ export function useWorkoutActivity({
       const nowHidden = document.visibilityState === "hidden";
       if (nowHidden === hidden) return;
       hidden = nowHidden;
-      const { url, title, progressBody } = latest.current;
-      if (nowHidden) showWorkoutProgress({ title, body: progressBody, url });
+      const { url, title, progressBody, restBody, restEndsAt } = latest.current;
+      if (nowHidden)
+        showWorkoutProgress({
+          title,
+          body: progressBody,
+          url,
+          restEndsAt,
+          restBody,
+        });
       else hideWorkoutProgress();
     };
 
