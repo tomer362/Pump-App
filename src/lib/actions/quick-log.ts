@@ -19,6 +19,7 @@ import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { dayKeyBounds, dayKeyToNoonUtc, isDayKey, shiftDay } from "@/lib/day";
 import { estimate1RM } from "@/lib/utils";
 import { rpeValue } from "@/lib/rpe";
+import { isAssistedTracking } from "@/lib/tracking";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
 
@@ -150,6 +151,7 @@ export async function quickLogSet(
       id: exercise.id,
       ownerId: exercise.ownerId,
       archivedAt: exercise.archivedAt,
+      trackingType: exercise.trackingType,
     })
     .from(exercise)
     .where(eq(exercise.id, values.exerciseId))
@@ -162,8 +164,16 @@ export async function quickLogSet(
 
   const weightKg = values.weightKg ?? null;
   const reps = values.reps ?? null;
+  // On an assisted machine the weight column is the counterweight, so there is
+  // no 1RM in it and no PR to fire — the badge would celebrate needing more
+  // help. `recalculatePersonalRecords` below applies the same rule to the
+  // stored records.
   const estimated1rm =
-    weightKg != null && reps != null && weightKg > 0 && reps > 0
+    weightKg != null &&
+    reps != null &&
+    weightKg > 0 &&
+    reps > 0 &&
+    !isAssistedTracking(ex.trackingType)
       ? estimate1RM(weightKg, reps)
       : null;
 
@@ -442,12 +452,15 @@ async function rollUpWorkout(tx: Tx, workoutId: string) {
       weightKg: workoutSet.weightKg,
       reps: workoutSet.reps,
       completedAt: workoutSet.completedAt,
+      // Volume has to know which weight columns are assistance rather than load.
+      trackingType: exercise.trackingType,
     })
     .from(workoutSet)
     .innerJoin(
       workoutExercise,
       eq(workoutExercise.id, workoutSet.workoutExerciseId),
     )
+    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(eq(workoutExercise.workoutId, workoutId));
 
   await tx

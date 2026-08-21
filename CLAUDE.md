@@ -423,6 +423,35 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 
 - **Weights are always stored in kilograms.** `user.unit` is a display
   preference; convert at the edge with `formatWeight`/`lbToKg`.
+- **An exercise you load has a load column. `reps` is for exercises with no
+  number to record.** Eighteen built-ins were configured `reps` while plainly
+  carrying weight — a dumbbell walking lunge, a plate front raise, a weighted
+  chin-up, a loaded neck harness — so the app offered nowhere to write the one
+  value that changes between sessions, and their charts and records could only
+  ever be flat. `tests/seed-data.test.ts` now pins the whole library against
+  equipment, with the two real exceptions named: `glute-ham-raise` and
+  `captains-chair-leg-raise` are machines that hold *you*, and the pad only
+  sets the angle. Bands stay reps-only in both directions — their help is a
+  colour, not a number of kilograms.
+- **An assisted machine's weight column is help received, so it is recorded but
+  never scored** (`assist_reps`, `lib/tracking.ts`). Assisted dips and assisted
+  pull-ups were `reps`, which lost the only number that moves — the whole point
+  of the machine is the counterweight coming down. But `weight_reps` would have
+  been worse than losing it: every scoring path in the app is a sum or a maximum
+  over `weight_kg × reps`, so the day you needed 45 kg of help would have
+  outranked the day you needed 20, an assisted pull-up would have out-volumed
+  the real one it is a scaffold toward, and the PR badge would have fired for
+  getting weaker. So `assist_reps` stores the number in the same column, shows
+  it signed (`−40 × 8`, `−kg` in the table header), and excludes it from volume,
+  from `estimated_1rm`, and from the `weight`/`volume`/`1rm` record kinds — in
+  `sumSetTotals`, in `finishWorkout`'s live PR pass, in
+  `recalculatePersonalRecords`, and in the four read aggregates that never leave
+  Postgres. Reps still score, because more reps at the same assistance is a real
+  result. Where "best" is unavoidable the comparison **inverts** rather than
+  disappearing: the rep-max table and the session chart read the *least*
+  assistance, and the exercise page swaps its volume tile for "Least assist". No
+  migration: the column is plain `text`, and the two built-ins had no weights
+  logged against them to rewrite.
 - **A quick-logged set lives in a workout that was inserted already ended.**
   Nothing counts until a workout is finished — every stats and records query
   filters `ended_at IS NOT NULL` — so `quickLogSet` writes a `workout` whose

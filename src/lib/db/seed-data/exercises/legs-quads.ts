@@ -384,7 +384,7 @@ export const LEGS_QUADS: SeedExercise[] = [
     primaryMuscle: "quads",
     secondaryMuscles: ["glutes", "cardio"],
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold a bell in each hand and step forward into a lunge.\nDrive up and step straight through into the next lunge with the other leg.\nKeep the torso tall throughout.",
     bodyEffect:
@@ -410,7 +410,7 @@ export const LEGS_QUADS: SeedExercise[] = [
     primaryMuscle: "quads",
     secondaryMuscles: ["glutes"],
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Set a box at about knee height and place one whole foot on it.\nDrive up through that foot without pushing off the back leg.\nLower under control and repeat before switching sides.",
     bodyEffect:

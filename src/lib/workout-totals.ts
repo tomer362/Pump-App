@@ -9,12 +9,22 @@
  * vitest can assert the semantics without a connection.
  */
 
+import { scoringLoadKg } from "@/lib/tracking";
+
 /** The shape of a set that counting cares about. */
 export type ScorableSet = {
   setType: string;
   weightKg: number | null;
   reps: number | null;
   completedAt: Date | null;
+  /**
+   * The tracking type of the exercise this set belongs to. Only `assist_reps`
+   * changes the answer — its weight column is the machine's counterweight, so
+   * counting it would make the sets you needed most help on your biggest
+   * volume day. Optional because most callers already know the set is ordinary;
+   * absent reads as `weight_reps`.
+   */
+  trackingType?: string;
 };
 
 export type WorkoutTotals = {
@@ -36,7 +46,8 @@ export function sumSetTotals(sets: ScorableSet[]): WorkoutTotals {
   const scoring = sets.filter(isScoring);
   return {
     totalVolumeKg: scoring.reduce(
-      (sum, s) => sum + (s.weightKg ?? 0) * (s.reps ?? 0),
+      (sum, s) =>
+        sum + scoringLoadKg(s.trackingType ?? "weight_reps", s.weightKg) * (s.reps ?? 0),
       0,
     ),
     totalSets: scoring.length,

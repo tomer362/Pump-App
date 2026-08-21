@@ -157,7 +157,7 @@ export const OLYMPIC: SeedExercise[] = [
     primaryMuscle: "full_body",
     secondaryMuscles: ["quads", "shoulders"],
     equipment: "other",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold a medicine ball at the chest and squat to full depth.\nDrive up and throw the ball to a target on the wall.\nCatch it and absorb straight into the next squat.",
     bodyEffect:
@@ -183,7 +183,7 @@ export const OLYMPIC: SeedExercise[] = [
     primaryMuscle: "full_body",
     secondaryMuscles: ["abs", "lats"],
     equipment: "other",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Hold a slam ball overhead with the body extended.\nThrow it into the floor as hard as you can, folding at the hips.\nPick it up and repeat without pausing.",
     bodyEffect:
@@ -286,7 +286,7 @@ export const OLYMPIC: SeedExercise[] = [
     primaryMuscle: "full_body",
     secondaryMuscles: ["shoulders", "obliques"],
     equipment: "kettlebell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Lie on your back holding a bell locked out over one shoulder.\nRoll to the elbow, then the hand, bridge the hips, sweep the leg back and stand — keeping the arm vertical throughout.\nReverse every step to return.",
     bodyEffect:

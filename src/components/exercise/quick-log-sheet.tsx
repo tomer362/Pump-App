@@ -143,8 +143,12 @@ export function QuickLogSheet({
         rpe,
         date: sentDay,
         tzOffsetMinutes: new Date().getTimezoneOffset(),
+        // `assist` is the same stored column with the opposite meaning — the
+        // machine's counterweight. Omitting it here was what made an assisted
+        // machine quick-log as reps with no number attached.
         weightKg:
-          columns.includes("weight") && values.weight != null
+          (columns.includes("weight") || columns.includes("assist")) &&
+          values.weight != null
             ? storedWeight(values.weight, unit)
             : null,
         reps: columns.includes("reps") ? (values.reps ?? null) : null,
@@ -229,7 +233,7 @@ export function QuickLogSheet({
             column={column}
             unit={unit}
             value={
-              column === "weight"
+              column === "weight" || column === "assist"
                 ? weight
                 : column === "reps"
                   ? reps
@@ -238,7 +242,7 @@ export function QuickLogSheet({
                     : distance
             }
             onChange={
-              column === "weight"
+              column === "weight" || column === "assist"
                 ? setWeight
                 : column === "reps"
                   ? setReps
@@ -527,6 +531,7 @@ function DayChip({
 
 const STEP: Record<SetColumn, number> = {
   weight: 2.5,
+  assist: 2.5,
   reps: 1,
   seconds: 5,
   distance: 10,
@@ -544,7 +549,10 @@ function Field({
   onChange: (v: string) => void;
 }) {
   const step = STEP[column];
-  const integer = column !== "weight" && column !== "distance";
+  // Assistance is a weight, so it steps in halves like one — stacks go up in
+  // 2.5s but a band or a plate-loaded pad does not.
+  const integer =
+    column !== "weight" && column !== "assist" && column !== "distance";
 
   function bump(by: number) {
     haptic.light();
@@ -613,6 +621,9 @@ function Stepper({
 
 const LABEL: Record<SetColumn, (unit: "kg" | "lb") => string> = {
   weight: (unit) => `Weight (${unit})`,
+  // Named, not just signed: this sheet has room for the word, and "assistance"
+  // is what stops the number being read as load lifted.
+  assist: (unit) => `Assistance (−${unit})`,
   reps: () => "Reps",
   seconds: () => "Seconds",
   distance: () => "Metres",
@@ -648,6 +659,9 @@ function describe(
   const parts: string[] = [];
   if (columns.includes("weight") && weightKg != null) {
     parts.push(`${formatWeight(weightKg, unit)} ${unit}`);
+  }
+  if (columns.includes("assist") && weightKg != null) {
+    parts.push(`−${formatWeight(weightKg, unit)} ${unit} assist`);
   }
   if (columns.includes("reps") && reps != null) parts.push(`× ${reps}`);
   if (columns.includes("seconds") && values.seconds != null) {

@@ -1553,6 +1553,9 @@ function ExerciseBlock({
   const reduce = useReducedMotion();
   const longPress = useLongPress(onRequestReorder, { enabled: canReorder });
   const columns = setColumns(block.trackingType);
+  // Deliberately `weight` and not `assist`: an assisted station is a selectorised
+  // stack, so there are no plates to work out — and the number in that column is
+  // the help coming off, which the calculator has no way to express.
   const showWeight = columns.includes("weight");
 
   /**
@@ -2267,19 +2270,24 @@ function targetLabel(
   // "×" rather than being listed like unrelated fields.
   const effort = set.targetRpe != null ? ` ${prescribedToken(set.targetRpe)}` : "";
 
+  // An assisted machine reads the same way — "−40 kg × 8" — because it is still
+  // one quantity, and the minus is the only thing that keeps the counterweight
+  // from being read as load on the line that tells you what to do next.
+  const sign = columns.includes("assist") ? "−" : "";
+
   if (
-    columns.includes("weight") &&
+    (columns.includes("weight") || columns.includes("assist")) &&
     columns.includes("reps") &&
     weightKg != null &&
     reps != null
   ) {
-    return `${formatWeight(weightKg, unit)} ${unit} × ${reps}${effort}`;
+    return `${sign}${formatWeight(weightKg, unit)} ${unit} × ${reps}${effort}`;
   }
 
   const parts: string[] = [];
   for (const column of columns) {
-    if (column === "weight" && weightKg != null) {
-      parts.push(`${formatWeight(weightKg, unit)} ${unit}`);
+    if ((column === "weight" || column === "assist") && weightKg != null) {
+      parts.push(`${sign}${formatWeight(weightKg, unit)} ${unit}`);
     } else if (column === "reps" && reps != null) {
       parts.push(`${reps} reps`);
     } else if (column === "seconds" && seconds != null) {

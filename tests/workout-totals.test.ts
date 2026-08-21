@@ -52,6 +52,27 @@ describe("sumSetTotals", () => {
     expect(totals.totalSets).toBe(2);
   });
 
+  it("counts no volume for an assisted machine's counterweight", () => {
+    // `assist_reps` puts the machine's help in the weight column, so the number
+    // is what you did *not* lift. Multiplying it into tonnage would make the
+    // session you needed the most help on your biggest day — and would let an
+    // assisted pull-up out-volume the real one it is a scaffold toward.
+    const totals = sumSetTotals([
+      set({ trackingType: "assist_reps", weightKg: 40, reps: 8 }),
+      set({ weightKg: 100, reps: 5 }),
+    ]);
+    expect(totals).toEqual({ totalVolumeKg: 500, totalSets: 2, totalReps: 13 });
+  });
+
+  it("still counts an assisted set's reps and its set", () => {
+    // Only the load is meaningless. Dropping the set entirely would make an
+    // assisted session look like no session at all.
+    const totals = sumSetTotals([
+      set({ trackingType: "assist_reps", weightKg: 45, reps: 6 }),
+    ]);
+    expect(totals).toEqual({ totalVolumeKg: 0, totalSets: 1, totalReps: 6 });
+  });
+
   it("is zero for an empty workout rather than throwing", () => {
     expect(sumSetTotals([])).toEqual({
       totalVolumeKg: 0,

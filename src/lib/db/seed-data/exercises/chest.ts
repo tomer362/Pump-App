@@ -533,7 +533,7 @@ export const CHEST: SeedExercise[] = [
     primaryMuscle: "chest",
     secondaryMuscles: ["triceps"],
     equipment: "machine",
-    trackingType: "reps",
+    trackingType: "assist_reps",
     instructions:
       "Set the assistance so you can complete clean reps without failing early.\nKneel on the pad, lean forward slightly, lower until the chest stretches.\nPress back up under control.",
     bodyEffect:
@@ -558,7 +558,7 @@ export const CHEST: SeedExercise[] = [
     name: "Svend Press",
     primaryMuscle: "chest",
     equipment: "plate",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Press two plates together between the palms at chest height.\nSqueeze hard and push the plates straight out in front of you.\nDraw them back to the chest, never letting the pressure between them drop.",
     bodyEffect:

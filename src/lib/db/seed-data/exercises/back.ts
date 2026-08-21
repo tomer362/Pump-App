@@ -86,7 +86,7 @@ export const BACK: SeedExercise[] = [
     primaryMuscle: "lats",
     secondaryMuscles: ["biceps"],
     equipment: "machine",
-    trackingType: "reps",
+    trackingType: "assist_reps",
     instructions:
       "Set enough assistance that you can complete clean reps but still struggle at the end.\nKneel or stand on the pad, pull the chin over the bar.\nLower to a full hang each rep.",
     bodyEffect:
@@ -766,7 +766,7 @@ export const BACK: SeedExercise[] = [
     primaryMuscle: "glutes",
     secondaryMuscles: ["hamstrings", "back"],
     equipment: "machine",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Lie face down with the hips at the edge of the pad and legs hanging.\nRaise the legs until the body is straight, squeezing the glutes.\nLower under control without swinging.",
     bodyEffect:
@@ -941,7 +941,7 @@ export const BACK: SeedExercise[] = [
     primaryMuscle: "back",
     secondaryMuscles: ["abs", "obliques"],
     equipment: "dumbbell",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Start in a push-up position gripping two hex dumbbells, feet wide.\nRow one bell to the hip without letting the hips rotate.\nReplace it and repeat on the other side.",
     bodyEffect:

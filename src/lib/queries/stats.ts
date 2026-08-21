@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { streaks } from "@/lib/streaks";
+import { scoringLoadSql } from "@/lib/tracking";
 
 export type MuscleVolume = {
   muscle: string;
@@ -33,7 +34,10 @@ export async function getMuscleVolume(
         w.id           AS workout_id,
         e.primary_muscle,
         e.secondary_muscles,
-        COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0) AS volume
+        -- An assisted machine's weight column is the counterweight, so it adds
+        -- nothing to tonnage; counting it would credit a muscle for the help.
+        -- The set itself still counts, which is the figure this chart leads on.
+        (${sql.raw(scoringLoadSql("e", "ws"))}) * COALESCE(ws.reps, 0) AS volume
       FROM workout w
       JOIN workout_exercise we ON we.workout_id = w.id
       JOIN workout_set ws      ON ws.workout_exercise_id = we.id

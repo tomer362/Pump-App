@@ -6,7 +6,7 @@ export const NECK_AND_REHAB: SeedExercise[] = [
     name: "Neck Flexion",
     primaryMuscle: "neck",
     equipment: "other",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Lie face up on a bench with the head hanging off the end, a light plate held on the forehead.\nTuck the chin and curl the head up.\nLower slowly through a full range. Start with no weight at all.",
     bodyEffect:
@@ -32,7 +32,7 @@ export const NECK_AND_REHAB: SeedExercise[] = [
     primaryMuscle: "neck",
     secondaryMuscles: ["traps"],
     equipment: "other",
-    trackingType: "reps",
+    trackingType: "weight_reps",
     instructions:
       "Lie face down on a bench with the head off the end, using a harness or a light plate on the back of the head.\nRaise the head until you are looking forward.\nLower slowly. Start with bodyweight only.",
     bodyEffect:
