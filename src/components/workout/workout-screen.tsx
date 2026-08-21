@@ -1230,6 +1230,9 @@ export function WorkoutScreen({
         open={menuBlock != null}
         onClose={() => setMenuFor(null)}
         title={menuBlock?.name}
+        // Every control in here writes as it is tapped, so nothing closed the
+        // sheet but a gesture nobody had been shown.
+        dismissLabel="Done"
       >
         {menuBlock && (
           <ExerciseOptions
@@ -1260,6 +1263,9 @@ export function WorkoutScreen({
         open={typeMenuFor != null}
         onClose={() => setTypeMenuFor(null)}
         title="Set options"
+        // Picking a set type or deleting closes this; rating the effort does
+        // not — an RPE is a value you may want to change your mind about.
+        dismissLabel="Done"
       >
         {optionsSet && (
           <SetOptions
@@ -1313,6 +1319,7 @@ export function WorkoutScreen({
         open={plateFor != null}
         onClose={() => setPlateFor(null)}
         title="Plate calculator"
+        dismissLabel="Done"
       >
         {plateFor != null && <PlateCalculator targetKg={plateFor} unit={unit} />}
       </Sheet>
@@ -1437,7 +1444,10 @@ function ReorderList({
         setOrder(next);
         onChange(next);
       }}
-      className="divide-hairline divide-y pb-2"
+      // The grip is a <button>, so the press itself can't select — but a drag
+      // that travels across the names below it paints a selection the same way
+      // dragging across any text does.
+      className="divide-hairline divide-y pb-2 select-none"
     >
       {order.map((id) => {
         const block = byId.get(id);

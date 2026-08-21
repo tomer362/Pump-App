@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronRight, ExternalLink, Info, Play } from "lucide-react";
 import { Card, EmptyState, SectionTitle } from "@/components/ui/primitives";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ExerciseStateStrips } from "./exercise-state-strips";
 import { getExerciseAboutAction } from "@/lib/actions/exercise-search";
 import type { ExerciseAlternativeItem } from "@/lib/queries/exercise";
 import { labelize } from "@/lib/utils";
@@ -25,6 +26,20 @@ export type ExerciseAboutData = {
   secondaryMuscles: string[];
   video: { href: string; curated: boolean };
   alternatives: ExerciseAlternativeItem[];
+};
+
+/**
+ * What the sheet needs on top of the panel: the identity line the page gets
+ * from its `NavBar`, and the state strips it renders above its tabs. Not on
+ * `ExerciseAboutData` itself — the page already has all of this and composes
+ * that type into `ExerciseDetailData` from the row it loaded.
+ */
+export type ExerciseAboutSheetData = ExerciseAboutData & {
+  name: string;
+  primaryMuscle: string;
+  equipment: string;
+  archived: boolean;
+  imported: boolean;
 };
 
 export function ExerciseAbout({ data }: { data: ExerciseAboutData }) {
@@ -142,8 +157,8 @@ export function ExerciseAbout({ data }: { data: ExerciseAboutData }) {
  * to zero since the last one.
  */
 export function ExerciseAboutSheetBody({ exerciseId }: { exerciseId: string }) {
-  const cache = useRef(new Map<string, ExerciseAboutData | null>());
-  const [data, setData] = useState<ExerciseAboutData | null | undefined>(
+  const cache = useRef(new Map<string, ExerciseAboutSheetData | null>());
+  const [data, setData] = useState<ExerciseAboutSheetData | null | undefined>(
     undefined,
   );
 
@@ -192,7 +207,29 @@ export function ExerciseAboutSheetBody({ exerciseId }: { exerciseId: string }) {
   }
 
   return (
-    <div className="px-4 pb-5">
+    <div className="space-y-5 px-4 pb-5">
+      {/* The sheet title is the name and nothing else, so the muscle and
+          equipment the action already returns would otherwise be dropped —
+          the page shows them as its NavBar subtitle. */}
+      <p className="text-text-3 -mt-1 text-[13px]">
+        {labelize(data.primaryMuscle)} · {labelize(data.equipment)}
+      </p>
+
+      {/* Why this exercise behaves differently from the rest of the library.
+          Adopting has no server render to refresh here — the routine on screen
+          is unsaved React state — so the cached entry is rewritten and the
+          strip drops locally. */}
+      <ExerciseStateStrips
+        exerciseId={exerciseId}
+        archived={data.archived}
+        imported={data.imported}
+        onAdopted={() => {
+          const adopted = { ...data, imported: false };
+          cache.current.set(exerciseId, adopted);
+          setData(adopted);
+        }}
+      />
+
       <ExerciseAbout data={data} />
     </div>
   );

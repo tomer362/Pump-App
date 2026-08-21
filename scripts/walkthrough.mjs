@@ -28,6 +28,21 @@ const shot = async (page, name) => {
 
 const log = (msg) => console.log(msg);
 
+/**
+ * The two unprompted sheets are dismissed before anything runs. `InstallNudge`
+ * opens 1.2s after the app shell mounts and its backdrop covers the page, so
+ * every click in these scripts raced it and lost — the run died on whatever
+ * step happened to be 1.2s in. Seeding the keys the nudges stamp is the same
+ * answer a returning user gets, and leaves the flows under test untouched.
+ * ("never" is what "Don't ask again" writes; the notify nudge takes a stamp.)
+ */
+const DISMISS_NUDGES = () => {
+  try {
+    localStorage.setItem("pump.install-nudge", "never");
+    localStorage.setItem("pump.notify-nudge", String(Date.now()));
+  } catch {}
+};
+
 const browser = await chromium.launch({
   executablePath:
     process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
@@ -39,6 +54,8 @@ const context = await browser.newContext({
   // for layout, which is what we're checking.
   deviceScaleFactor: 3,
 });
+
+await context.addInitScript(DISMISS_NUDGES);
 
 const page = await context.newPage();
 const errors = [];

@@ -224,7 +224,10 @@ export function SetRow({
           else animate(x, 0, { type: "spring", stiffness: 500, damping: 40 });
         }}
         className={cn(
-          "relative px-3 py-1.5 transition-colors duration-500",
+          // select-none because the whole row is the drag target: a swipe that
+          // starts on the set number and travels sideways is how a selection
+          // gets painted across the row. The inputs opt back in — globals.css.
+          "relative px-3 py-1.5 transition-colors duration-500 select-none",
           // Completed rows tint volt — the single strongest state signal.
           // The jump flash is deliberately neutral: it marks a row you still
           // owe, and volt here would read as "already done".

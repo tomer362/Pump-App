@@ -9,6 +9,7 @@ import { RoutineActions } from "./routine-actions";
 import { RoutineLikeButton } from "@/components/routine/routine-like-button";
 import { folderRail } from "@/lib/folder-color";
 import { cn, formatWeight, labelize } from "@/lib/utils";
+import { restLabel } from "@/lib/rest";
 import { prescribedToken, rpeRangeLabel } from "@/lib/rpe";
 
 export default async function RoutineDetailPage(
@@ -145,7 +146,12 @@ export default async function RoutineDetailPage(
 
                 <p className="text-text-3 mb-2 text-[12px]">
                   {labelize(e.primaryMuscle)} · {labelize(e.equipment)}
-                  {e.restSeconds ? ` · rest ${e.restSeconds}s` : ""}
+                  {/* `!= null`, not truthiness: 0 is "no rest at all", which is a
+                      prescription and not an absence. */}
+                  {e.restSeconds != null &&
+                    (e.restSeconds === 0
+                      ? " · no rest"
+                      : ` · rest ${restLabel(e.restSeconds)}`)}
                   {/* A range, not `sets[0]`: a lift ramping 7/8/9 has to say so
                       rather than announce itself as the first set's effort. */}
                   {rpeRangeLabel(e.sets.map((s) => s.targetRpe)) && (

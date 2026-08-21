@@ -119,6 +119,16 @@ label,
   user-select: none;
 }
 
+/* …but what you typed is always yours to select. `select-none` on a draggable
+   list (so a drag can't paint a selection across the rows it passes) inherits
+   into the inputs inside it, and WebKit honours that to the point of making a
+   weight you typed unselectable. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* iOS zooms the viewport when a focused input is under 16px. Non-negotiable. */
 input,
 select,

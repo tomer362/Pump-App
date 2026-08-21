@@ -19,12 +19,20 @@ const MOVE_TOLERANCE_PX = 8;
  * the links and buttons nested inside. `-webkit-user-drag` is the other half —
  * without it a hold that drifts drags the link's URL around instead.
  *
+ * Selection is the third of the three, and it travels with the hook rather than
+ * being left to the consumer remembering `select-none`: a hold that raises iOS's
+ * selection handles leaves them over the row *behind* whatever the press opened,
+ * and there was no reason two of the three properties came with the hook and the
+ * one that fires most often did not.
+ *
  * Spread onto the same node as the handlers below, which means a consumer that
  * needs its own inline styles has to merge rather than replace this.
  */
 const PRESS_STYLE = {
   WebkitTouchCallout: "none",
   WebkitUserDrag: "none",
+  WebkitUserSelect: "none",
+  userSelect: "none",
 } as React.CSSProperties;
 
 /**
@@ -76,6 +84,11 @@ export function useLongPress(
       timer.current = window.setTimeout(() => {
         timer.current = null;
         fired.current = true;
+        // Android Chrome starts its own selection at about the same 500ms as
+        // this timer, and on iOS a hold that began on a nested node can raise
+        // the handles before the style above applies. Once a range exists,
+        // `user-select: none` can't take it back — only this can.
+        window.getSelection()?.removeAllRanges();
         haptic.medium();
         callback.current();
       }, delayMs);
