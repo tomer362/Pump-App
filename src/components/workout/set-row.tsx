@@ -422,6 +422,7 @@ export function RestStrip({
   override,
   runningTotal,
   onEdit,
+  onOpenTimer,
 }: {
   /** Resolved rest, after the set → exercise → account fallback. */
   seconds: number;
@@ -434,10 +435,21 @@ export function RestStrip({
    */
   runningTotal: number | null;
   onEdit: () => void;
+  /**
+   * Reveals the rest bar — its controls, not a settings sheet. Only the running
+   * strip offers it: the bar no longer takes the bottom of the screen on every
+   * ticked set, so this is now the way to reach ±15s and skip. A strip for a
+   * gap that isn't counting down has no timer to open, and keeps `onEdit`.
+   */
+  onOpenTimer: () => void;
 }) {
   if (runningTotal != null) {
     return (
-      <LiveRestStrip total={runningTotal} override={override} onEdit={onEdit} />
+      <LiveRestStrip
+        total={runningTotal}
+        override={override}
+        onEdit={onOpenTimer}
+      />
     );
   }
   return (
@@ -480,7 +492,7 @@ function LiveRestStrip({
   return (
     <RestStripShell
       onEdit={onEdit}
-      label={`Resting, ${formatDuration(remaining)} left. Change this rest.`}
+      label={`Resting, ${formatDuration(remaining)} left. Open the rest timer.`}
       accent
       running
       value={formatDuration(remaining)}
