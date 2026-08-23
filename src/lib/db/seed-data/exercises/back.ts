@@ -26,6 +26,36 @@ export const BACK: SeedExercise[] = [
         slug: "assisted-pull-up-machine",
         note: "Identical mechanics with part of your bodyweight counterweighted away, which keeps the closed-chain pattern while the strength is being built.",
       },
+      {
+        slug: "pull-up-weighted",
+        note: "The same pull with weight on a belt, which is the only way to keep loading it once bodyweight sets reach the low teens.",
+      },
+    ],
+  },
+  {
+    slug: "pull-up-weighted",
+    name: "Weighted Pull Up",
+    primaryMuscle: "lats",
+    secondaryMuscles: ["biceps", "back"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Hang weight from a dip belt, or hold a dumbbell between the feet.\nHang from the bar with an overhand grip a little wider than the shoulders.\nPull until the chin clears the bar, then lower to a full hang under control.",
+    bodyEffect:
+      "A closed-chain vertical pull carrying more than your bodyweight, so the shoulder adducts and extends and the elbow flexes against a load you set rather than the one you happen to weigh.\n\nLatissimus dorsi and teres major drive the pull, with the lower trapezius and rhomboids controlling the shoulder blade and the biceps flexing the elbow from a pronated — and therefore weaker — position. The trunk works to stop the hanging weight swinging, which an unweighted pull-up never asks for.\n\nIt is the heaviest thing the lats can be exposed to, and the only way to keep the pull-up progressing once bodyweight sets reach the low teens. Adding weight before the full hang and the clean top position are reliable just buries a partial rep under a plate.",
+    alternatives: [
+      {
+        slug: "pull-up",
+        note: "The same movement at exactly bodyweight, which is where the full hang and a clean chin-over-bar should be established first.",
+      },
+      {
+        slug: "chin-up-weighted",
+        note: "The supinated version on the same belt: a stronger line of pull for the elbow flexors, so it loads the arms more and the lats slightly less.",
+      },
+      {
+        slug: "lat-pulldown-cable",
+        note: "The same pulling line against a stack, which adjusts by the kilogram in both directions instead of only upward from bodyweight.",
+      },
     ],
   },
   {
@@ -51,6 +81,10 @@ export const BACK: SeedExercise[] = [
       {
         slug: "lat-pulldown-underhand",
         note: "Same grip and line of pull with an adjustable stack, so you can train it lighter than bodyweight or take it past failure safely.",
+      },
+      {
+        slug: "assisted-chin-up-machine",
+        note: "The same grip with a counterweighted pad taking part of your bodyweight, for building the reps before the full version is available.",
       },
     ],
   },
@@ -103,6 +137,36 @@ export const BACK: SeedExercise[] = [
       {
         slug: "band-assisted-pull-up",
         note: "Band assistance is greatest at the bottom and least at the top, which matches the strength curve better than a constant counterweight.",
+      },
+      {
+        slug: "assisted-chin-up-machine",
+        note: "The same station taken underhand, which most people can do more of because the elbow flexors are in a stronger line.",
+      },
+    ],
+  },
+  {
+    slug: "assisted-chin-up-machine",
+    name: "Assisted Chin Up (Machine)",
+    primaryMuscle: "lats",
+    secondaryMuscles: ["biceps"],
+    equipment: "machine",
+    trackingType: "assist_reps",
+    instructions:
+      "Set the assistance so the last rep of the set is still a struggle.\nTake an underhand grip about shoulder width and kneel or stand on the pad.\nPull the chin over the bar, then lower to a full hang each rep.",
+    bodyEffect:
+      "The same closed-chain vertical pull as a chin-up, with a counterweighted pad removing part of your bodyweight. Supinating the hands rotates the upper arm outward and puts the elbow flexors in their strongest line.\n\nLatissimus dorsi still drives the shoulder, while biceps brachii takes a much larger share than it does under a pronated grip. Because the pad also steadies the body, the trunk contributes less than it would on a free bar.\n\nMost people can do more chin-ups than pull-ups, so this is the station for accumulating volume in the pattern while the strength is being built — and for extending a heavy set past failure. The number on the stack is help received, so a good week is a smaller one; the aim is to stop needing the pad.",
+    alternatives: [
+      {
+        slug: "chin-up",
+        note: "The same grip and path at full bodyweight, with the trunk genuinely working to keep you from swinging on a free bar.",
+      },
+      {
+        slug: "assisted-pull-up-machine",
+        note: "The same counterweighted station taken overhand, which weakens the elbow flexors and hands more of the work to the lats.",
+      },
+      {
+        slug: "lat-pulldown-underhand",
+        note: "Same supinated pulling line against a stack, which can be loaded above bodyweight rather than only assisted below it.",
       },
     ],
   },
@@ -631,6 +695,36 @@ export const BACK: SeedExercise[] = [
         slug: "pull-up",
         note: "The vertical equivalent — same closed-chain principle, but the overhead line of pull biases lat width instead of mid-back thickness.",
       },
+      {
+        slug: "inverted-row-weighted",
+        note: "A plate on the torso keeps this a strength movement once the feet-elevated version stops being difficult.",
+      },
+    ],
+  },
+  {
+    slug: "inverted-row-weighted",
+    name: "Weighted Inverted Row",
+    primaryMuscle: "back",
+    secondaryMuscles: ["biceps", "abs"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Have a plate placed on the chest or hips, or wear a weight vest.\nHang under a fixed bar with the body in one line and the heels on the floor.\nPull the chest to the bar, hold for a beat, and lower until the arms are straight.",
+    bodyEffect:
+      "A horizontal closed-chain pull with load added on top of the share of bodyweight the hands already hold, so the shoulder extends and the shoulder blades retract against more than the body alone provides.\n\nThe mid-back does the work — rhomboids and middle trapezius retracting, latissimus dorsi and the posterior deltoid extending the shoulder — with the biceps flexing the elbow. The abdominals and glutes hold the body rigid, and the added weight makes that a real demand rather than a formality.\n\nRowing horizontally with the shoulder blades free is what a chest-supported machine cannot offer, and adding weight is what keeps it a strength movement once the feet-elevated version stops being hard. A plate balanced on the torso shifts, so a vest is worth having if this becomes a staple.",
+    alternatives: [
+      {
+        slug: "inverted-row",
+        note: "The same pull at bodyweight, where the angle of the body is the way to scale it before any weight is added.",
+      },
+      {
+        slug: "bent-over-row-barbell",
+        note: "Loads the same horizontal pull far heavier, at the cost of asking the lower back to hold a hinged position throughout.",
+      },
+      {
+        slug: "chest-supported-row-dumbbell",
+        note: "Removes the trunk from the equation entirely with a pad, so every bit of the effort reaches the mid-back.",
+      },
     ],
   },
   {
@@ -757,6 +851,36 @@ export const BACK: SeedExercise[] = [
       {
         slug: "romanian-deadlift-barbell",
         note: "A loaded standing hinge with a much greater hamstring stretch and real progressive loading, at real spinal cost.",
+      },
+      {
+        slug: "back-extension-weighted",
+        note: "Holding a plate at the chest or behind the head loads the same extension, which is what the unweighted version quickly stops doing.",
+      },
+    ],
+  },
+  {
+    slug: "back-extension-weighted",
+    name: "Weighted Back Extension",
+    primaryMuscle: "back",
+    secondaryMuscles: ["glutes", "hamstrings"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Hold a plate against the chest or behind the head — behind the head is a longer lever, so it feels heavier for the same weight.\nSet the pad at the hip crease and let the torso fold down.\nExtend until the body is one line and stop there; do not arch past it.",
+    bodyEffect:
+      "Hip and spinal extension against a load held out in front of the shoulders, which lengthens the lever the whole posterior chain is working against.\n\nErector spinae holds and extends the spine while gluteus maximus and the hamstrings extend the hip, and how the pad is set decides the split between them. Holding the weight behind the head rather than at the chest increases the demand substantially at the same kilogram.\n\nThe unweighted version stops being a strength exercise quickly, and low-back work responds to load like anything else. Overshooting into hyperextension at the top is the way this gets people hurt, and adding weight makes that far less forgiving, so the range should be settled before the plate appears.",
+    alternatives: [
+      {
+        slug: "back-extension",
+        note: "The same movement at bodyweight, which is where the end position and the tempo should be settled before a plate is added.",
+      },
+      {
+        slug: "romanian-deadlift-barbell",
+        note: "Trains the same hip extension standing and loads it far heavier, with the hamstrings taking more of the work than the spinal extensors.",
+      },
+      {
+        slug: "glute-ham-raise",
+        note: "The other loaded version of this bench, biased to the hamstrings through knee flexion rather than to the hips and the low back.",
       },
     ],
   },

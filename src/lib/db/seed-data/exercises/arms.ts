@@ -367,6 +367,10 @@ export const ARMS: SeedExercise[] = [
         slug: "lat-pulldown-underhand",
         note: "Same grip and pulling line with adjustable load, so it can be scaled below bodyweight or run past failure.",
       },
+      {
+        slug: "pull-up-weighted",
+        note: "The overhand version on the same belt, which weakens the elbow flexors and shifts the emphasis toward the lats.",
+      },
     ],
   },
   /* ---- Triceps ---- */
@@ -418,6 +422,10 @@ export const ARMS: SeedExercise[] = [
       {
         slug: "bench-dip",
         note: "A far lighter version using a bench, though the fixed hand position puts the shoulder in a more awkward rotation.",
+      },
+      {
+        slug: "dip-weighted",
+        note: "The same bars with weight on a belt, which is how to keep loading dips once bodyweight reps stop being hard.",
       },
     ],
   },

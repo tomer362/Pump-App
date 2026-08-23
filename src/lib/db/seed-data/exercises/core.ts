@@ -179,6 +179,35 @@ export const CORE: SeedExercise[] = [
         slug: "toes-to-bar",
         note: "Extends the same movement to full range with a dynamic element, which is much harder and much less strict.",
       },
+      {
+        slug: "hanging-leg-raise-weighted",
+        note: "A dumbbell between the feet loads the far end of a long lever, which is how this stays hard past fifteen clean reps.",
+      },
+    ],
+  },
+  {
+    slug: "hanging-leg-raise-weighted",
+    name: "Weighted Hanging Leg Raise",
+    primaryMuscle: "abs",
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Hold a dumbbell between the feet, or wear ankle weights.\nHang from a bar and tilt the pelvis back before anything moves.\nRaise the legs to at least hip height and lower them slowly, without swinging.",
+    bodyEffect:
+      "Hip flexion combined with a posterior pelvic tilt, loaded at the far end of a very long lever — the weight sits at the feet, so a small dumbbell produces a large moment at the trunk.\n\nRectus abdominis produces the tilt and resists the extension the load is trying to force, while the hip flexors raise the thighs and the lats and forearms hold the hang. It is the tilt that makes it abdominal work; swinging the legs up without it is a hip flexor exercise.\n\nAdding weight is how this stays a strength movement once fifteen clean reps are available, and the abdominals respond to load the same way any other muscle does. The grip usually fails first, which is the practical ceiling on the exercise rather than anything to do with the trunk.",
+    alternatives: [
+      {
+        slug: "hanging-leg-raise",
+        note: "The same movement at bodyweight, where the pelvic tilt and a swing-free descent should be reliable before weight is added.",
+      },
+      {
+        slug: "cable-crunch",
+        note: "Loads spinal flexion directly against a stack, which adjusts by the kilogram and does not depend on the grip holding out.",
+      },
+      {
+        slug: "toes-to-bar",
+        note: "Extends the range to the bar instead of adding load, which trains the same tilt through a far longer arc.",
+      },
     ],
   },
   {
@@ -378,6 +407,36 @@ export const CORE: SeedExercise[] = [
       {
         slug: "hanging-leg-raise",
         note: "Curls the pelvis instead of the torso, avoiding repeated loaded flexion of the lower back.",
+      },
+      {
+        slug: "decline-sit-up-weighted",
+        note: "Holding a plate at the chest puts this back into the rep ranges everything else in a session is trained in.",
+      },
+    ],
+  },
+  {
+    slug: "decline-sit-up-weighted",
+    name: "Weighted Decline Sit Up",
+    primaryMuscle: "abs",
+    secondaryMuscles: ["obliques"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Hold a plate against the chest, or behind the head for a longer lever.\nHook the feet on a decline bench and start with the torso low.\nCurl up spine by spine rather than hinging at the hip in one piece, then lower slowly.",
+    bodyEffect:
+      "Spinal flexion followed by hip flexion on a decline, with load held at the shoulders so the resistance grows through the bottom half of the range where the trunk is most horizontal.\n\nRectus abdominis flexes the spine and the obliques stabilise against any rotation, then the hip flexors finish the movement by drawing the torso up toward the knees. The decline is what keeps tension on at the bottom, where a flat-floor sit-up has almost none.\n\nHolding a plate turns a high-rep exercise into one that can be progressed in the same rep ranges as anything else. Yanking on the head with the plate behind it is the common fault and the reason to start with it on the chest.",
+    alternatives: [
+      {
+        slug: "decline-sit-up",
+        note: "The same movement at bodyweight, which is where the curl-up sequence should be clean before a plate is involved.",
+      },
+      {
+        slug: "cable-crunch",
+        note: "Loads spinal flexion alone against a stack, with the hip flexors largely out of it and the weight adjustable a plate at a time.",
+      },
+      {
+        slug: "hanging-leg-raise-weighted",
+        note: "Works the same trunk from the other end — the pelvis moves toward the ribs rather than the ribs toward the pelvis.",
       },
     ],
   },
