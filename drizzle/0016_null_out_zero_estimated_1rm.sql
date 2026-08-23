@@ -1,0 +1,18 @@
+-- Hand-authored, in the manner of 0010 and 0015.
+--
+-- estimate1RM (lib/utils.ts) returns 0, not null, when weight or reps is
+-- non-positive. quickLogSet guarded against that with `weightKg > 0 && reps > 0`
+-- but updateSet and the bulk fill did not, so a set ticked with a blank-as-zero
+-- weight persisted estimated_1rm = 0.
+--
+-- Nothing downstream can tell that apart from a genuine estimate. The exercise
+-- page's Est. 1RM chart took MAX(estimated_1rm) over the session and printed
+-- "0 kg" against a day nothing was logged at zero, which also dropped the trend
+-- line to the floor and put a fictional 0 on the axis.
+--
+-- Zero is never a meaningful estimated 1RM: a set that moved no weight has no
+-- estimate. So every stored 0 is one of these, and null is what it should have
+-- been. The read aggregates already treat null as "no figure", and
+-- recalculatePersonalRecords guards its weight/1rm/volume branches on > 0, so
+-- no record changes as a result of this.
+UPDATE "workout_set" SET "estimated_1rm" = NULL WHERE "estimated_1rm" = 0;
