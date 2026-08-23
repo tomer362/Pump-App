@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Archivo } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
+import { ScrollRestoration } from "@/components/ui/scroll-restoration";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -77,11 +78,20 @@ export default function RootLayout({
           contained, so an over-scroll can't drag the fixed tab bar out of
           place or expose a blank strip under the content. `position: fixed`
           descendants still resolve against the viewport — the scroller sets no
-          transform or filter — so docked chrome needs no change. */}
+          transform or filter — so docked chrome needs no change.
+
+          It carries an id because scroll restoration has to reach the element
+          itself, imperatively, before any scroll event has fired.
+          `use-scroll-watch.ts` deliberately still finds it through a
+          capture-phase listener instead: it only ever wants the events. */}
       <body className="bg-bg text-text-1 h-screen-d overflow-hidden">
-        <div className="h-full overflow-y-auto overscroll-y-contain">
+        <div
+          id="app-scroll"
+          className="h-full overflow-y-auto overscroll-y-contain"
+        >
           {children}
         </div>
+        <ScrollRestoration />
         <ServiceWorkerRegistrar />
       </body>
     </html>

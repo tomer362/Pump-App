@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { currentKeys } from "@/lib/scroll-memory";
+import {
+  LIST_STORAGE_PREFIX,
+  readSession,
+  writeSession,
+} from "@/lib/session-memory";
 import {
   searchExerciseBatchAction,
   type ExerciseBatch,
@@ -33,6 +39,44 @@ type Loaded = {
   cursor: ExerciseCursor | null;
 };
 
+/* -------------------------------------------------------------------------- *
+ * The accumulated batches, cached for the session.
+ *
+ * Without this, coming back to the library from an exercise page leaves the
+ * list one batch tall — so a remembered scroll position has nowhere to land,
+ * and the sentinel would spend a round trip per batch climbing back to it. The
+ * rows are already on the client; keeping them costs no query at all.
+ * -------------------------------------------------------------------------- */
+
+function snapshotKey(persistKey: string) {
+  return `${LIST_STORAGE_PREFIX}${currentKeys().routeKey}::batches:${persistKey}`;
+}
+
+function reviveItem(value: unknown): ExerciseListItem {
+  const item = value as ExerciseListItem;
+  return {
+    ...item,
+    lastPerformedAt: item.lastPerformedAt
+      ? new Date(item.lastPerformedAt)
+      : null,
+  };
+}
+
+function reviveLoaded(value: unknown): Loaded | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.key !== "string" || !v.key) return null;
+  if (!Array.isArray(v.recent) || !Array.isArray(v.rest)) return null;
+  if (!Array.isArray(v.imported)) return null;
+  return {
+    key: v.key,
+    recent: v.recent.map(reviveItem),
+    rest: v.rest.map(reviveItem),
+    imported: v.imported.map(reviveItem),
+    cursor: (v.cursor as ExerciseCursor | null) ?? null,
+  };
+}
+
 function signatureOf(f: ExerciseBatchFilters) {
   return [
     f.query?.trim() ?? "",
@@ -62,18 +106,38 @@ export function useExerciseBatches(
     enabled = true,
     /** Server-rendered opening batch, if the page had one. */
     initial,
+    /**
+     * The filters `initial` was rendered for, when they aren't the ones being
+     * passed in. The library page always server-renders the *unfiltered*
+     * batch, while the filters themselves are restored from the session — so
+     * on a back navigation the first render already carries a search the
+     * server knew nothing about, and labelling those rows with it would show
+     * the whole library under the word "bench" and never refetch.
+     */
+    initialFor,
     debounceMs = 180,
+    /**
+     * Cache the accumulated batches for this route under this name, so a back
+     * navigation gets its list back. Set it for the library page; not for the
+     * picker sheet, which doesn't participate in history and where reopening
+     * is usually a new search.
+     */
+    persistKey,
   }: {
     enabled?: boolean;
     initial?: ExerciseBatch;
+    initialFor?: ExerciseBatchFilters;
     debounceMs?: number;
+    persistKey?: string;
   } = {},
 ) {
   const signature = signatureOf(filters);
 
   // The signature the initial data was rendered for. Captured once: if the
   // user changes a filter and comes back, the refetched rows are the truth.
-  const [initialKey] = useState(() => (initial ? signature : null));
+  const [initialKey] = useState(() =>
+    initial ? signatureOf(initialFor ?? filters) : null,
+  );
   const [loaded, setLoaded] = useState<Loaded>(() => ({
     key: initialKey ?? "",
     recent: initial?.recent ?? [],
@@ -82,6 +146,13 @@ export function useExerciseBatches(
     cursor: initial?.cursor ?? null,
   }));
   const [loadingMore, setLoadingMore] = useState(false);
+
+  /**
+   * Whose rows the current `loaded` can be trusted to be — the server-rendered
+   * batch, or a restored snapshot. Anything else gets refetched, which is what
+   * keeps a filter you come back to honest.
+   */
+  const trusted = useRef<string | null>(initialKey);
 
   // `loading` is derived from whose filters the rows belong to rather than
   // written on every keystroke, so typing doesn't flash the list empty.
@@ -99,16 +170,38 @@ export function useExerciseBatches(
     signatureRef.current = signature;
   });
 
+  // Restored batches. Keyed on the signature rather than run once on mount,
+  // because the filters they belong to are themselves restored — one commit
+  // later than this component first renders.
+  const snapshot = useRef<Loaded | null | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!persistKey || !enabled) return;
+    if (snapshot.current === undefined) {
+      snapshot.current = readSession(snapshotKey(persistKey), reviveLoaded);
+    }
+    const saved = snapshot.current;
+    if (!saved || saved.key !== signature) return;
+    if (saved.rest.length <= loadedRef.current.rest.length) return;
+    snapshot.current = null;
+    trusted.current = signature;
+    setLoaded(saved);
+  }, [persistKey, enabled, signature]);
+
   // Opening batch. Debounced, so a search request isn't fired per keystroke.
   const request = useRef(0);
   useEffect(() => {
     if (!enabled) return;
-    if (initialKey === signature && loadedRef.current.key === signature) return;
+    if (trusted.current === signature && loadedRef.current.key === signature) {
+      return;
+    }
     const id = ++request.current;
     const timer = window.setTimeout(async () => {
       const batch = await searchExerciseBatchAction({ ...filtersRef.current });
       // A slower earlier request must never overwrite a newer one's rows.
       if (request.current !== id) return;
+      // Fresh rows outrank a snapshot for every filter from here on.
+      snapshot.current = null;
+      trusted.current = signature;
       setLoaded({
         key: signature,
         recent: batch.recent ?? [],
@@ -118,7 +211,7 @@ export function useExerciseBatches(
       });
     }, debounceMs);
     return () => window.clearTimeout(timer);
-  }, [enabled, signature, initialKey, debounceMs]);
+  }, [enabled, signature, debounceMs]);
 
   const loadMore = useCallback(async () => {
     const current = loadedRef.current;
@@ -179,6 +272,15 @@ export function useExerciseBatches(
   );
 
   useEffect(() => () => observer.current?.disconnect(), []);
+
+  // Persist whatever is on screen, so a back navigation lands in the same
+  // list. Only past the opening batch: a first page costs nothing to render
+  // again and is what the server already sends.
+  useEffect(() => {
+    if (!persistKey || !enabled) return;
+    if (loaded.key !== signature || !loaded.rest.length) return;
+    writeSession(snapshotKey(persistKey), loaded);
+  }, [persistKey, enabled, loaded, signature]);
 
   // A batch that doesn't push the sentinel out of view produces no second
   // intersection event — on a tall screen, or under a filter with few matches,

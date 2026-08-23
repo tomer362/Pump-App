@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { Dumbbell, Home, ListChecks, User, LibraryBig } from "lucide-react";
 import { useLinkPending } from "./route-progress";
 import { cn, haptic } from "@/lib/utils";
+import { markRestoringNavigation } from "@/lib/scroll-memory";
+import { scrollAppToTop } from "./scroll-restoration";
 
 const TABS = [
   { href: "/feed", label: "Feed", icon: Home },
@@ -39,7 +41,15 @@ export function TabBar({ unreadCount = 0 }: { unreadCount?: number }) {
               <Link
                 href={href}
                 prefetch
-                onClick={() => haptic.light()}
+                onClick={() => {
+                  haptic.light();
+                  // Returning to a tab returns you to where you were reading
+                  // it — the whole point of a tab bar over a menu. Tapping the
+                  // tab you are already *on* is the one gesture that means the
+                  // opposite: go back to the top.
+                  if (pathname === href) scrollAppToTop();
+                  else markRestoringNavigation("tab");
+                }}
                 aria-current={active ? "page" : undefined}
                 className="press relative flex h-full flex-col items-center justify-center gap-[3px] text-[10px] font-medium tracking-[0.01em]"
               >

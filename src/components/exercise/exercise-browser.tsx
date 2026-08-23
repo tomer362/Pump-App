@@ -23,6 +23,7 @@ import type { ExerciseBatch } from "@/lib/actions/exercise-search";
 import type { ExerciseListItem, ExerciseScope } from "@/lib/queries/exercise";
 import { MUSCLES } from "@/lib/db/schema";
 import type { Muscle } from "@/lib/db/schema";
+import { useRouteMemory } from "@/hooks/use-route-memory";
 import { labelize } from "@/lib/utils";
 
 // Behind a gesture, so it stays out of the initial payload.
@@ -41,6 +42,24 @@ const SCOPES = [
 
 const MUSCLE_FILTERS = ["all", ...MUSCLES] as const;
 
+type Filters = { query: string; scope: ExerciseScope; muscle: Muscle | "all" };
+
+const NO_FILTERS: Filters = { query: "", scope: "available", muscle: "all" };
+
+/** A stored shape from an older build must not load. */
+function reviveFilters(value: unknown): Filters | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.query !== "string") return null;
+  if (!SCOPES.some((s) => s.value === v.scope)) return null;
+  if (!MUSCLE_FILTERS.some((m) => m === v.muscle)) return null;
+  return {
+    query: v.query,
+    scope: v.scope as ExerciseScope,
+    muscle: v.muscle as Muscle | "all",
+  };
+}
+
 export function ExerciseBrowser({
   initial,
   unit,
@@ -48,16 +67,29 @@ export function ExerciseBrowser({
   initial: ExerciseBatch;
   unit: "kg" | "lb";
 }) {
-  const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<ExerciseScope>("available");
-  const [muscle, setMuscle] = useState<Muscle | "all">("all");
+  // One memory for the three of them: opening an exercise and coming back to
+  // an unfiltered library is the same lost place as coming back to the top of
+  // one. The batches below are cached under the same route, so a restored
+  // search shows its own rows rather than refetching them.
+  const [filters, setFilters] = useRouteMemory<Filters>(
+    "exercise-filters",
+    NO_FILTERS,
+    reviveFilters,
+  );
+  const { query, scope, muscle } = filters;
+  const setQuery = (next: string) => setFilters({ ...filters, query: next });
+  const setScope = (next: ExerciseScope) => setFilters({ ...filters, scope: next });
+  const setMuscle = (next: Muscle | "all") => setFilters({ ...filters, muscle: next });
   const [creating, setCreating] = useState(false);
 
   const [showImported, setShowImported] = useState(false);
 
   // The first batch is server-rendered, the rest arrive as the user scrolls.
   const { recent, rest, imported, loadingMore, exhausted, sentinelRef, refresh } =
-    useExerciseBatches({ query, scope, muscle }, { initial });
+    useExerciseBatches(
+      { query, scope, muscle },
+      { initial, initialFor: NO_FILTERS, persistKey: "exercises" },
+    );
 
   const reveal = importedRevealState(imported);
 

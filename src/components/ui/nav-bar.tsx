@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { cn, haptic } from "@/lib/utils";
+import { markRestoringNavigation } from "@/lib/scroll-memory";
 
 /**
  * iOS-style navigation bar with a large title that collapses into the bar as
@@ -41,8 +42,15 @@ export function NavBar({
 
   const goBack = () => {
     haptic.light();
-    if (typeof back === "string") router.push(back);
-    else router.back();
+    if (typeof back === "string") {
+      // A fixed href is a *forward* push that the user reads as going back, so
+      // it has to say so — a pop announces itself, this doesn't.
+      markRestoringNavigation("back-push");
+      router.push(back);
+    } else {
+      // `popstate` is the announcement; ScrollRestoration listens for it.
+      router.back();
+    }
   };
 
   return (
