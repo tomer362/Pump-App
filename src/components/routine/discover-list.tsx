@@ -10,8 +10,15 @@ import { RoutineLikeButton } from "./routine-like-button";
 import { loadMoreDiscoverRoutines } from "@/lib/actions/paginate";
 import { copyRoutine } from "@/lib/actions/routine";
 import { DISCOVER_PAGE_SIZE } from "@/lib/pagination";
+import { usePagedList } from "@/hooks/use-paged-list";
 import type { DiscoverRoutine, DiscoverSort } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
+
+/** JSON has no `Date`; `createdAt` is the "new" ordering's cursor. */
+function reviveRoutine(value: unknown): DiscoverRoutine {
+  const r = value as DiscoverRoutine;
+  return { ...r, createdAt: new Date(r.createdAt) };
+}
 
 const SORTS = [
   { value: "popular" as const, label: "Popular" },
@@ -28,11 +35,21 @@ export function DiscoverList({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [items, setItems] = useState(initial);
-  const [loading, setLoading] = useState(false);
-  const [exhausted, setExhausted] = useState(
-    initial.length < DISCOVER_PAGE_SIZE,
-  );
+  const { items, loading, exhausted, more } = usePagedList({
+    initial,
+    pageSize: DISCOVER_PAGE_SIZE,
+    // The ordering is part of the identity: pages of "popular" must never be
+    // restored into "new".
+    name: `discover:${sort}`,
+    idOf: (r) => r.id,
+    revive: reviveRoutine,
+    fetchMore: (last) =>
+      loadMoreDiscoverRoutines(sort, {
+        value:
+          sort === "popular" ? last.popularity : last.createdAt.toISOString(),
+        id: last.id,
+      }),
+  });
 
   function setSort(next: DiscoverSort) {
     const q = new URLSearchParams(params.toString());
@@ -41,23 +58,6 @@ export function DiscoverList({
     // The sort lives in the URL so back returns to the list you were reading,
     // and a reload doesn't silently reorder it.
     router.replace(`${pathname}?${q}`, { scroll: false });
-  }
-
-  async function more() {
-    const last = items[items.length - 1];
-    if (!last) return;
-    setLoading(true);
-    const next = await loadMoreDiscoverRoutines(sort, {
-      value: sort === "popular" ? last.popularity : last.createdAt.toISOString(),
-      id: last.id,
-    });
-    setLoading(false);
-    if (next.length < DISCOVER_PAGE_SIZE) setExhausted(true);
-    if (!next.length) return;
-    setItems((prev) => {
-      const seen = new Set(prev.map((r) => r.id));
-      return [...prev, ...next.filter((r) => !seen.has(r.id))];
-    });
   }
 
   return (

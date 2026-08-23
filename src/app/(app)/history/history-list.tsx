@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Trophy } from "lucide-react";
 import { Card, Badge } from "@/components/ui/primitives";
 import { LoadMore } from "@/components/ui/load-more";
 import { loadMoreHistory } from "@/lib/actions/paginate";
 import { HISTORY_PAGE_SIZE } from "@/lib/pagination";
+import { usePagedList } from "@/hooks/use-paged-list";
 import {
   formatDayLabel,
   formatDurationLong,
@@ -23,6 +23,12 @@ type Workout = {
   prCount: number;
 };
 
+/** JSON has no `Date`; the rows are grouped and labelled by `startedAt`. */
+function reviveWorkout(value: unknown): Workout {
+  const w = value as Workout;
+  return { ...w, startedAt: new Date(w.startedAt) };
+}
+
 export function HistoryList({
   initial,
   unit,
@@ -30,25 +36,17 @@ export function HistoryList({
   initial: Workout[];
   unit: "kg" | "lb";
 }) {
-  const [items, setItems] = useState(initial);
-  const [loading, setLoading] = useState(false);
-  const [exhausted, setExhausted] = useState(
-    initial.length < HISTORY_PAGE_SIZE,
-  );
-
-  async function more() {
-    const last = items[items.length - 1];
-    if (!last) return;
-    setLoading(true);
-    const next = await loadMoreHistory(new Date(last.startedAt).toISOString());
-    setLoading(false);
-    if (next.length < HISTORY_PAGE_SIZE) setExhausted(true);
-    if (!next.length) return;
-    setItems((prev) => {
-      const seen = new Set(prev.map((w) => w.id));
-      return [...prev, ...next.filter((w) => !seen.has(w.id))];
-    });
-  }
+  // Cached for the session: opening a workout from six months down and coming
+  // back must not drop you at this month again.
+  const { items, loading, exhausted, more } = usePagedList({
+    initial,
+    pageSize: HISTORY_PAGE_SIZE,
+    name: "history",
+    idOf: (w) => w.id,
+    revive: reviveWorkout,
+    fetchMore: (last) =>
+      loadMoreHistory(new Date(last.startedAt).toISOString()),
+  });
 
   // Group by calendar month so a long history stays scannable. Done here
   // rather than on the server so an appended page merges into the month it

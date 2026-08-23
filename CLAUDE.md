@@ -138,6 +138,76 @@ over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
 no transform or filter — so docked chrome needs no change. Route shells use
 `min-h-full`, never a second `min-h-screen-d`.
 
+**Which is why coming back to a list used to land you at the top.** Both the
+browser's scroll restoration and Next's act on the *document* scroller, which
+here is permanently at zero, so nothing was ever restored: every back from an
+exercise, a workout or a post reopened the list at row one.
+`lib/scroll-memory.ts` is the memory and `components/ui/scroll-restoration.tsx`
+is the only thing that drives it — one component in the root layout, which is
+also why the scroller now carries `id="app-scroll"` (`use-scroll-watch.ts`
+still finds it by capture-phase listening, because it only ever wants events;
+restoring needs the element in a layout effect, before any scroll has fired).
+
+- **A return restores; anything else starts at the top.** A `popstate` covers
+  `router.back()`, the NavBar chevron and the iOS back-swipe; the NavBar's
+  fixed-href variant (`back="/gyms"`) and a tab-bar tap are *forward* pushes
+  that read as returns, so they say so through `markRestoringNavigation`. A
+  latch with no navigation behind it expires in `LATCH_TTL_MS`, or a cancelled
+  swipe would restore the next screen you deliberately opened. Tapping the tab
+  you are already on is the one gesture that means the opposite, and scrolls to
+  top.
+- **Two indices, because a push cannot use the first.** Offsets are stored per
+  Navigation-API entry key *and* per route, and a pop prefers the entry — which
+  is what lets one route hold two places in one stack. A `back="/path"` push
+  and a tab tap mint a *new* entry, so the route slot is the only one they can
+  ever match; on a browser with no Navigation API everything falls back to it.
+  Never `history.state`: the App Router owns that object.
+- **Only a scroll somebody performed is remembered.** Next scrolls the
+  container to the top of the incoming route while the URL is still the
+  outgoing one, so an ungated handler wrote those few pixels over the position
+  the lifter left — on every navigation, which is every time this is supposed
+  to work. `acceptScroll` takes a scroll as real when a gesture that can cause
+  one happened in the last 400 ms, or when it continues an unbroken chain of
+  scrolls (a flick's momentum fires no further input events). Not
+  `pointerdown`: tapping a link is input, and what follows it is the
+  navigation — that gap is covered by arming `suspendSaves` on every anchor
+  click.
+- **The restore is a bounded rAF loop, not one assignment.** The page arrives
+  as a `loading.tsx` skeleton, where the offset clamps to nothing, and Next
+  scrolls again on the commit where the streamed content lands — later than
+  this effect. So the loop re-asserts every frame for `RESTORE_DEADLINE_MS`
+  and aborts the instant the lifter touches the screen. It never animates: a
+  smooth scroll would still be moving when the next frame re-asserts.
+- **`/workout/[id]` is deny-listed** (`SKIP_PREFIXES`). `jumpToSet` and
+  `useScrollWatch` already own that screen's scrolling, and mid-workout "where
+  I was" means the next set, not a pixel offset.
+
+**Restoring the offset is not enough on a list that paginates.** `/feed`,
+`/history` and Discover seed one server-rendered page into `useState`, so a
+back navigation remounted them 20 rows tall and the position was not merely
+forgotten but *unreachable*. `hooks/use-paged-list.ts` keeps the accumulated
+rows in `sessionStorage` and merges them back — no re-fetching, because back is
+the most common gesture in the app and re-requesting four pages from a
+scale-to-zero database on every press is exactly the spend `ui/load-more.tsx`
+refuses when it declines to auto-load on a sentinel. The snapshot is taken only
+while its leading ids still match the server's fresh first page; anything else
+means the list really changed and the page wins. `use-exercise-batches` does
+the same for the library's auto-loaded batches under `persistKey`, and
+deliberately not for the picker sheet — a sheet doesn't participate in history.
+
+**The other half of "put me back" is the state around the list**
+(`hooks/use-route-memory.ts`): the library's search box and filters, and which
+tab of `/exercises/[id]` you were reading. Restoring a scroll offset onto a
+list that has forgotten what you searched for restores a position in the wrong
+list. Not the URL, tidier though that would be: these screens are server
+components, so `router.replace` with a new query re-runs them — a tab tap would
+re-issue eight aggregates and a keystroke would add a round trip to the one the
+client already makes. All of it is read through `useSyncExternalStore` with a
+null server snapshot, never a `useState` initialiser, or the first client
+render disagrees with the server HTML and React discards the subtree being
+restored. `sessionStorage` throughout, and `clearSessionMemory` on sign-out:
+these hold one account's rows, searches and reading positions.
+
 **Scrolling the workout never loses your place.** A phone shows about one
 exercise at a time, so the active workout screen keeps three things pinned as
 you move (`hooks/use-scroll-watch.ts`, one rAF-throttled measure pass over
@@ -312,7 +382,9 @@ visit would silently restart a cycle somebody opted out of.
   ordinary tab, so `isStandalone()` cannot confirm it; the `appinstalled` event
   is the only signal.
 
-**The consistency heatmap opens on this week, not on last February.** Half a
+**The consistency heatmap opens on this week, not on last February** — unless
+you had already panned it somewhere else and came back (`useScrollMemory`,
+which is the same memory keyed by a name inside the page). Half a
 year of columns is wider than a phone, the newest week is the right-hand edge,
 and `scrollbar-none` leaves nothing on screen to say the grid scrolls — so at
 the browser's default `scrollLeft: 0` the one part anybody opens `/stats` for

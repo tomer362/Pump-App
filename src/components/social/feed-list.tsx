@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { PostCard } from "./post-card";
 import { LoadMore } from "@/components/ui/load-more";
 import { loadMoreFeed } from "@/lib/actions/paginate";
 import { FEED_PAGE_SIZE } from "@/lib/pagination";
+import { usePagedList } from "@/hooks/use-paged-list";
 import type { FeedItem } from "@/lib/queries/social";
+
+/** JSON has no `Date`; the feed renders `createdAt` as one. */
+function reviveFeedItem(value: unknown): FeedItem {
+  const item = value as FeedItem;
+  return { ...item, createdAt: new Date(item.createdAt) };
+}
 
 export function FeedList({
   initial,
@@ -14,25 +20,16 @@ export function FeedList({
   initial: FeedItem[];
   unit: "kg" | "lb";
 }) {
-  const [items, setItems] = useState(initial);
-  const [loading, setLoading] = useState(false);
-  // A short first page means there is nothing behind it.
-  const [exhausted, setExhausted] = useState(initial.length < FEED_PAGE_SIZE);
-
-  async function more() {
-    const last = items[items.length - 1];
-    if (!last) return;
-    setLoading(true);
-    const next = await loadMoreFeed(new Date(last.createdAt).toISOString());
-    setLoading(false);
-    if (next.length < FEED_PAGE_SIZE) setExhausted(true);
-    if (!next.length) return;
-    // Guard against a duplicate if a post lands on the cursor boundary.
-    setItems((prev) => {
-      const seen = new Set(prev.map((p) => p.postId));
-      return [...prev, ...next.filter((p) => !seen.has(p.postId))];
-    });
-  }
+  // The loaded pages are cached for the session, so coming back from a post
+  // returns to the row you tapped rather than to the top of page one.
+  const { items, loading, exhausted, more } = usePagedList({
+    initial,
+    pageSize: FEED_PAGE_SIZE,
+    name: "feed",
+    idOf: (item) => item.postId,
+    revive: reviveFeedItem,
+    fetchMore: (last) => loadMoreFeed(new Date(last.createdAt).toISOString()),
+  });
 
   return (
     <div className="space-y-3 px-4">

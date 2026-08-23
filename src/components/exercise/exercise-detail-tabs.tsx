@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { Dumbbell } from "lucide-react";
 import { Card, EmptyState, Segmented, SectionTitle } from "@/components/ui/primitives";
@@ -14,6 +13,7 @@ import type {
   ExerciseSummary,
   RepMax,
 } from "@/lib/queries/exercise";
+import { useRouteMemory } from "@/hooks/use-route-memory";
 import { cn, formatDayLabel, formatVolume, formatWeight } from "@/lib/utils";
 import { isAssistedTracking } from "@/lib/tracking";
 
@@ -25,6 +25,10 @@ const TABS = [
   { value: "charts" as const, label: "Charts" },
   { value: "records" as const, label: "Records" },
 ];
+
+function reviveTab(value: unknown): Tab | null {
+  return TABS.some((t) => t.value === value) ? (value as Tab) : null;
+}
 
 /**
  * The About half is its own type because the routine builder shows that panel
@@ -64,8 +68,14 @@ export function ExerciseDetailTabs({
   unit: "kg" | "lb";
   className?: string;
 }) {
-  const [tab, setTab] = useState<Tab>(
+  // Remembered per exercise: opening a session from the History tab and
+  // pressing back has to come back to History. The panels are `&&`-mounted, so
+  // landing on the wrong one also means landing on a page of a different
+  // height, with nowhere for the restored scroll offset to go.
+  const [tab, setTab] = useRouteMemory<Tab>(
+    "exercise-tab",
     data.summary.sessions > 0 ? "charts" : "about",
+    reviveTab,
   );
 
   return (
