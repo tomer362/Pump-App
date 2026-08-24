@@ -44,6 +44,27 @@ export default async function ExerciseDetailPage(
         title={exercise.name}
         back
         subtitle={`${labelize(exercise.primaryMuscle)} · ${labelize(exercise.equipment)}`}
+        // Edit and archive ride in the sticky bar, so they are reachable at
+        // every scroll position rather than below a tab panel that can be
+        // thirty history rows tall. Absent for a built-in: the seeded library
+        // is read-only by construction.
+        right={
+          mine ? (
+            <ManageExercise
+              exerciseId={exercise.id}
+              name={exercise.name}
+              archived={archived}
+              initial={{
+                name: exercise.name,
+                primaryMuscle: exercise.primaryMuscle,
+                secondaryMuscles: exercise.secondaryMuscles,
+                equipment: exercise.equipment,
+                trackingType: exercise.trackingType,
+                instructions: exercise.instructions ?? "",
+              }}
+            />
+          ) : null
+        }
       />
 
       <div className="space-y-6 px-4">
@@ -73,21 +94,6 @@ export default async function ExerciseDetailPage(
           />
         </Suspense>
 
-        {mine && (
-          <ManageExercise
-            exerciseId={exercise.id}
-            name={exercise.name}
-            archived={archived}
-            initial={{
-              name: exercise.name,
-              primaryMuscle: exercise.primaryMuscle,
-              secondaryMuscles: exercise.secondaryMuscles,
-              equipment: exercise.equipment,
-              trackingType: exercise.trackingType,
-              instructions: exercise.instructions ?? "",
-            }}
-          />
-        )}
       </div>
 
       {/* No dock on an archived exercise — it is hidden from every picker, so

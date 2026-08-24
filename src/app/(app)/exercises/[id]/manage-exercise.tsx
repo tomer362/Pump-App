@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Pencil } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Archive, ArchiveRestore, Ellipsis, Pencil } from "lucide-react";
+import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import {
   ExerciseForm,
@@ -17,6 +17,14 @@ import {
 /**
  * Edit and archive, offered only for exercises you created — the seeded
  * library is shared and has no owner.
+ *
+ * It lives in the NavBar's `right` slot rather than at the foot of the page.
+ * The page under it is a tab panel that can be thirty rows of history or a
+ * full chart card, so a control below it was off screen at every scroll
+ * position anybody actually reads from — you had to scroll past everything you
+ * came for to reach the button. The nav bar is sticky and survives the
+ * large-title collapse, so one 44px icon there is reachable throughout and
+ * costs the content nothing.
  *
  * Archive rather than delete: a real delete cascades to every set logged
  * against the exercise, which rewrites finished workouts and drops the records
@@ -35,6 +43,7 @@ export function ManageExercise({
   initial: ExerciseFormValues;
 }) {
   const router = useRouter();
+  const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,36 +61,59 @@ export function ManageExercise({
       return;
     }
     setConfirming(false);
+    setMenu(false);
     router.refresh();
   }
 
   return (
     <>
-      <div className="space-y-2">
-        <Button block variant="outline" onClick={() => setEditing(true)}>
-          <Pencil className="size-4" />
-          Edit exercise
-        </Button>
-        {archived ? (
-          <Button block variant="ghost" loading={busy} onClick={toggleArchive}>
-            <ArchiveRestore className="size-4" />
-            Restore to your library
-          </Button>
-        ) : (
+      <IconButton label="Exercise options" onClick={() => setMenu(true)}>
+        <Ellipsis className="size-[20px]" />
+      </IconButton>
+
+      {/* Restore commits from this sheet, so it needs a drawn dismiss. */}
+      <Sheet
+        open={menu}
+        onClose={() => setMenu(false)}
+        title={name}
+        dismissLabel="Done"
+      >
+        <div className="space-y-2 px-4 pb-2">
           <Button
             block
-            variant="ghost"
-            className="text-danger"
-            onClick={() => setConfirming(true)}
+            variant="outline"
+            onClick={() => {
+              setMenu(false);
+              setEditing(true);
+            }}
           >
-            <Archive className="size-4" />
-            Archive exercise
+            <Pencil className="size-4" />
+            Edit exercise
           </Button>
-        )}
-        {error && !confirming && (
-          <p className="text-danger text-[13px]">{error}</p>
-        )}
-      </div>
+          {archived ? (
+            <Button block variant="ghost" loading={busy} onClick={toggleArchive}>
+              <ArchiveRestore className="size-4" />
+              Restore to your library
+            </Button>
+          ) : (
+            <Button
+              block
+              variant="ghost"
+              className="text-danger"
+              onClick={() => {
+                setMenu(false);
+                setConfirming(true);
+              }}
+            >
+              <Archive className="size-4" />
+              Archive exercise
+            </Button>
+          )}
+          {error && !confirming && (
+            <p className="text-danger text-[13px]">{error}</p>
+          )}
+        </div>
+      </Sheet>
 
       <Sheet
         open={editing}

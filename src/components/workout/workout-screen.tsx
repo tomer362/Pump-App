@@ -213,6 +213,21 @@ export function WorkoutScreen({
   } | null>(null);
   const [plateFor, setPlateFor] = useState<number | null>(null);
   const [intervalFor, setIntervalFor] = useState<Block | null>(null);
+  /**
+   * Which rest the bar is *showing*, as that rest's `endsAt`.
+   *
+   * Visibility used to be the same bit as "a rest is running": ticking a set
+   * started the clock and the bar took the bottom of the screen for the whole
+   * two minutes — over the set table, which is exactly what you are reading and
+   * typing into between sets. The clock is not the panel. The strip already
+   * sitting in the gap counts down on its own, and tapping it opens this; any
+   * other interaction closes it again and the rest keeps running underneath.
+   *
+   * Keyed on `endsAt` rather than a boolean so a *new* rest can never inherit
+   * the previous one's open state — which is the whole failure mode being
+   * fixed, in miniature.
+   */
+  const [restBarFor, setRestBarFor] = useState<number | null>(null);
   const [prFlash, setPrFlash] = useState<string | null>(null);
 
   const bestByExercise = useRef(current1rm);
@@ -822,6 +837,15 @@ export function WorkoutScreen({
     return counts;
   }, [blocks]);
 
+  /**
+   * One derived truth for "the panel is showing", read by both the bar and the
+   * jump pill. Not `restBarFor !== null` on its own: a rest that runs out
+   * auto-clears the store two and a half seconds later, and the endsAt left
+   * behind would otherwise keep the pill suppressed for the rest of the
+   * session.
+   */
+  const restBarOpen = timer.state != null && restBarFor === timer.state.endsAt;
+
   const { activeBlockId, targetAway } = useScrollWatch({
     headerRef,
     // Roughly the rest bar: below that line a row is behind the chrome.
@@ -1100,6 +1124,9 @@ export function WorkoutScreen({
               onOpenPlate={(kg) => setPlateFor(kg)}
               onRunInterval={() => setIntervalFor(block)}
               onEditRest={(setId) => setRestFor({ blockId: block.id, setId })}
+              onOpenRestTimer={() =>
+                setRestBarFor(timer.state?.endsAt ?? null)
+              }
               onPatchSet={(setId, patch, opts) =>
                 patchSet(block.id, setId, patch, opts)
               }
@@ -1130,7 +1157,7 @@ export function WorkoutScreen({
       </main>
 
       <RestTimerBar
-        state={timer.state}
+        state={restBarOpen ? timer.state : null}
         nextUp={
           nextTarget && {
             name: nextTarget.block.name,
@@ -1145,22 +1172,27 @@ export function WorkoutScreen({
             onJump: () => jumpToSet(nextTarget.set.id),
           }
         }
-        onStop={timer.stop}
+        onStop={() => {
+          setRestBarFor(null);
+          timer.stop();
+        }}
         onAdjust={timer.adjust}
         onSetDuration={timer.setDuration}
+        onDismiss={() => setRestBarFor(null)}
       />
 
       {/* The way back to work. Once the set you owe has left the screen — you
           scrolled off to check a later lift, or to add one — this is the only
           thing on screen that knows where it went. It also shows for a few
           seconds after a superset set, on screen or not: that hand-off has no
-          rest bar to name the partner. It stands down while the rest bar is up
-          (which carries the same target, on its own row) and while the keyboard
-          is up, where a docked pill would be buried. */}
+          rest bar to name the partner. It stands down while the rest bar is
+          *open* (which carries the same target, on its own row) and while the
+          keyboard is up, where a docked pill would be buried — but not merely
+          because a rest is running, since the bar no longer shows itself. */}
       <AnimatePresence>
         {nextTarget &&
           (targetAway || supersetCue) &&
-          !timer.state &&
+          !restBarOpen &&
           keyboardInset === 0 && (
             <motion.div
               initial={{ y: 28, opacity: 0 }}
@@ -1511,6 +1543,7 @@ function ExerciseBlock({
   onOpenPlate,
   onRunInterval,
   onEditRest,
+  onOpenRestTimer,
   onPatchSet,
   onToggle,
   onDeleteSet,
@@ -1540,6 +1573,8 @@ function ExerciseBlock({
   onRunInterval: () => void;
   /** Null targets the exercise as a whole rather than one set. */
   onEditRest: (setId: string | null) => void;
+  /** Reveals the rest bar for the rest that is currently running. */
+  onOpenRestTimer: () => void;
   onPatchSet: (
     setId: string,
     patch: Partial<SetDraft>,
@@ -1777,6 +1812,7 @@ function ExerciseBlock({
                       restingSetId === set.id ? restingTotal : null
                     }
                     onEdit={() => onEditRest(set.id)}
+                    onOpenTimer={() => onOpenRestTimer()}
                   />
                 )}
               </motion.div>

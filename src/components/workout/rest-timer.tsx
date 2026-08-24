@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Minus, Plus, X } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
@@ -343,6 +343,12 @@ export function RestTimerBar(props: {
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
+  /**
+   * Put the bar away without touching the clock. The rest goes on running —
+   * the strip in the gap is still counting it down — so this is a panel
+   * closing, not a rest being skipped. See the dismissal effect below.
+   */
+  onDismiss?: () => void;
 }) {
   const { state, ...rest } = props;
   return (
@@ -358,16 +364,19 @@ function RestTimerPanel({
   onStop,
   onAdjust,
   onSetDuration,
+  onDismiss,
 }: {
   state: NonNullable<RestTimerState>;
   nextUp?: NextUp | null;
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
+  onDismiss?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const remaining = useRemaining();
   const { enabled } = useMotionPreset();
+  const panel = useRef<HTMLDivElement>(null);
 
   const progress = remaining / state.totalSeconds;
   const urgent = remaining > 0 && remaining <= 3;
@@ -377,8 +386,37 @@ function RestTimerPanel({
     if (urgent) haptic.light();
   }, [urgent, remaining]);
 
+  /**
+   * Anything else you do puts the bar away.
+   *
+   * The panel is summoned by tapping the running strip, so it is transient by
+   * construction — it must not be something you then have to dismiss. A touch
+   * anywhere outside it, or a scroll, is you going back to the workout, and
+   * the rest carries on regardless: only the panel closes.
+   *
+   * `pointerdown` in the capture phase, so the dismissal lands before whatever
+   * you actually tapped runs — and `scroll` in capture too, because scroll
+   * doesn't bubble and the app's one scroller is the container in the root
+   * layout, which this component has no ref to.
+   */
+  useEffect(() => {
+    if (!onDismiss) return;
+    const away = (e: Event) => {
+      if (e.target instanceof Node && panel.current?.contains(e.target)) return;
+      onDismiss();
+    };
+    const scrolled = () => onDismiss();
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("scroll", scrolled, true);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("scroll", scrolled, true);
+    };
+  }, [onDismiss]);
+
   return (
     <motion.div
+      ref={panel}
       initial={enabled ? { y: 80 } : { opacity: 0 }}
       animate={enabled ? { y: 0 } : { opacity: 1 }}
       exit={enabled ? { y: 80, opacity: 0 } : { opacity: 0 }}

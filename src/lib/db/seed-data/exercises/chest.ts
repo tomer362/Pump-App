@@ -421,6 +421,36 @@ export const CHEST: SeedExercise[] = [
         slug: "dip-chest",
         note: "Also closed-chain, but the downward arm path shifts the emphasis onto the lower chest and loads full bodyweight rather than a fraction of it.",
       },
+      {
+        slug: "push-up-weighted",
+        note: "A plate across the upper back turns the same movement back into strength work once thirty clean reps are easy.",
+      },
+    ],
+  },
+  {
+    slug: "push-up-weighted",
+    name: "Weighted Push Up",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "abs"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Have a plate, a chain or a weight vest placed across the upper back.\nSet the hands slightly wider than the shoulders and brace hard — the load makes the hips sag.\nLower the chest to just above the floor and press back up, keeping the body one line.",
+    bodyEffect:
+      "A horizontal closed-chain press with external load added on top of the portion of bodyweight the hands already carry, so the shoulder horizontally adducts and the elbow extends against far more than a push-up normally supplies.\n\nPectoralis major and the triceps do the pressing, with the anterior deltoid assisting. The difference from a bench press is the shoulder blades: they move freely on the ribcage, so serratus anterior works throughout, and the abdominals resist the load trying to drop the hips.\n\nAdding weight is what keeps the push-up a strength movement rather than an endurance one once thirty clean reps are easy. The plate has to be placed by somebody else and it slides, which is the practical reason a vest or a bench press usually takes over at heavier loads.",
+    alternatives: [
+      {
+        slug: "push-up",
+        note: "The same movement carrying only bodyweight, which is the honest place to be until the reps are clean and the hips stop sagging.",
+      },
+      {
+        slug: "bench-press-barbell",
+        note: "Loads the same press far more precisely and far heavier, at the cost of pinning the shoulder blades to a bench.",
+      },
+      {
+        slug: "deficit-push-up",
+        note: "Adds range instead of load by letting the chest drop below the hands, which is the other way to make a push-up harder.",
+      },
     ],
   },
   {
@@ -525,6 +555,36 @@ export const CHEST: SeedExercise[] = [
         slug: "high-to-low-cable-fly",
         note: "Same lower-chest emphasis with no triceps involvement and no shoulder stress — much lighter, purely an isolation movement.",
       },
+      {
+        slug: "dip-weighted",
+        note: "Hanging weight from a belt is how this keeps progressing once bodyweight sets run past a dozen clean reps.",
+      },
+    ],
+  },
+  {
+    slug: "dip-weighted",
+    name: "Weighted Dip",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "bodyweight",
+    trackingType: "weight_reps",
+    instructions:
+      "Hang weight from a dip belt, or hold a dumbbell between the feet.\nSupport yourself on parallel bars with a slight forward lean.\nLower until the chest stretches, then press back up without locking rigidly.",
+    bodyEffect:
+      "A vertical closed-chain press carrying more than your bodyweight, so the shoulder adducts and extends and the elbow extends against a load you choose rather than the one you happen to weigh.\n\nThe lower sternal fibres of pectoralis major lead, with the triceps taking a large share and the anterior deltoid holding the bottom position. The trunk works harder than on an unweighted dip because the belt swings and has to be controlled.\n\nIt is the heaviest pressing most people can do without a bench, and the only way to keep progressing dips once bodyweight reps run into the twenties. The loaded bottom position is demanding on the front of the shoulder, so depth should be earned before weight is added rather than after.",
+    alternatives: [
+      {
+        slug: "dip-chest",
+        note: "The same movement at exactly bodyweight, which is where to build clean reps and full depth before hanging anything from a belt.",
+      },
+      {
+        slug: "chin-up-weighted",
+        note: "The pulling counterpart on the same belt — a vertical pull rather than a press, and the obvious thing to pair this with.",
+      },
+      {
+        slug: "decline-bench-press-barbell",
+        note: "A similar downward pressing line with the torso supported, so it loads heavily without asking anything of the front of the shoulder.",
+      },
     ],
   },
   {
@@ -550,6 +610,36 @@ export const CHEST: SeedExercise[] = [
       {
         slug: "decline-push-up",
         note: "Bodyweight pressing with no machine at all, though the load is lower and the emphasis sits on the upper rather than lower chest.",
+      },
+      {
+        slug: "dip-machine",
+        note: "The other machine dip: this one supplies the load rather than subtracting from yours, so it scales upward past bodyweight.",
+      },
+    ],
+  },
+  {
+    slug: "dip-machine",
+    name: "Dip (Machine)",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps"],
+    equipment: "machine",
+    trackingType: "weight_reps",
+    instructions:
+      "Set the seat so the handles sit level with the lower chest.\nPress down and slightly forward until the elbows lock.\nReturn under control until the chest feels the stretch.",
+    bodyEffect:
+      "A seated downward press on a fixed path, loaded by the stack rather than by your bodyweight. The upper arm travels down and slightly forward while the elbow extends, the same joint action as a dip on bars.\n\nThe lower fibres of pectoralis major and all three heads of the triceps do the work, with the anterior deltoid assisting. The seat and back pad hold the torso, so the trunk and the shoulder-blade control that free bars demand contribute almost nothing.\n\nBecause the load is a stack and not you, it starts below bodyweight and goes far above it, which makes it the one dip variant that can be programmed by the kilogram from the first session to the last. That same support is what it gives up: it will not build the stability a free dip does.",
+    alternatives: [
+      {
+        slug: "dip-chest",
+        note: "The same pressing line on free bars at exactly bodyweight, where the trunk and shoulder blades genuinely work to keep you steady.",
+      },
+      {
+        slug: "dip-machine-assisted",
+        note: "The counterweighted station instead: it subtracts from your bodyweight rather than supplying the load, so it scales downward, not up.",
+      },
+      {
+        slug: "dip-weighted",
+        note: "Adds a belt to a free dip, which loads past bodyweight the same way but keeps the balance demand the seat removes.",
       },
     ],
   },

@@ -680,8 +680,17 @@ export async function updateSet(
   // 1RM to estimate from it — and a stored estimate would be a maximum over
   // "how much help did you need". Null keeps it out of the record rebuild too,
   // which reads this column.
+  //
+  // `> 0` on both, matching `quickLogSet`: `estimate1RM` returns 0 rather than
+  // null for a non-positive input, and a stored 0 is indistinguishable from a
+  // real estimate downstream — it printed "0 kg" on the exercise chart and
+  // pinned the trend line to the floor. A set with no load has no estimate.
   const est =
-    weightKg != null && reps != null && !isAssistedTracking(row.trackingType)
+    weightKg != null &&
+    reps != null &&
+    weightKg > 0 &&
+    reps > 0 &&
+    !isAssistedTracking(row.trackingType)
       ? estimate1RM(weightKg, reps)
       : null;
 
@@ -799,7 +808,11 @@ export async function updateSets(
     const reps = p.reps !== undefined ? p.reps : r.reps;
     // Same rule as `updateSet`: assistance is not a load, so it has no 1RM.
     const est =
-      weightKg != null && reps != null && !isAssistedTracking(r.trackingType)
+      weightKg != null &&
+      reps != null &&
+      weightKg > 0 &&
+      reps > 0 &&
+      !isAssistedTracking(r.trackingType)
         ? estimate1RM(weightKg, reps)
         : null;
     byEstimate.set(est, [...(byEstimate.get(est) ?? []), r.id]);

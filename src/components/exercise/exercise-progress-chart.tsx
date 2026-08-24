@@ -27,12 +27,22 @@ const ASSISTED_METRICS: typeof METRICS = [
   { value: "reps", label: "Reps", weighted: false },
 ];
 
-function valueOf(p: ExerciseSessionPoint, metric: Metric): number {
+/**
+ * `null` for a session that has no figure for this metric — not `0`.
+ *
+ * The query returns NULL for `best_e1rm`/`top_weight` when a session's
+ * completed working sets carried no load at all (a bodyweight day, or an
+ * assisted machine, where an estimated 1RM is meaningless). Coercing that to
+ * zero printed "0 kg" against a day nothing was logged at zero, dropped the
+ * line to the floor and put a fictional 0 on the axis. Volume and reps are
+ * COALESCEd counts, where zero really is zero.
+ */
+function valueOf(p: ExerciseSessionPoint, metric: Metric): number | null {
   switch (metric) {
     case "est1rm":
-      return p.bestEst1rm ?? 0;
+      return p.bestEst1rm;
     case "weight":
-      return p.topWeightKg ?? 0;
+      return p.topWeightKg;
     case "volume":
       return p.volumeKg;
     case "reps":
@@ -70,9 +80,15 @@ export function ExerciseProgressChart({
   const days = CHART_RANGES.find((r) => r.key === range)!.days;
 
   // The series arrives oldest-first, which is also how a time axis reads.
-  const points = useMemo(() => withinRange(data, days), [data, days]);
+  // Sessions with no figure for the selected metric are not points on this
+  // chart — they are dropped rather than plotted at zero, so switching metric
+  // can legitimately change how many sessions the chart has.
+  const points = useMemo(
+    () => withinRange(data, days).filter((p) => valueOf(p, metric) != null),
+    [data, days, metric],
+  );
   const values = useMemo(
-    () => points.map((p) => valueOf(p, metric)),
+    () => points.map((p) => valueOf(p, metric)!),
     [points, metric],
   );
 
@@ -128,11 +144,16 @@ export function ExerciseProgressChart({
   );
 
   if (points.length === 0) {
+    // Two different absences, and telling them apart is the difference between
+    // "train more" and "this figure doesn't exist for how you log this lift".
+    const anySession = withinRange(data, days).length > 0;
     return (
       <div>
         {controls}
         <p className="text-text-3 py-6 text-center text-[14px]">
-          Nothing logged in this range.
+          {anySession
+            ? `No ${meta.label.toLowerCase()} to show — nothing in this range carried a load.`
+            : "Nothing logged in this range."}
         </p>
       </div>
     );
@@ -156,7 +177,7 @@ export function ExerciseProgressChart({
                 })}
               </span>
               <span className="num text-[15px] font-bold">
-                {format(valueOf(p, metric))}
+                {format(valueOf(p, metric)!)}
               </span>
             </div>
           ))}
