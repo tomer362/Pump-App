@@ -910,7 +910,9 @@ export function WorkoutScreen({
       totals.volume,
       unit,
     )} ${unit}${nextTarget ? ` · Next: ${nextTarget.block.name}` : ""}`,
-    restEndsAt: timer.state?.endsAt ?? null,
+    // A paused rest has a stale `endsAt`; null cancels the background alarm, and
+    // resuming (a fresh `endsAt`) re-arms it.
+    restEndsAt: timer.paused ? null : (timer.state?.endsAt ?? null),
     restBody: nextUpLine,
     setsRemaining: totals.unfinished,
   });
@@ -1127,6 +1129,15 @@ export function WorkoutScreen({
               onOpenRestTimer={() =>
                 setRestBarFor(timer.state?.endsAt ?? null)
               }
+              onStartRest={(setId, seconds) => {
+                if (seconds <= 0) return;
+                // Start the rest and bind the panel to it in one gesture, so the
+                // controls (pause, ±15s, skip) are right there.
+                const endsAt = timer.start(seconds, setId);
+                if (endsAt) setRestBarFor(endsAt);
+                if (workout.coopSessionId)
+                  void setCoopResting(workout.coopSessionId, seconds);
+              }}
               onPatchSet={(setId, patch, opts) =>
                 patchSet(block.id, setId, patch, opts)
               }
@@ -1172,12 +1183,27 @@ export function WorkoutScreen({
             onJump: () => jumpToSet(nextTarget.set.id),
           }
         }
+        paused={timer.paused}
         onStop={() => {
           setRestBarFor(null);
           timer.stop();
         }}
-        onAdjust={timer.adjust}
-        onSetDuration={timer.setDuration}
+        onAdjust={(delta) => {
+          // Adjusting mints a new `endsAt`; re-bind the panel to it or the
+          // `restBarFor === endsAt` check would close the panel out from under
+          // the tap.
+          const endsAt = timer.adjust(delta);
+          if (endsAt) setRestBarFor(endsAt);
+        }}
+        onSetDuration={(seconds) => {
+          const endsAt = timer.setDuration(seconds);
+          if (endsAt) setRestBarFor(endsAt);
+        }}
+        onPause={timer.pause}
+        onResume={() => {
+          const endsAt = timer.resume();
+          if (endsAt) setRestBarFor(endsAt);
+        }}
         onDismiss={() => setRestBarFor(null)}
       />
 
@@ -1544,6 +1570,7 @@ function ExerciseBlock({
   onRunInterval,
   onEditRest,
   onOpenRestTimer,
+  onStartRest,
   onPatchSet,
   onToggle,
   onDeleteSet,
@@ -1575,6 +1602,8 @@ function ExerciseBlock({
   onEditRest: (setId: string | null) => void;
   /** Reveals the rest bar for the rest that is currently running. */
   onOpenRestTimer: () => void;
+  /** Start this gap's rest by hand, from an idle strip. */
+  onStartRest: (setId: string, seconds: number) => void;
   onPatchSet: (
     setId: string,
     patch: Partial<SetDraft>,
@@ -1811,6 +1840,7 @@ function ExerciseBlock({
                     runningTotal={
                       restingSetId === set.id ? restingTotal : null
                     }
+                    onStart={() => onStartRest(set.id, restAfter)}
                     onEdit={() => onEditRest(set.id)}
                     onOpenTimer={() => onOpenRestTimer()}
                   />

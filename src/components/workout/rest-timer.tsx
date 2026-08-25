@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Minus, Plus, X } from "lucide-react";
+import { ChevronDown, Minus, Pause, Play, Plus } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
 import {
   armRestChime,
@@ -15,7 +15,11 @@ import { REDUCED } from "@/lib/motion";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
 
 export type RestTimerState = {
-  /** Wall-clock end time. Survives backgrounding; a counter would not. */
+  /**
+   * Wall-clock end time. Survives backgrounding; a counter would not. While
+   * paused this value is intentionally stale — `pausedRemaining` is the truth —
+   * and it is recomputed from "now" the instant the rest resumes.
+   */
   endsAt: number;
   totalSeconds: number;
   /**
@@ -25,7 +29,22 @@ export type RestTimerState = {
    * two numbers on screen disagreeing, which is the thing this exists to stop.
    */
   setId: string | null;
+  /**
+   * Seconds frozen on the clock while the rest is paused; `null` while running.
+   * Everything else derives from the absolute `endsAt`, but a pause has no end
+   * time to point at — the whole point is that the clock has stopped — so the
+   * remaining seconds are stored directly and `endsAt` is rebuilt on resume.
+   * Persisted, so a reload mid-pause stays paused rather than silently resuming.
+   */
+  pausedRemaining: number | null;
 } | null;
+
+/** A paused rest carries its frozen remaining; a running one has `null`. */
+function isPaused(
+  state: RestTimerState,
+): state is NonNullable<RestTimerState> & { pausedRemaining: number } {
+  return state != null && state.pausedRemaining != null;
+}
 
 const STORAGE_KEY = "pump.rest-timer";
 
@@ -60,15 +79,20 @@ function readStorage(workoutId: string | undefined): RestTimerState {
       endsAt: number;
       totalSeconds: number;
       setId?: string | null;
+      pausedRemaining?: number | null;
       workoutId: string;
     };
-    // Only this workout's timer, and only if it hasn't already run out.
+    // Only this workout's timer.
     if (saved.workoutId !== workoutId) return null;
-    if (saved.endsAt <= Date.now()) return null;
+    const pausedRemaining = saved.pausedRemaining ?? null;
+    // A running rest that has already run out is gone; a *paused* one hasn't —
+    // its `endsAt` is stale by construction, so the expiry check doesn't apply.
+    if (pausedRemaining == null && saved.endsAt <= Date.now()) return null;
     return {
       endsAt: saved.endsAt,
       totalSeconds: saved.totalSeconds,
       setId: saved.setId ?? null,
+      pausedRemaining,
     };
   } catch {
     return null;
@@ -111,13 +135,17 @@ let clearTimer: number | null = null;
 let chimedFor: number | null = null;
 
 function secondsLeft(state: RestTimerState) {
-  return state ? Math.max(0, Math.ceil((state.endsAt - Date.now()) / 1000)) : 0;
+  if (!state) return 0;
+  // A paused rest has stopped counting; its stored remaining is the whole truth.
+  if (state.pausedRemaining != null) return Math.max(0, state.pausedRemaining);
+  return Math.max(0, Math.ceil((state.endsAt - Date.now()) / 1000));
 }
 
 /** Re-read the clock. Returns whether the displayed second actually moved. */
 function recompute(): boolean {
   const next = secondsLeft(current);
-  if (current && next === 0 && chimedFor !== current.endsAt) {
+  // A paused rest neither reaches zero on its own nor chimes — it is frozen.
+  if (current && !isPaused(current) && next === 0 && chimedFor !== current.endsAt) {
     chimedFor = current.endsAt;
     haptic.success();
     // The sound is keyed on the same `endsAt` inside `rest-audio`, so this and
@@ -174,12 +202,14 @@ function stopTicker() {
 function setTimerState(next: RestTimerState) {
   current = next;
   writeStorage(current, currentWorkoutId);
-  if (next) startTicker();
+  // A paused rest is frozen: nothing ticks and no sound is scheduled against an
+  // `endsAt` that no longer means anything. Resuming rebuilds both.
+  if (next && !isPaused(next)) startTicker();
   else stopTicker();
   // Schedule the sound the instant the rest starts, while the app is still in
   // the foreground — by the time the phone is in a pocket there is nothing left
   // running that could do it. See `lib/rest-audio.ts`.
-  if (next) armRestChime(next.endsAt);
+  if (next && !isPaused(next)) armRestChime(next.endsAt);
   else cancelRestChime();
   // Before the emit, so subscribers see the new state and its seconds together.
   recompute();
@@ -226,26 +256,36 @@ export function useRestTimer(workoutId?: string) {
   );
 
   const start = useCallback(
-    (seconds: number, setId: string | null = null) => {
-      if (seconds <= 0) return;
+    (seconds: number, setId: string | null = null): number | null => {
+      if (seconds <= 0) return null;
       // Inside the tap that ticked the set: iOS only lets a gesture unlock
       // audio, and every later scheduling depends on that having happened.
       primeRestAudio();
       currentWorkoutId = workoutId ?? null;
-      setTimerState({
-        endsAt: Date.now() + seconds * 1000,
-        totalSeconds: seconds,
-        setId,
-      });
+      const endsAt = Date.now() + seconds * 1000;
+      setTimerState({ endsAt, totalSeconds: seconds, setId, pausedRemaining: null });
+      // The caller (re)binds the open panel to this new rest by its `endsAt`.
+      return endsAt;
     },
     [workoutId],
   );
 
   const stop = useCallback(() => setTimerState(null), []);
 
-  /** Shift the end time by `delta` seconds, never below "now". */
-  const adjust = useCallback((delta: number) => {
-    if (!current) return;
+  /**
+   * Shift the end time by `delta` seconds, never below "now". Returns the new
+   * `endsAt` so an open panel stays bound to the rest across the change. While
+   * paused there is no `endsAt` to shift — the frozen remaining moves instead.
+   */
+  const adjust = useCallback((delta: number): number | null => {
+    const s = current;
+    if (!s) return null;
+    if (isPaused(s)) {
+      const totalSeconds = Math.max(1, s.totalSeconds + delta);
+      const pausedRemaining = Math.max(1, s.pausedRemaining + delta);
+      setTimerState({ ...s, totalSeconds, pausedRemaining });
+      return s.endsAt;
+    }
     // Also a tap, so also a chance to unlock audio — this is the one that
     // rescues a rest restored from storage after a reload, which had no gesture
     // of its own to prime from.
@@ -253,32 +293,65 @@ export function useRestTimer(workoutId?: string) {
     const now = Date.now();
     // Clamp against the present, not against epoch zero — clamping the
     // absolute timestamp to 0 would jump the timer back to 1970.
-    const endsAt = Math.max(now, current.endsAt + delta * 1000);
+    const endsAt = Math.max(now, s.endsAt + delta * 1000);
     // Keep the denominator consistent with the new duration so the draining
     // track stays proportional.
     const totalSeconds = Math.max(
       1,
       Math.ceil((endsAt - now) / 1000),
-      current.totalSeconds + delta,
+      s.totalSeconds + delta,
     );
-    setTimerState({ endsAt, totalSeconds, setId: current.setId });
+    setTimerState({ endsAt, totalSeconds, setId: s.setId, pausedRemaining: null });
+    return endsAt;
   }, []);
 
   /** Restart at an exact duration — what the presets want. */
   const setDuration = useCallback(
-    (seconds: number) => {
-      if (seconds <= 0) return;
+    (seconds: number): number | null => {
+      if (seconds <= 0) return null;
       primeRestAudio();
       currentWorkoutId = workoutId ?? null;
+      const endsAt = Date.now() + seconds * 1000;
       setTimerState({
-        endsAt: Date.now() + seconds * 1000,
+        endsAt,
         totalSeconds: seconds,
         // Still the same gap: the presets change how long it is, not what it is.
         setId: current?.setId ?? null,
+        pausedRemaining: null,
       });
+      return endsAt;
     },
     [workoutId],
   );
+
+  /** Freeze the running rest in place. No-op unless a rest is actively running. */
+  const pause = useCallback(() => {
+    const s = current;
+    if (!s || isPaused(s)) return;
+    const remaining = secondsLeft(s);
+    // Nothing to freeze on a rest that has already elapsed.
+    if (remaining <= 0) return;
+    setTimerState({ ...s, pausedRemaining: remaining });
+  }, []);
+
+  /**
+   * Resume a paused rest: rebuild `endsAt` from "now" plus the frozen remaining,
+   * re-arm the ticker and chime. Returns the new `endsAt` so the open panel
+   * re-binds to it (the panel is keyed on `endsAt`, which has just changed).
+   */
+  const resume = useCallback((): number | null => {
+    const s = current;
+    if (!isPaused(s)) return null;
+    primeRestAudio();
+    const endsAt = Date.now() + s.pausedRemaining * 1000;
+    setTimerState({
+      endsAt,
+      totalSeconds: s.totalSeconds,
+      setId: s.setId,
+      pausedRemaining: null,
+    });
+    return endsAt;
+  }, []);
 
   return {
     state,
@@ -286,7 +359,10 @@ export function useRestTimer(workoutId?: string) {
     stop,
     adjust,
     setDuration,
+    pause,
+    resume,
     running: state != null,
+    paused: isPaused(state),
   };
 }
 
@@ -340,13 +416,18 @@ export type NextUp = {
 export function RestTimerBar(props: {
   state: RestTimerState;
   nextUp?: NextUp | null;
+  /** Whether the running rest is frozen. Flips the pause control to "resume". */
+  paused?: boolean;
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
+  onPause?: () => void;
+  onResume?: () => void;
   /**
    * Put the bar away without touching the clock. The rest goes on running —
    * the strip in the gap is still counting it down — so this is a panel
-   * closing, not a rest being skipped. See the dismissal effect below.
+   * closing, not a rest being skipped. This is what the header's minimise
+   * control does; skipping the rest lives in the presets drawer.
    */
   onDismiss?: () => void;
 }) {
@@ -361,16 +442,22 @@ export function RestTimerBar(props: {
 function RestTimerPanel({
   state,
   nextUp,
+  paused = false,
   onStop,
   onAdjust,
   onSetDuration,
+  onPause,
+  onResume,
   onDismiss,
 }: {
   state: NonNullable<RestTimerState>;
   nextUp?: NextUp | null;
+  paused?: boolean;
   onStop: () => void;
   onAdjust: (delta: number) => void;
   onSetDuration: (seconds: number) => void;
+  onPause?: () => void;
+  onResume?: () => void;
   onDismiss?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -379,7 +466,7 @@ function RestTimerPanel({
   const panel = useRef<HTMLDivElement>(null);
 
   const progress = remaining / state.totalSeconds;
-  const urgent = remaining > 0 && remaining <= 3;
+  const urgent = !paused && remaining > 0 && remaining <= 3;
   const done = remaining === 0;
 
   useEffect(() => {
@@ -466,6 +553,31 @@ function RestTimerPanel({
               <Minus className="size-4" strokeWidth={2.6} />
             </button>
 
+            {/* Pause/resume. The rest keeps its place either way — a pause freezes
+                the clock, a resume rebuilds it from now — so this is the one
+                control that stops the countdown without ending the rest. */}
+            {(onPause || onResume) && (
+              <button
+                onClick={() => {
+                  haptic.light();
+                  if (paused) onResume?.();
+                  else onPause?.();
+                }}
+                aria-label={paused ? "Resume rest" : "Pause rest"}
+                className={cn(
+                  "press tap grid place-items-center rounded-[10px] px-2",
+                  done ? "text-black/60" : "bg-surface-2 text-text-2",
+                )}
+                disabled={done}
+              >
+                {paused ? (
+                  <Play className="size-4" strokeWidth={2.6} />
+                ) : (
+                  <Pause className="size-4" strokeWidth={2.6} />
+                )}
+              </button>
+            )}
+
             <button
               onClick={() => setExpanded((v) => !v)}
               className="press flex min-w-0 flex-1 flex-col items-center"
@@ -473,10 +585,10 @@ function RestTimerPanel({
               <span
                 className={cn(
                   "text-[10px] font-bold tracking-[0.1em] uppercase",
-                  done ? "text-black/60" : "text-text-3",
+                  done ? "text-black/60" : paused ? "text-volt" : "text-text-3",
                 )}
               >
-                {done ? "Rest complete" : "Rest"}
+                {done ? "Rest complete" : paused ? "Paused" : "Rest"}
               </span>
               <span
                 className={cn(
@@ -504,18 +616,21 @@ function RestTimerPanel({
               <Plus className="size-4" strokeWidth={2.6} />
             </button>
 
+            {/* Minimise, not skip. This puts the panel away and leaves the rest
+                running — the strip in the gap keeps counting it down. Ending the
+                rest early lives in the presets drawer below. */}
             <button
               onClick={() => {
                 haptic.light();
-                onStop();
+                (onDismiss ?? onStop)();
               }}
-              aria-label="Skip rest"
+              aria-label="Hide rest timer"
               className={cn(
                 "press tap grid place-items-center rounded-[10px] px-2",
                 done ? "text-black" : "text-text-3",
               )}
             >
-              <X className="size-5" strokeWidth={2.4} />
+              <ChevronDown className="size-5" strokeWidth={2.4} />
             </button>
           </div>
 
@@ -573,19 +688,32 @@ function RestTimerPanel({
           )}
 
           {expanded && !done && (
-            <div className="hairline-t relative flex gap-2 px-3 py-2.5">
-              {[30, 60, 90, 120, 180].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => {
-                    haptic.light();
-                    onSetDuration(s);
-                  }}
-                  className="press num bg-surface-2 text-text-2 h-9 flex-1 rounded-[10px] text-[13px] font-semibold"
-                >
-                  {s < 60 ? `${s}s` : `${s / 60}m`}
-                </button>
-              ))}
+            <div className="hairline-t relative space-y-2.5 px-3 py-2.5">
+              <div className="flex gap-2">
+                {[30, 60, 90, 120, 180].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      haptic.light();
+                      onSetDuration(s);
+                    }}
+                    className="press num bg-surface-2 text-text-2 h-9 flex-1 rounded-[10px] text-[13px] font-semibold"
+                  >
+                    {s < 60 ? `${s}s` : `${s / 60}m`}
+                  </button>
+                ))}
+              </div>
+              {/* End the rest now. The header's minimise only hides the panel;
+                  this is the one control that stops the clock. */}
+              <button
+                onClick={() => {
+                  haptic.light();
+                  onStop();
+                }}
+                className="press border-hairline text-text-2 h-9 w-full rounded-[10px] border text-[13px] font-semibold"
+              >
+                Skip rest
+              </button>
             </div>
           )}
         </div>
