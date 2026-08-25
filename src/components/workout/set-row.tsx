@@ -9,7 +9,7 @@ import {
   useReducedMotion,
   useTransform,
 } from "motion/react";
-import { Check, Clock, Trash2 } from "lucide-react";
+import { Check, Clock, Pencil, Trash2 } from "lucide-react";
 import {
   cn,
   formatDuration,
@@ -421,6 +421,7 @@ export function RestStrip({
   seconds,
   override,
   runningTotal,
+  onStart,
   onEdit,
   onOpenTimer,
 }: {
@@ -434,12 +435,16 @@ export function RestStrip({
    * subscribes to the clock.
    */
   runningTotal: number | null;
+  /**
+   * Start this gap's rest by hand. The primary action on an idle strip that has
+   * a duration to start — you don't have to complete a set to begin a rest.
+   */
+  onStart: () => void;
+  /** Open the rest-duration editor (per-set / per-exercise). The pencil. */
   onEdit: () => void;
   /**
-   * Reveals the rest bar — its controls, not a settings sheet. Only the running
-   * strip offers it: the bar no longer takes the bottom of the screen on every
-   * ticked set, so this is now the way to reach ±15s and skip. A strip for a
-   * gap that isn't counting down has no timer to open, and keeps `onEdit`.
+   * Reveals the rest bar — its controls (pause, ±15s, skip), not a settings
+   * sheet. The primary action on the strip whose gap is counting down.
    */
   onOpenTimer: () => void;
 }) {
@@ -448,22 +453,31 @@ export function RestStrip({
       <LiveRestStrip
         total={runningTotal}
         override={override}
-        onEdit={onOpenTimer}
+        onOpen={onOpenTimer}
+        onEdit={onEdit}
+      />
+    );
+  }
+  // Nothing to start on a "no rest" gap — the whole strip just edits.
+  if (seconds === 0) {
+    return (
+      <RestStripShell
+        onPrimary={onEdit}
+        label="No rest after this set. Change it."
+        accent={override}
+        value="None"
       />
     );
   }
   return (
     <RestStripShell
+      onPrimary={onStart}
       onEdit={onEdit}
-      label={
-        seconds === 0
-          ? "No rest after this set. Change it."
-          : `Rest ${formatDuration(seconds)} after this set${
-              override ? ", set just for this set" : ""
-            }. Change it.`
-      }
+      label={`Rest ${formatDuration(seconds)} after this set${
+        override ? ", set just for this set" : ""
+      }. Tap to start it now.`}
       accent={override}
-      value={seconds === 0 ? "None" : formatDuration(seconds)}
+      value={formatDuration(seconds)}
     />
   );
 }
@@ -480,10 +494,12 @@ export function RestStrip({
 function LiveRestStrip({
   total,
   override,
+  onOpen,
   onEdit,
 }: {
   total: number;
   override: boolean;
+  onOpen: () => void;
   onEdit: () => void;
 }) {
   const remaining = useRemaining();
@@ -491,6 +507,7 @@ function LiveRestStrip({
 
   return (
     <RestStripShell
+      onPrimary={onOpen}
       onEdit={onEdit}
       label={`Resting, ${formatDuration(remaining)} left. Open the rest timer.`}
       accent
@@ -503,6 +520,7 @@ function LiveRestStrip({
 }
 
 function RestStripShell({
+  onPrimary,
   onEdit,
   label,
   accent,
@@ -511,7 +529,10 @@ function RestStripShell({
   track,
   caption = "Rest",
 }: {
-  onEdit: () => void;
+  /** Tapping the body of the strip: start the rest, or open the running timer. */
+  onPrimary: () => void;
+  /** The pencil, opening the duration editor. Omitted when the body edits. */
+  onEdit?: () => void;
   label: string;
   /** Volt: either a set carrying its own value, or the gap that's running. */
   accent: boolean;
@@ -521,15 +542,11 @@ function RestStripShell({
   track?: number;
   caption?: string;
 }) {
+  // A div, not a button: the pencil is its own button and buttons don't nest.
   return (
-    <button
-      onClick={() => {
-        haptic.light();
-        onEdit();
-      }}
-      aria-label={label}
+    <div
       className={cn(
-        "press hairline-t relative flex h-10 w-full items-center justify-center gap-2 overflow-hidden",
+        "hairline-t relative flex h-10 w-full items-center overflow-hidden",
         running ? "bg-volt-fade" : "bg-surface-1",
       )}
     >
@@ -543,22 +560,43 @@ function RestStripShell({
           }}
         />
       )}
-      <Clock
-        className={cn("relative size-3", accent ? "text-volt" : "text-text-3")}
-        strokeWidth={2.4}
-      />
-      <span className="text-text-3 relative text-[10px] font-bold tracking-[0.1em] uppercase">
-        {caption}
-      </span>
-      <span
-        className={cn(
-          "num relative text-[12px] font-semibold",
-          accent ? "text-volt" : "text-text-2",
-        )}
+      <button
+        onClick={() => {
+          haptic.light();
+          onPrimary();
+        }}
+        aria-label={label}
+        className="press relative flex h-full min-w-0 flex-1 items-center justify-center gap-2 select-none"
       >
-        {value}
-      </span>
-    </button>
+        <Clock
+          className={cn("size-3", accent ? "text-volt" : "text-text-3")}
+          strokeWidth={2.4}
+        />
+        <span className="text-text-3 text-[10px] font-bold tracking-[0.1em] uppercase">
+          {caption}
+        </span>
+        <span
+          className={cn(
+            "num text-[12px] font-semibold",
+            accent ? "text-volt" : "text-text-2",
+          )}
+        >
+          {value}
+        </span>
+      </button>
+      {onEdit && (
+        <button
+          onClick={() => {
+            haptic.light();
+            onEdit();
+          }}
+          aria-label="Edit rest"
+          className="press text-text-3 relative grid h-full place-items-center px-3.5"
+        >
+          <Pencil className="size-3.5" strokeWidth={2.2} />
+        </button>
+      )}
+    </div>
   );
 }
 
