@@ -21,6 +21,7 @@ import {
   Ellipsis,
   Gauge,
   GripVertical,
+  Minus,
   Plus,
   Repeat2,
   Timer,
@@ -923,6 +924,27 @@ export function WorkoutScreen({
   const restSet =
     (restFor?.setId && restBlock?.sets.find((s) => s.id === restFor.setId)) ||
     null;
+  // The duration the editor's "Start rest" would run, after the set → exercise →
+  // account fallback. Recomputed each render, so it tracks edits made in the
+  // sheet (which persist onto `blocks`) without its own state.
+  const restResolved = restSet
+    ? (restSet.restSeconds ?? restBlock?.restSeconds ?? defaultRestSeconds)
+    : null;
+  // Starting a rest for a set you haven't finished isn't a thing you'd want, so
+  // the sheet only offers Start once the set above is completed (and there is a
+  // positive duration to run). Otherwise the sheet is a pure duration editor.
+  const canStartRest =
+    restSet?.completed === true && (restResolved ?? 0) > 0;
+
+  // Start a rest by hand from the editor: run the clock bound to this set, open
+  // the bar over it (controls right there), and tell a co-op session.
+  const startRest = (setId: string, seconds: number) => {
+    if (seconds <= 0) return;
+    const endsAt = timer.start(seconds, setId);
+    if (endsAt) setRestBarFor(endsAt);
+    if (workout.coopSessionId)
+      void setCoopResting(workout.coopSessionId, seconds);
+  };
   const optionsSet =
     (typeMenuFor &&
       blocks
@@ -1129,15 +1151,6 @@ export function WorkoutScreen({
               onOpenRestTimer={() =>
                 setRestBarFor(timer.state?.endsAt ?? null)
               }
-              onStartRest={(setId, seconds) => {
-                if (seconds <= 0) return;
-                // Start the rest and bind the panel to it in one gesture, so the
-                // controls (pause, ±15s, skip) are right there.
-                const endsAt = timer.start(seconds, setId);
-                if (endsAt) setRestBarFor(endsAt);
-                if (workout.coopSessionId)
-                  void setCoopResting(workout.coopSessionId, seconds);
-              }}
               onPatchSet={(setId, patch, opts) =>
                 patchSet(block.id, setId, patch, opts)
               }
@@ -1354,6 +1367,32 @@ export function WorkoutScreen({
             ? `Rest after set ${setNumber(restBlock, restSet)}`
             : `Rest — ${restBlock?.name ?? ""}`
         }
+        // The sheet no longer commits-and-closes on a tap: it holds a stepper,
+        // chips and (for a finished set) a Start, so the footer is the way out.
+        footer={
+          restBlock ? (
+            canStartRest && restSet ? (
+              <Button
+                block
+                variant="volt"
+                onClick={() => {
+                  startRest(restSet.id, restResolved ?? 0);
+                  setRestFor(null);
+                }}
+              >
+                Start rest
+              </Button>
+            ) : (
+              <Button
+                block
+                variant="solid"
+                onClick={() => setRestFor(null)}
+              >
+                Done
+              </Button>
+            )
+          ) : undefined
+        }
       >
         {restBlock && (
           <RestOptions
@@ -1363,11 +1402,9 @@ export function WorkoutScreen({
             onSetForSet={(seconds) => {
               if (!restSet) return;
               patchSet(restBlock.id, restSet.id, { restSeconds: seconds });
-              setRestFor(null);
             }}
             onSetForExercise={(seconds) => {
               setRest(restBlock.id, seconds);
-              setRestFor(null);
             }}
           />
         )}
@@ -1570,7 +1607,6 @@ function ExerciseBlock({
   onRunInterval,
   onEditRest,
   onOpenRestTimer,
-  onStartRest,
   onPatchSet,
   onToggle,
   onDeleteSet,
@@ -1602,8 +1638,6 @@ function ExerciseBlock({
   onEditRest: (setId: string | null) => void;
   /** Reveals the rest bar for the rest that is currently running. */
   onOpenRestTimer: () => void;
-  /** Start this gap's rest by hand, from an idle strip. */
-  onStartRest: (setId: string, seconds: number) => void;
   onPatchSet: (
     setId: string,
     patch: Partial<SetDraft>,
@@ -1840,7 +1874,6 @@ function ExerciseBlock({
                     runningTotal={
                       restingSetId === set.id ? restingTotal : null
                     }
-                    onStart={() => onStartRest(set.id, restAfter)}
                     onEdit={() => onEditRest(set.id)}
                     onOpenTimer={() => onOpenRestTimer()}
                   />
@@ -1919,6 +1952,23 @@ function RestOptions({
   );
   const blockRest = block.restSeconds ?? defaultRestSeconds;
 
+  // The scope being edited decides which value the stepper and chips write, and
+  // what a blank (inherited) value falls back to for the concrete number the
+  // stepper needs.
+  const active =
+    scope === "set" && set
+      ? {
+          value: set.restSeconds,
+          inherited: blockRest,
+          onChange: onSetForSet,
+        }
+      : {
+          value: block.restSeconds,
+          inherited: defaultRestSeconds,
+          onChange: onSetForExercise,
+        };
+  const effective = active.value ?? active.inherited;
+
   return (
     <div className="px-4 pb-5">
       {set && (
@@ -1932,6 +1982,10 @@ function RestOptions({
           className="mb-4"
         />
       )}
+
+      {/* Type a number or nudge ±15s. Writing a concrete value here turns an
+          inherited gap into an override, which is what "change it" means. */}
+      <RestStepper seconds={effective} onChange={active.onChange} />
 
       {scope === "set" && set ? (
         <RestPicker
@@ -1957,6 +2011,84 @@ function RestOptions({
           }
         />
       )}
+    </div>
+  );
+}
+
+/** Rest is 0–1800s everywhere it's written; keep typed and stepped values there. */
+function clampRest(seconds: number) {
+  return Math.max(0, Math.min(1800, Math.round(seconds)));
+}
+
+/**
+ * Numeric + stepper editor for a rest duration, the half `RestPicker`'s chips
+ * don't cover: an arbitrary value (95s), and dialing a preset up or down without
+ * hunting for the right chip. It always shows a concrete number — an inherited
+ * gap displays the value it resolves to and becomes an override on first change.
+ */
+function RestStepper({
+  seconds,
+  onChange,
+}: {
+  seconds: number;
+  onChange: (seconds: number) => void;
+}) {
+  const [text, setText] = useState(String(seconds));
+  // Re-seed when the value changes from outside (a chip, a scope switch, a ±
+  // tap) so the field never disagrees with the rest of the sheet. Done during
+  // render, not in an effect: typing only updates local `text`, so `seconds` is
+  // unchanged until a commit, and this fires exactly on the external changes.
+  const [prevSeconds, setPrevSeconds] = useState(seconds);
+  if (seconds !== prevSeconds) {
+    setPrevSeconds(seconds);
+    setText(String(seconds));
+  }
+
+  const commit = (raw: string) => {
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n)) {
+      setText(String(seconds));
+      return;
+    }
+    onChange(clampRest(n));
+  };
+
+  return (
+    <div className="mb-4 flex items-center gap-2">
+      <IconButton
+        label="15 seconds less"
+        variant="outline"
+        onClick={() => onChange(clampRest(seconds - 15))}
+      >
+        <Minus className="size-4" strokeWidth={2.4} />
+      </IconButton>
+      <div className="relative flex-1">
+        <input
+          value={text}
+          inputMode="numeric"
+          aria-label="Rest seconds"
+          onChange={(e) => setText(e.target.value.replace(/[^0-9]/g, ""))}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit(e.currentTarget.value);
+              e.currentTarget.blur();
+            }
+          }}
+          className="num rounded-field bg-surface-2 text-text-1 focus-visible:ring-volt/60 h-11 w-full pr-9 text-center text-[16px] font-semibold outline-none focus-visible:ring-2"
+        />
+        <span className="text-text-3 pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px]">
+          sec
+        </span>
+      </div>
+      <IconButton
+        label="15 seconds more"
+        variant="outline"
+        onClick={() => onChange(clampRest(seconds + 15))}
+      >
+        <Plus className="size-4" strokeWidth={2.4} />
+      </IconButton>
     </div>
   );
 }

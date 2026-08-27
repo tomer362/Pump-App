@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { cn, haptic } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function Sheet({
   const reduce = useReducedMotion();
   const panelRef = React.useRef<HTMLDivElement>(null);
   const restoreFocusTo = React.useRef<HTMLElement | null>(null);
+
 
   // Read through a ref so the focus effect below never depends on `onClose`.
   // Callers pass an inline arrow, so its identity changes on every parent
@@ -169,7 +171,18 @@ export function Sheet({
       </Button>
     ) : null);
 
-  return (
+  // Render into a portal on `document.body`. Sheets are opened from triggers
+  // that can sit inside a stacking context — the NavBar is `sticky … z-30`, so
+  // a sheet mounted in its subtree has its own `z-50` scoped *inside* that z-30
+  // and is painted under the tab bar and the active-workout pill (z-40) docked
+  // over the same bottom strip the sheet occupies. Portalling to the body top
+  // layer makes `z-50` mean z-50 against the whole page. `open` starts false on
+  // both server and first client render, so a closed sheet emits no DOM either
+  // way — nothing to mismatch — and the portal only ever produces nodes after a
+  // client-side open.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
@@ -236,6 +249,7 @@ export function Sheet({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
