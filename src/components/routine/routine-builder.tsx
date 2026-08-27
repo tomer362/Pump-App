@@ -462,6 +462,25 @@ export function RoutineBuilder({
         // Same as the workout screen's exercise sheet: it commits as you tap,
         // so without this there is nothing on screen that closes it.
         dismissLabel="Done"
+        // And, same as that sheet, removing sat under rest, sets, RPE, interval
+        // and a note — the one control you open this in a hurry for, off the
+        // bottom of a phone. No confirmation: the draft isn't saved until you
+        // say so, so the way back is not saving.
+        titleAction={
+          menuItem ? (
+            <IconButton
+              label={`Remove ${menuItem.name}`}
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setItems((prev) => prev.filter((i) => i.key !== menuItem.key));
+                setMenuFor(null);
+              }}
+            >
+              <Trash2 className="size-[18px]" />
+            </IconButton>
+          ) : undefined
+        }
       >
         {menuItem && (
           <ExerciseSettings
@@ -475,10 +494,6 @@ export function RoutineBuilder({
             onReplace={() => {
               setMenuFor(null);
               setReplaceFor(menuItem.key);
-            }}
-            onRemove={() => {
-              setItems((prev) => prev.filter((i) => i.key !== menuItem.key));
-              setMenuFor(null);
             }}
           />
         )}
@@ -794,14 +809,12 @@ function ExerciseSettings({
   onPatch,
   onViewDetails,
   onReplace,
-  onRemove,
 }: {
   item: DraftExercise;
   defaultRestSeconds: number;
   onPatch: (patch: Partial<DraftExercise>) => void;
   onViewDetails: () => void;
   onReplace: () => void;
-  onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const intervalOn = item.intervalWorkSeconds != null;
@@ -963,11 +976,6 @@ function ExerciseSettings({
         <p className="text-text-3 text-[12px] leading-snug">
           Swaps the movement and keeps the sets and targets you prescribed.
         </p>
-
-        <Button block variant="danger" onClick={onRemove}>
-          <Trash2 className="size-4" />
-          Remove from routine
-        </Button>
       </div>
     </div>
   );

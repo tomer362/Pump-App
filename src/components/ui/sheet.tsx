@@ -15,6 +15,7 @@ export function Sheet({
   open,
   onClose,
   title,
+  titleAction,
   children,
   /** Sheet grows to content by default; set to cap it and scroll inside. */
   maxHeight = "88dvh",
@@ -25,6 +26,13 @@ export function Sheet({
   open: boolean;
   onClose: () => void;
   title?: string;
+  /**
+   * Rendered flush right in the title row. For a destructive shortcut that must
+   * not be scrolled to: these option sheets run to rest, order, superset,
+   * interval and a note before the one control somebody opened them in a hurry
+   * for. Ignored without a `title` — there is no row to sit in.
+   */
+  titleAction?: React.ReactNode;
   children: React.ReactNode;
   maxHeight?: string;
   footer?: React.ReactNode;
@@ -230,8 +238,11 @@ export function Sheet({
             </div>
 
             {title && (
-              <div className="px-4 pt-1 pb-3">
-                <h2 className="text-[17px] font-semibold">{title}</h2>
+              <div className="flex items-center gap-2 px-4 pt-1 pb-3">
+                <h2 className="min-w-0 flex-1 truncate text-[17px] font-semibold">
+                  {title}
+                </h2>
+                {titleAction}
               </div>
             )}
 

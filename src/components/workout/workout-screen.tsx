@@ -73,6 +73,7 @@ import type { FullWorkout } from "@/lib/queries/workout";
 import { cn, estimate1RM, formatDuration, formatWeight, haptic } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 import { prescribedToken } from "@/lib/rpe";
+import { hasLoadablePlates } from "@/lib/equipment";
 import { DUR, EASE_OUT_QUART, REDUCED, SPRING } from "@/lib/motion";
 
 // All three open from a tap and none of them is on screen when the workout
@@ -114,6 +115,28 @@ type Block = {
   previous: { weightKg: number | null; reps: number | null; seconds: number | null }[];
   sets: SetDraft[];
 };
+
+/**
+ * The sets on a block that hold something somebody put there — a number typed
+ * into any column, an effort rating, or a completion.
+ *
+ * Two questions turn on it: whether removing this exercise is throwing work
+ * away, and whether a replacement has anything worth offering to keep. Both
+ * want the same answer, so it is written once. A set carrying only a rest
+ * override or a set type doesn't count: neither is a performance, and both are
+ * recreated by the block that replaces it.
+ */
+function loggedSets(block: Block) {
+  return block.sets.filter(
+    (s) =>
+      s.completed ||
+      s.weightKg != null ||
+      s.reps != null ||
+      s.seconds != null ||
+      s.distanceM != null ||
+      s.rpe != null,
+  );
+}
 
 export function WorkoutScreen({
   workout,
@@ -202,6 +225,24 @@ export function WorkoutScreen({
   const [reordering, setReordering] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [replaceFor, setReplaceFor] = useState<string | null>(null);
+  /**
+   * A removal that would throw logged sets away, held until it is confirmed.
+   * An untouched exercise is removed on the tap — there is nothing to lose and
+   * a modal for it is friction on the one screen that can't afford any.
+   */
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  /**
+   * A chosen replacement waiting on the one question only the lifter can
+   * answer: the sets already logged were performed on the movement being
+   * swapped out, and whether they belong to the one swapping in depends on how
+   * similar the two are. Nothing has been written when this is set.
+   */
+  const [replaceAsk, setReplaceAsk] = useState<{
+    blockId: string;
+    exerciseId: string;
+    name: string;
+    count: number;
+  } | null>(null);
   const [typeMenuFor, setTypeMenuFor] = useState<{ blockId: string; setId: string } | null>(null);
   /**
    * The rest sheet's target. `setId` null means the exercise as a whole — the
@@ -555,16 +596,18 @@ export function WorkoutScreen({
   }, []);
 
   /**
-   * Swap the movement on one block. The server clears the values logged
-   * against the old exercise, so the local block is rebuilt from what it
-   * returns rather than patched — anything kept here would be a number the
+   * Swap the movement on one block. The sets come back from the server rather
+   * than being patched here, because only the server knows whether the logged
+   * values survived: it refuses to keep them across a change of tracking type
+   * however the sheet was answered, and a local guess would show numbers the
    * database no longer has.
    */
   const swapExercise = useCallback(
-    async (blockId: string, exerciseId: string) => {
+    async (blockId: string, exerciseId: string, keepValues: boolean) => {
       dirty.current = true;
       setReplaceFor(null);
-      const res = await replaceWorkoutExercise(blockId, exerciseId);
+      setReplaceAsk(null);
+      const res = await replaceWorkoutExercise(blockId, exerciseId, keepValues);
       if (!res.ok || !res.data) return;
       const r = res.data;
       haptic.light();
@@ -583,20 +626,18 @@ export function WorkoutScreen({
                 intervalWorkSeconds: null,
                 intervalRestSeconds: null,
                 previous: r.previous,
-                sets: r.setIds.map((id, i) => ({
-                  id,
-                  position: i,
-                  setType: b.sets[i]?.setType ?? ("normal" as SetType),
-                  weightKg: null,
-                  reps: null,
-                  seconds: null,
-                  distanceM: null,
-                  rpe: null,
-                  // The prescription went with the movement being replaced, same
-                  // as on the server.
-                  targetRpe: null,
-                  restSeconds: null,
-                  completed: false,
+                sets: r.sets.map((s) => ({
+                  id: s.id,
+                  position: s.position,
+                  setType: s.setType as SetType,
+                  weightKg: s.weightKg,
+                  reps: s.reps,
+                  seconds: s.seconds,
+                  distanceM: s.distanceM,
+                  rpe: s.rpe,
+                  targetRpe: s.targetRpe,
+                  restSeconds: s.restSeconds,
+                  completed: s.completed,
                 })),
               },
         ),
@@ -919,6 +960,7 @@ export function WorkoutScreen({
   });
 
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
+  const removeBlock = blocks.find((b) => b.id === confirmRemove) ?? null;
   const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const restBlock = blocks.find((b) => b.id === restFor?.blockId) ?? null;
   const restSet =
@@ -1292,8 +1334,26 @@ export function WorkoutScreen({
             name: replaceBlock.name,
           }
         }
-        onConfirm={(ids) => {
-          if (replaceBlock && ids[0]) swapExercise(replaceBlock.id, ids[0]);
+        onConfirm={(ids, items) => {
+          if (!replaceBlock || !ids[0]) return;
+          const logged = loggedSets(replaceBlock).length;
+          const picked = items.find((e) => e.id === ids[0]);
+          // Ask only when there is something to lose *and* the two movements
+          // are measured the same way. Anything else — an untouched block, a
+          // swap across tracking types, an exercise created inline that this
+          // sheet has no row for — clears, which is what the app has always
+          // done and what the server would enforce anyway.
+          if (logged > 0 && picked?.trackingType === replaceBlock.trackingType) {
+            setReplaceFor(null);
+            setReplaceAsk({
+              blockId: replaceBlock.id,
+              exerciseId: ids[0],
+              name: picked.name,
+              count: logged,
+            });
+            return;
+          }
+          swapExercise(replaceBlock.id, ids[0], false);
         }}
       />
 
@@ -1304,6 +1364,32 @@ export function WorkoutScreen({
         // Every control in here writes as it is tapped, so nothing closed the
         // sheet but a gesture nobody had been shown.
         dismissLabel="Done"
+        // Removing is the one thing you open this sheet in a hurry for, and it
+        // used to sit under rest, order, superset, interval and a note — off
+        // the bottom of a phone. It is a shortcut, not a second control: this
+        // is the only way to remove an exercise from here now.
+        titleAction={
+          menuBlock ? (
+            <IconButton
+              label={`Remove ${menuBlock.name}`}
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                const block = menuBlock;
+                setMenuFor(null);
+                // Nothing logged, nothing to lose — a modal there is friction
+                // on the one screen that can't afford any.
+                if (loggedSets(block).length === 0) {
+                  dropExercise(block.id);
+                  return;
+                }
+                setConfirmRemove(block.id);
+              }}
+            >
+              <Trash2 className="size-[18px]" />
+            </IconButton>
+          ) : undefined
+        }
       >
         {menuBlock && (
           <ExerciseOptions
@@ -1325,7 +1411,6 @@ export function WorkoutScreen({
               setMenuFor(null);
               setReplaceFor(menuBlock.id);
             }}
-            onRemove={() => dropExercise(menuBlock.id)}
           />
         )}
       </Sheet>
@@ -1428,6 +1513,95 @@ export function WorkoutScreen({
           }
         />
       )}
+
+      {/* Removing an exercise you have already worked is the one destructive
+          thing on this screen with no undo, so it asks — but only then. */}
+      <Sheet
+        open={removeBlock != null}
+        onClose={() => setConfirmRemove(null)}
+        title={removeBlock ? `Remove ${removeBlock.name}?` : undefined}
+      >
+        {removeBlock && (
+          <div className="px-4 pb-5">
+            <p className="text-text-2 text-[14px] leading-relaxed">
+              {loggedSets(removeBlock).length}{" "}
+              {loggedSets(removeBlock).length === 1
+                ? "logged set goes"
+                : "logged sets go"}{" "}
+              with it. This can&apos;t be undone.
+            </p>
+            <div className="mt-5 space-y-2">
+              <Button
+                block
+                variant="danger"
+                onClick={() => {
+                  dropExercise(removeBlock.id);
+                  setConfirmRemove(null);
+                }}
+              >
+                <Trash2 className="size-4" />
+                Remove exercise
+              </Button>
+              <Button
+                block
+                variant="ghost"
+                onClick={() => setConfirmRemove(null)}
+              >
+                Keep it
+              </Button>
+            </div>
+          </div>
+        )}
+      </Sheet>
+
+      {/* The replacement is chosen but nothing is written yet: dismissing this
+          sheet cancels it outright. */}
+      <Sheet
+        open={replaceAsk != null}
+        onClose={() => setReplaceAsk(null)}
+        title="Keep what you logged?"
+      >
+        {replaceAsk && (
+          <div className="px-4 pb-5">
+            <p className="text-text-2 text-[14px] leading-relaxed">
+              {replaceAsk.count === 1
+                ? "1 set here has a weight, reps or an effort rating."
+                : `${replaceAsk.count} sets here have weights, reps or effort ratings.`}{" "}
+              <span className="text-text-1 font-medium">{replaceAsk.name}</span>{" "}
+              is tracked the same way, so they can carry across as they are —
+              every set, including any you added yourself.
+            </p>
+            <div className="mt-5 space-y-2">
+              <Button
+                block
+                variant="volt"
+                onClick={() =>
+                  swapExercise(
+                    replaceAsk.blockId,
+                    replaceAsk.exerciseId,
+                    true,
+                  )
+                }
+              >
+                Keep my sets
+              </Button>
+              <Button
+                block
+                variant="solid"
+                onClick={() =>
+                  swapExercise(
+                    replaceAsk.blockId,
+                    replaceAsk.exerciseId,
+                    false,
+                  )
+                }
+              >
+                Start fresh
+              </Button>
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       <Sheet
         open={confirmDiscard}
@@ -1729,7 +1903,7 @@ function ExerciseBlock({
             <Timer className="size-[18px]" />
           </IconButton>
         )}
-        {showWeight && heaviest > 0 && (
+        {showWeight && heaviest > 0 && hasLoadablePlates(block.equipment) && (
           <IconButton
             label="Plate calculator"
             size="sm"
@@ -2186,7 +2360,6 @@ function ExerciseOptions({
   canReorder,
   onReorderAll,
   onReplace,
-  onRemove,
 }: {
   block: Block;
   defaultRestSeconds: number;
@@ -2200,7 +2373,6 @@ function ExerciseOptions({
   canReorder: boolean;
   onReorderAll: () => void;
   onReplace: () => void;
-  onRemove: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
   const intervalOn = block.intervalWorkSeconds != null;
@@ -2346,14 +2518,9 @@ function ExerciseOptions({
           Replace exercise
         </Button>
         <p className="text-text-3 text-[12px] leading-snug">
-          Keeps the sets and the rest timer. Anything already logged here is
-          cleared — it was performed on a different movement.
+          Keeps the sets and the rest timer. If you have logged anything here,
+          you&apos;ll be asked whether it carries across.
         </p>
-
-        <Button block variant="danger" onClick={onRemove}>
-          <Trash2 className="size-4" />
-          Remove exercise
-        </Button>
       </div>
     </div>
   );

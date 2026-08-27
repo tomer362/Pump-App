@@ -40,7 +40,15 @@ export function ExercisePicker({
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirm: (exerciseIds: string[]) => void;
+  /**
+   * The chosen ids, and the rows they came from where this sheet still has
+   * them. The workout screen needs the candidate's `trackingType` *before* it
+   * calls the server — it decides from that whether a replacement is alike
+   * enough to offer to carry the logged sets across. An exercise created inline
+   * has no row here, so the second argument can come back short; a caller that
+   * can't find its item takes the conservative path.
+   */
+  onConfirm: (exerciseIds: string[], items: ExerciseListItem[]) => void;
   startCreating?: boolean;
   mode?: "add" | "replace";
   /** The exercise being swapped out — its id and name. Replace mode only. */
@@ -152,10 +160,24 @@ export function ExercisePicker({
 
   const confirm = useCallback(
     (ids: string[]) => {
+      // Resolved against every list this sheet has loaded, before `reset()`
+      // clears the search that produced them.
+      const byId = new Map<string, ExerciseListItem>();
+      for (const e of [
+        ...(suggestions?.items ?? []),
+        ...recent,
+        ...rest,
+        ...imported,
+      ]) {
+        byId.set(e.id, e);
+      }
+      const items = ids
+        .map((id) => byId.get(id))
+        .filter((e): e is ExerciseListItem => e != null);
       reset();
-      onConfirm(ids);
+      onConfirm(ids, items);
     },
-    [reset, onConfirm],
+    [reset, onConfirm, suggestions, recent, rest, imported],
   );
 
   // The exercise being replaced is never a candidate to replace itself.
@@ -285,7 +307,8 @@ export function ExercisePicker({
             <p className="text-text-3 px-4 pb-2 text-[13px] leading-snug">
               Swapping out{" "}
               <span className="text-text-2 font-medium">{replacing.name}</span>.
-              The sets stay; the numbers logged against the old movement don&apos;t.
+              The sets stay. If anything is logged against them, you&apos;ll be
+              asked whether it carries across.
             </p>
           )}
           <div className="bg-surface-1 sticky top-0 z-10 px-4 pb-2">

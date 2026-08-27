@@ -33,14 +33,18 @@ export async function makeUser() {
   return id;
 }
 
-export async function makeExercise(name = `Test Lift ${stamp()}`) {
+export async function makeExercise(
+  name = `Test Lift ${stamp()}`,
+  /** Overrides for the columns a test actually varies. */
+  opts: { trackingType?: "weight_reps" | "reps" | "time" | "assist_reps" } = {},
+) {
   const [row] = await db
     .insert(exercise)
     .values({
       name,
       primaryMuscle: "chest",
       equipment: "barbell",
-      trackingType: "weight_reps",
+      trackingType: opts.trackingType ?? "weight_reps",
     })
     .returning({ id: exercise.id });
   return row.id;
