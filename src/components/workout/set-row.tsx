@@ -421,7 +421,6 @@ export function RestStrip({
   seconds,
   override,
   runningTotal,
-  onStart,
   onEdit,
   onOpenTimer,
 }: {
@@ -436,11 +435,11 @@ export function RestStrip({
    */
   runningTotal: number | null;
   /**
-   * Start this gap's rest by hand. The primary action on an idle strip that has
-   * a duration to start — you don't have to complete a set to begin a rest.
+   * Open the rest editor for this gap. The primary action on an idle strip:
+   * tapping it no longer starts the clock, it opens the sheet where the duration
+   * is adjusted and — once the set above is completed — the rest is started.
+   * Starting a rest for a set you haven't finished isn't a thing you'd want.
    */
-  onStart: () => void;
-  /** Open the rest-duration editor (per-set / per-exercise). The pencil. */
   onEdit: () => void;
   /**
    * Reveals the rest bar — its controls (pause, ±15s, skip), not a settings
@@ -458,26 +457,21 @@ export function RestStrip({
       />
     );
   }
-  // Nothing to start on a "no rest" gap — the whole strip just edits.
-  if (seconds === 0) {
-    return (
-      <RestStripShell
-        onPrimary={onEdit}
-        label="No rest after this set. Change it."
-        accent={override}
-        value="None"
-      />
-    );
-  }
+  // Idle, whether or not it carries a duration: the whole strip opens the
+  // editor. There is no tap-to-start here anymore — start lives inside the
+  // sheet, behind the completion gate.
   return (
     <RestStripShell
-      onPrimary={onStart}
-      onEdit={onEdit}
-      label={`Rest ${formatDuration(seconds)} after this set${
-        override ? ", set just for this set" : ""
-      }. Tap to start it now.`}
+      onPrimary={onEdit}
+      label={
+        seconds === 0
+          ? "No rest after this set. Tap to change it."
+          : `Rest ${formatDuration(seconds)} after this set${
+              override ? ", set just for this set" : ""
+            }. Tap to adjust or start.`
+      }
       accent={override}
-      value={formatDuration(seconds)}
+      value={seconds === 0 ? "None" : formatDuration(seconds)}
     />
   );
 }

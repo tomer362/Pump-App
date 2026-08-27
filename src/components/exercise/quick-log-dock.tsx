@@ -32,6 +32,13 @@ export function QuickLogDock({
 }) {
   const [open, setOpen] = useState(false);
 
+  // Mid-workout there is nothing to quick-log toward: sets belong in the running
+  // session, and the ActiveWorkoutPill already owns this bottom strip. Showing a
+  // second "Log a set" bar stacked over the pill is the redundant CTA the design
+  // otherwise avoids — every other (app) page shows the pill alone. Drop the
+  // dock (and its spacer) entirely until the workout ends.
+  if (activeWorkoutId) return null;
+
   return (
     <>
       {/* Keeps the page's last card clear of the docked bar. */}
@@ -39,13 +46,8 @@ export function QuickLogDock({
 
       <div
         className="fixed inset-x-0 z-30 px-3 pb-2"
-        // Clears the tab bar, and the active-workout pill on top of it when
-        // there is one — 56px is the pill's own height.
-        style={{
-          bottom: activeWorkoutId
-            ? "calc(var(--bottom-dock) + 56px)"
-            : "var(--bottom-dock)",
-        }}
+        // Clears the tab bar and the system inset below it.
+        style={{ bottom: "var(--bottom-dock)" }}
       >
         <button
           onClick={() => setOpen(true)}
