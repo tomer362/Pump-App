@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Ellipsis, Pencil } from "lucide-react";
+import { Archive, ArchiveRestore, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import {
@@ -77,6 +77,27 @@ export function ManageExercise({
         onClose={() => setMenu(false)}
         title={name}
         dismissLabel="Done"
+        // The destructive one, in the header rather than below the edit button:
+        // it is what somebody opens this menu in a hurry for, and the same
+        // shortcut now sits in the same place in the workout screen's and the
+        // routine builder's exercise menus. It still routes through the confirm
+        // sheet below, which is where "archive, not delete" is explained — a
+        // trash icon is the affordance, not a promise about your history.
+        titleAction={
+          archived ? undefined : (
+            <IconButton
+              label={`Archive ${name}`}
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setMenu(false);
+                setConfirming(true);
+              }}
+            >
+              <Trash2 className="size-[18px]" />
+            </IconButton>
+          )
+        }
       >
         <div className="space-y-2 px-4 pb-2">
           <Button
@@ -90,23 +111,10 @@ export function ManageExercise({
             <Pencil className="size-4" />
             Edit exercise
           </Button>
-          {archived ? (
+          {archived && (
             <Button block variant="ghost" loading={busy} onClick={toggleArchive}>
               <ArchiveRestore className="size-4" />
               Restore to your library
-            </Button>
-          ) : (
-            <Button
-              block
-              variant="ghost"
-              className="text-danger"
-              onClick={() => {
-                setMenu(false);
-                setConfirming(true);
-              }}
-            >
-              <Archive className="size-4" />
-              Archive exercise
             </Button>
           )}
           {error && !confirming && (

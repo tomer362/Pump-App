@@ -16,6 +16,7 @@ import {
   workoutExercise,
   workoutSet,
   type PrKind,
+  type SetType,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
 import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
@@ -399,21 +400,58 @@ export type ReplacedExercise = {
   primaryMuscle: string;
   equipment: string;
   trackingType: string;
-  /** Sets in order — same rows, emptied. */
-  setIds: string[];
+  /**
+   * Sets in order, with whatever they hold after the swap — emptied, or
+   * carried across intact. Returned in full rather than as bare ids so the
+   * screen rebuilds the block the same way whichever happened, instead of
+   * knowing which columns this action clears.
+   */
+  sets: ReplacedSet[];
+  /**
+   * Whether the logged values survived. The client asks for this; the server
+   * decides, and refuses across a change of tracking type.
+   */
+  keptValues: boolean;
   previous: PreviousSet[];
+};
+
+export type ReplacedSet = {
+  id: string;
+  position: number;
+  setType: SetType;
+  weightKg: number | null;
+  reps: number | null;
+  seconds: number | null;
+  distanceM: number | null;
+  rpe: number | null;
+  targetRpe: number | null;
+  restSeconds: number | null;
+  completed: boolean;
 };
 
 /**
  * Swap the movement on one block, keeping its position, rest, superset letter
  * and set count.
  *
- * The logged values are cleared rather than carried over: they were performed
- * on a different exercise, and leaving them would attribute someone's pull-up
- * reps to a lat pulldown in history, in the muscle-volume split and in the
- * records computed at finish. The set *rows* survive — the user asked for
- * "3 sets of this instead", not for the block to be rebuilt — and so does the
- * exercise's own "Previous" column, which is refetched for the new movement.
+ * The logged values are cleared *by default*, because they were performed on a
+ * different exercise and leaving them would attribute someone's pull-up reps to
+ * a lat pulldown in history, in the muscle-volume split and in the records
+ * computed at finish. But that is only right when the two movements are
+ * unrelated, and most replacements are not: a barbell row swapped for a
+ * chest-supported row two sets in is the same work on a different handle, and
+ * silently wiping those two sets is the app throwing away something the lifter
+ * actually did. So the screen asks, and `keepValues` is the answer.
+ *
+ * The keep is refused across a change of tracking type whatever the client
+ * says. The columns are simply different — carrying a weight×reps set onto a
+ * timed movement would leave numbers in cells that movement doesn't have, and
+ * an `assist_reps` load means the opposite of a `weight_reps` one, so the same
+ * number would silently change meaning.
+ *
+ * The set *rows* survive either way — the user asked for "3 sets of this
+ * instead", not for the block to be rebuilt, and a session carrying more sets
+ * than the routine prescribed keeps all of them — and so does the exercise's
+ * own "Previous" column, which is refetched for the new movement.
  *
  * Live workouts only. A finished workout's totals are denormalised onto the
  * row at finish, so mutating its sets here would leave them describing sets
@@ -422,6 +460,7 @@ export type ReplacedExercise = {
 export async function replaceWorkoutExercise(
   workoutExerciseId: string,
   exerciseId: string,
+  keepValues = false,
 ): Promise<ActionResult<ReplacedExercise>> {
   const guard = await ownedWorkoutExercise(workoutExerciseId);
   if ("error" in guard) return { ok: false, error: guard.error };
@@ -443,7 +482,19 @@ export async function replaceWorkoutExercise(
     .limit(1);
   if (!target) return { ok: false, error: "Exercise not found" };
 
-  const setIds = await db.transaction(async (tx) => {
+  // What is being swapped *out*, for the tracking-type comparison below. The
+  // block's own row is the only place that records it.
+  const [outgoing] = await db
+    .select({ trackingType: exercise.trackingType })
+    .from(exercise)
+    .where(eq(exercise.id, guard.we.exerciseId))
+    .limit(1);
+
+  // The server decides, never the client: `keepValues` is a request.
+  const keptValues =
+    keepValues && outgoing?.trackingType === target.trackingType;
+
+  const rows = await db.transaction(async (tx) => {
     await tx
       .update(workoutExercise)
       .set({
@@ -457,31 +508,51 @@ export async function replaceWorkoutExercise(
       })
       .where(eq(workoutExercise.id, workoutExerciseId));
 
-    await tx
-      .update(workoutSet)
-      .set({
-        weightKg: null,
-        reps: null,
-        seconds: null,
-        distanceM: null,
-        rpe: null,
-        // The prescription belonged to the movement being swapped out — an
-        // effort written for a barbell squat says nothing about the machine
-        // that replaced it.
-        targetRpe: null,
-        estimated1rm: null,
-        completedAt: null,
-      })
-      .where(eq(workoutSet.workoutExerciseId, workoutExerciseId));
+    // Untouched when the values are being kept — including `estimated1rm`,
+    // which stays correct precisely because weight, reps and the tracking type
+    // are all unchanged. Recomputing it would arrive at the same number.
+    if (!keptValues) {
+      await tx
+        .update(workoutSet)
+        .set({
+          weightKg: null,
+          reps: null,
+          seconds: null,
+          distanceM: null,
+          rpe: null,
+          // The prescription belonged to the movement being swapped out — an
+          // effort written for a barbell squat says nothing about the machine
+          // that replaced it. Kept alongside the ratings when the two movements
+          // are alike enough for the lifter to have said so.
+          targetRpe: null,
+          estimated1rm: null,
+          completedAt: null,
+        })
+        .where(eq(workoutSet.workoutExerciseId, workoutExerciseId));
+    }
 
     return tx
-      .select({ id: workoutSet.id })
+      .select({
+        id: workoutSet.id,
+        position: workoutSet.position,
+        setType: workoutSet.setType,
+        weightKg: workoutSet.weightKg,
+        reps: workoutSet.reps,
+        seconds: workoutSet.seconds,
+        distanceM: workoutSet.distanceM,
+        rpe: workoutSet.rpe,
+        targetRpe: workoutSet.targetRpe,
+        restSeconds: workoutSet.restSeconds,
+        completedAt: workoutSet.completedAt,
+      })
       .from(workoutSet)
       .where(eq(workoutSet.workoutExerciseId, workoutExerciseId))
       .orderBy(asc(workoutSet.position));
   });
 
-  // Clearing completions changes this participant's live co-op numbers.
+  // Clearing completions changes this participant's live co-op numbers. Keeping
+  // them doesn't, but the call is one cheap statement and a branch here would
+  // be one more thing that can be wrong.
   await bumpCoopProgress(guard.workout.id);
 
   const previous = await getPreviousSets(guard.me.id, guard.workout.id, [
@@ -498,7 +569,20 @@ export async function replaceWorkoutExercise(
       primaryMuscle: target.primaryMuscle,
       equipment: target.equipment,
       trackingType: target.trackingType,
-      setIds: setIds.map((s) => s.id),
+      sets: rows.map((r) => ({
+        id: r.id,
+        position: r.position,
+        setType: r.setType,
+        weightKg: r.weightKg,
+        reps: r.reps,
+        seconds: r.seconds,
+        distanceM: r.distanceM,
+        rpe: r.rpe,
+        targetRpe: r.targetRpe,
+        restSeconds: r.restSeconds,
+        completed: r.completedAt != null,
+      })),
+      keptValues,
       previous: previous.get(target.id) ?? [],
     },
   };
