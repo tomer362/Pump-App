@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronDown, Minus, Pause, Play, Plus } from "lucide-react";
 import { cn, formatDuration, haptic } from "@/lib/utils";
@@ -145,7 +151,12 @@ function secondsLeft(state: RestTimerState) {
 function recompute(): boolean {
   const next = secondsLeft(current);
   // A paused rest neither reaches zero on its own nor chimes — it is frozen.
-  if (current && !isPaused(current) && next === 0 && chimedFor !== current.endsAt) {
+  if (
+    current &&
+    !isPaused(current) &&
+    next === 0 &&
+    chimedFor !== current.endsAt
+  ) {
     chimedFor = current.endsAt;
     haptic.success();
     // The sound is keyed on the same `endsAt` inside `rest-audio`, so this and
@@ -263,7 +274,12 @@ export function useRestTimer(workoutId?: string) {
       primeRestAudio();
       currentWorkoutId = workoutId ?? null;
       const endsAt = Date.now() + seconds * 1000;
-      setTimerState({ endsAt, totalSeconds: seconds, setId, pausedRemaining: null });
+      setTimerState({
+        endsAt,
+        totalSeconds: seconds,
+        setId,
+        pausedRemaining: null,
+      });
       // The caller (re)binds the open panel to this new rest by its `endsAt`.
       return endsAt;
     },
@@ -301,7 +317,12 @@ export function useRestTimer(workoutId?: string) {
       Math.ceil((endsAt - now) / 1000),
       s.totalSeconds + delta,
     );
-    setTimerState({ endsAt, totalSeconds, setId: s.setId, pausedRemaining: null });
+    setTimerState({
+      endsAt,
+      totalSeconds,
+      setId: s.setId,
+      pausedRemaining: null,
+    });
     return endsAt;
   }, []);
 
@@ -514,8 +535,13 @@ function RestTimerPanel({
         <div
           className={cn(
             "relative overflow-hidden rounded-card border transition-colors",
+            // A finished rest settles into the same `bg-volt-fade` tint the
+            // RESTING strip and the completed set rows already carry, rather
+            // than inverting to a solid volt fill: three volt states on one
+            // screen have to read as the same state, and the accent is for
+            // marking, not for filling the loudest box on the page.
             done
-              ? "border-volt bg-volt text-black"
+              ? "border-volt/40 bg-volt-fade"
               : "border-hairline bg-surface-1",
           )}
         >
@@ -538,24 +564,11 @@ function RestTimerPanel({
           )}
 
           <div className="relative flex items-center gap-2 px-3 py-2.5">
-            <button
-              onClick={() => {
-                haptic.light();
-                onAdjust(-15);
-              }}
-              aria-label="Subtract 15 seconds"
-              className={cn(
-                "press tap grid place-items-center rounded-[10px] px-2",
-                done ? "text-black/60" : "bg-surface-2 text-text-2",
-              )}
-              disabled={done}
-            >
-              <Minus className="size-4" strokeWidth={2.6} />
-            </button>
-
             {/* Pause/resume. The rest keeps its place either way — a pause freezes
                 the clock, a resume rebuilds it from now — so this is the one
-                control that stops the countdown without ending the rest. */}
+                control that stops the countdown without ending the rest. It
+                leads the row: it is the control of a clock that is running,
+                and ±15s only trims one that already is. */}
             {(onPause || onResume) && (
               <button
                 onClick={() => {
@@ -564,10 +577,7 @@ function RestTimerPanel({
                   else onPause?.();
                 }}
                 aria-label={paused ? "Resume rest" : "Pause rest"}
-                className={cn(
-                  "press tap grid place-items-center rounded-[10px] px-2",
-                  done ? "text-black/60" : "bg-surface-2 text-text-2",
-                )}
+                className="press tap bg-surface-2 text-text-2 grid place-items-center rounded-[10px] px-2"
                 disabled={done}
               >
                 {paused ? (
@@ -579,13 +589,25 @@ function RestTimerPanel({
             )}
 
             <button
+              onClick={() => {
+                haptic.light();
+                onAdjust(-15);
+              }}
+              aria-label="Subtract 15 seconds"
+              className="press tap bg-surface-2 text-text-2 grid place-items-center rounded-[10px] px-2"
+              disabled={done}
+            >
+              <Minus className="size-4" strokeWidth={2.6} />
+            </button>
+
+            <button
               onClick={() => setExpanded((v) => !v)}
               className="press flex min-w-0 flex-1 flex-col items-center"
             >
               <span
                 className={cn(
                   "text-[10px] font-bold tracking-[0.1em] uppercase",
-                  done ? "text-black/60" : paused ? "text-volt" : "text-text-3",
+                  done || paused ? "text-volt" : "text-text-3",
                 )}
               >
                 {done ? "Rest complete" : paused ? "Paused" : "Rest"}
@@ -594,7 +616,7 @@ function RestTimerPanel({
                 className={cn(
                   "num text-[26px] leading-none font-bold",
                   urgent && "animate-pulse-volt text-volt",
-                  done && "text-black",
+                  done && "text-volt",
                 )}
               >
                 {formatDuration(remaining)}
@@ -607,10 +629,7 @@ function RestTimerPanel({
                 onAdjust(15);
               }}
               aria-label="Add 15 seconds"
-              className={cn(
-                "press tap grid place-items-center rounded-[10px] px-2",
-                done ? "text-black/60" : "bg-surface-2 text-text-2",
-              )}
+              className="press tap bg-surface-2 text-text-2 grid place-items-center rounded-[10px] px-2"
               disabled={done}
             >
               <Plus className="size-4" strokeWidth={2.6} />
@@ -625,10 +644,7 @@ function RestTimerPanel({
                 (onDismiss ?? onStop)();
               }}
               aria-label="Hide rest timer"
-              className={cn(
-                "press tap grid place-items-center rounded-[10px] px-2",
-                done ? "text-black" : "text-text-3",
-              )}
+              className="press tap text-text-3 grid place-items-center rounded-[10px] px-2"
             >
               <ChevronDown className="size-5" strokeWidth={2.4} />
             </button>
@@ -642,45 +658,20 @@ function RestTimerPanel({
           {nextUp && (
             <button
               onClick={nextUp.onJump}
-              className={cn(
-                "press relative flex w-full items-center gap-2 px-3 py-2 text-left",
-                done ? "border-t border-black/15" : "hairline-t",
-              )}
+              className="press hairline-t relative flex w-full items-center gap-2 px-3 py-2 text-left"
             >
-              <span
-                className={cn(
-                  "shrink-0 text-[10px] font-bold tracking-[0.1em] uppercase",
-                  done ? "text-black/60" : "text-text-3",
-                )}
-              >
+              <span className="text-text-3 shrink-0 text-[10px] font-bold tracking-[0.1em] uppercase">
                 Next
               </span>
               {nextUp.supersetGroup && (
-                <span
-                  className={cn(
-                    "grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold",
-                    done
-                      ? "border-black/40 text-black/70"
-                      : "text-volt border-volt/50",
-                  )}
-                >
+                <span className="text-volt border-volt/50 grid size-4 shrink-0 place-items-center rounded border text-[9px] font-bold">
                   {nextUp.supersetGroup}
                 </span>
               )}
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate text-[13px] font-semibold",
-                  done ? "text-black" : "text-text-1",
-                )}
-              >
+              <span className="text-text-1 min-w-0 flex-1 truncate text-[13px] font-semibold">
                 {nextUp.name}
               </span>
-              <span
-                className={cn(
-                  "num shrink-0 text-[12px]",
-                  done ? "text-black/70" : "text-text-2",
-                )}
-              >
+              <span className="num text-text-2 shrink-0 text-[12px]">
                 {nextUp.setLabel}
                 {nextUp.target && ` · ${nextUp.target}`}
               </span>
