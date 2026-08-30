@@ -587,6 +587,16 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - **Setting rest at the exercise level clears every per-set override under it.** That is what "change it for the whole exercise" has to mean: an override left on one set would silently keep winning over the value just chosen, and the two levels are indistinguishable once the sheet closes. `updateWorkoutExerciseSettings` does it in one transaction whenever `restSeconds` is present in the patch, and `setRest` mirrors it optimistically on the client. Per-set rest does **not** round-trip into a saved routine — `routine_set` has no rest column, only `routine_exercise` does.
 - **The rest strip is a divider that carries a value, not a sixth column.** Rest isn't a measurement of the set, it's the gap after it, so `RestStrip` is recessed (`bg-surface-1` against the rows' `bg-bg`) and sits outside the table's column grid — the point of putting it in the flow is that you can see where the gaps are uneven. Volt marks a set carrying its own override, the only way to tell the two levels apart at a glance. It renders after every working set including the last (that rest runs too) and never after a warm-up (those start no timer, so naming a rest would be a lie). It is 40 px, not 44: it repeats between every set on the one screen the design keeps dense, and it matches `RpePicker`'s chips, which are this app's floor for a repeated control.
 - **The running rest appears in two places, and they read from one store.** `RestTimerState` carries the `setId` its rest follows, persisted with `endsAt`, so the strip sitting in that gap counts down alongside the bar instead of showing its planned duration — the bar said `1:56` while the strip three rows up still said `2:00`, and there is no reading of that which isn't a bug. Only the bar and that one strip subscribe to `useRemaining()`, so a tick re-renders two leaves and never the set table.
+- **A finished rest tints; it does not invert.** The panel used to flip to a
+  solid volt fill with black text for its 2.5 s — the loudest thing on the
+  screen, spending the accent on a fill, and a *different* volt from the two
+  other volt states inches away. It now settles into the same `bg-volt-fade`
+  the running `RestStrip` and the completed set rows carry, with volt text and
+  a `border-volt/40`, so one rest reads as one state from the row to the strip
+  to the bar. `transition-colors` on the card is what makes it settle rather
+  than snap.
+- **Pause leads the control row**, ahead of −15s: it is the control of a clock
+  that is running, where ±15s only trims one that already is.
 - **The bar is summoned, not shown.** Visibility used to be the same bit as "a rest is running": ticking a set called `timer.start()` and the panel docked itself over the bottom of the set table for the whole two minutes — over the rows you are reading and the inputs you are typing the next set into. The clock is not the panel. `restBarFor` in `workout-screen.tsx` holds the `endsAt` the bar is open for (an `endsAt`, never a boolean, so a *new* rest cannot inherit the previous one's open state), the running `RestStrip` is what opens it, and `RestTimerPanel` puts itself away on a capture-phase `pointerdown` outside it or on any scroll — capture, because that dismissal has to land before whatever you tapped runs, and because `scroll` doesn't bubble to the one scroller in the root layout. The rest carries on underneath: only the panel closes. Read `restBarOpen`, which derives from the store, never `restBarFor` alone — a rest that runs out auto-clears 2.5 s later, and the stale `endsAt` would suppress the jump pill for the rest of the session. That pill now stands down for the panel being *open*, not for a rest existing.
 - **A sheet that commits as you tap needs a `dismissLabel`.** `Sheet` has no corner X on purpose — the dismiss belongs in the thumb zone — but that left the settings sheets (exercise options, set options, the plate calculator, the builder's exercise and About sheets) dismissible only by dragging the handle, tapping the backdrop or Escape, none of which is drawn on the screen. So the sheet read as having no way out, and on the About sheet the handle is scrolled away from the prose anyway. The button is neutral, not volt: nothing is being committed — every control in those sheets has already written — and it is skipped entirely for a sheet with a real footer action or one that closes on the choice you make (the rest sheet, both RPE sheets).
 - **The destructive control in an options sheet lives in its header, not at its foot.** Removing an exercise sat under rest, order, superset, interval and a note — in the workout screen, in the routine builder, and (shorter, but the same shape) on `/exercises/[id]`. It is the one thing somebody opens that sheet in a hurry for, and it was the one thing off the bottom of a phone. `Sheet` therefore takes a `titleAction`, rendered flush right in the title row, and each of those three passes a red trash `IconButton` into it; the full-width danger button below is gone, so there is exactly one way to remove and it is always on screen. Mid-workout it is the only control on that screen that destroys logged work with no undo, so it confirms — **but only when there is something to lose**: `loggedSets()` (a typed number, a rating or a completion — not a rest override or a set type, which the next block recreates anyway) decides between a confirm sheet and removing on the tap. On `/exercises/[id]` the icon opens the existing *archive* confirmation unchanged: a trash glyph is the affordance, and the copy is where "your history stays exactly as it is" gets said.
@@ -625,6 +635,27 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   have trained", and hiding something you have actually done would be a bug.
   The picker offers an inline reveal when a *narrowed* search has hidden
   matches; `adoptImportedExercise` (or any edit) clears the flag for good.
+- **In a picker, the hold is the info gesture — the tap is already spent.** Every
+  row of `ExercisePicker` is one button that ticks a selection, so choosing
+  between "Chest Supported Row (Machine)" and "Chest Supported T-Bar Row"
+  mid-session meant leaving the workout to read `/exercises/[id]`. A press-and-
+  hold opens the same `ExerciseAboutSheetBody` the routine builder opens, and
+  `useLongPress` is what makes it safe on a phone: its `onClickCapture` eats the
+  trailing click so the hold doesn't *also* tick the row, and its `style` is what
+  stops iOS raising its own selection over the sheet — which is why that node
+  carries no `select-none` and no second inline style of its own. A gesture is
+  advertised by nothing, so one caption under the filters says so; a glyph on
+  each of ~250 rows would be noise on a list that already carries badges.
+- **Which is the app's first pair of stacked sheets, and `Sheet` had two
+  single-sheet assumptions.** Both instances listen for Escape on `window`, so
+  one key closed the About sheet *and* the picker behind it; and both wrote
+  `body.style.overflow` and restored what they captured, so two unmounting in one
+  commit could restore `"hidden"` last and leave the page locked with nothing on
+  top of it. A module-level stack now decides which sheet answers a key, and the
+  scroll lock is ref-counted. The About sheet is a **sibling** of the picker's
+  Sheet, not a child: every Sheet portals to `document.body`, so the one mounted
+  second paints over the first and the list keeps its scroll position and its
+  ticks underneath.
 - **The About sheet says the same things about an exercise that its page does.**
   The routine builder opens `ExerciseAboutSheetBody` rather than navigating (the
   draft is unsaved React state), and it showed neither the imported strip nor

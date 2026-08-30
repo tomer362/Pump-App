@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Check, Loader2, Plus, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,19 @@ import {
 // lazy import nested inside a lazily-loaded component it asked for a chunk the
 // bundler had not emitted.
 import { getReplacementSuggestionsAction } from "@/lib/actions/exercise-search";
+import { useLongPress } from "@/hooks/use-long-press";
 import type { ExerciseListItem } from "@/lib/queries/exercise";
 import { MUSCLES, EQUIPMENT } from "@/lib/db/schema";
 import { cn, haptic, labelize } from "@/lib/utils";
+
+// Lazy, unlike `use-exercise-batches` above: the About body is only ever
+// reached by holding a row, so a picker that is merely opened — the common
+// case, mid-workout, on a phone — should not pay for it.
+const ExerciseAboutSheetBody = dynamic(() =>
+  import("@/components/exercise/exercise-about").then(
+    (m) => m.ExerciseAboutSheetBody,
+  ),
+);
 
 const MUSCLE_FILTERS = ["all", ...MUSCLES] as const;
 const EQUIPMENT_FILTERS = ["all", ...EQUIPMENT] as const;
@@ -130,6 +141,11 @@ export function ExercisePicker({
     [replacingId],
   );
 
+  // Held as the item rather than the id: the About sheet below is titled with
+  // the name, and the row that was held is the only place this component has
+  // it.
+  const [infoItem, setInfoFor] = useState<ExerciseListItem | null>(null);
+
   // Reset on the way out rather than in an effect keyed on `open`: the Sheet
   // keeps its children mounted through the exit animation, so clearing on
   // `!open` would visibly wipe the ticks and the search box as the panel slides
@@ -141,6 +157,7 @@ export function ExercisePicker({
   // one tap swapped in whatever was picked last time.
   const reset = useCallback(() => {
     setSelected([]);
+    setInfoFor(null);
     setQuery("");
     setCreating(startCreating);
     // Revealing imported exercises is intent for this search, not a setting.
@@ -239,6 +256,7 @@ export function ExercisePicker({
               addedCount={alreadyIn?.[e.id] ?? 0}
               radio={single}
               onToggle={() => toggle(e.id)}
+              onLongPress={() => setInfoFor(e)}
             />
           ))}
         </Group>
@@ -255,200 +273,234 @@ export function ExercisePicker({
   }
 
   return (
-    <Sheet
-      open={open}
-      onClose={close}
-      title={
-        creating
-          ? "New exercise"
-          : single
-            ? "Replace exercise"
-            : "Add exercises"
-      }
-      maxHeight="92dvh"
-      footer={
-        creating ? undefined : (
-          <Button
-            block
-            variant="volt"
-            disabled={selected.length === 0}
-            onClick={() => confirm(selected)}
-          >
-            {single
-              ? selected.length === 0
-                ? "Select a replacement"
-                : "Replace exercise"
-              : selected.length === 0
-                ? "Select exercises"
-                : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
-          </Button>
-        )
-      }
-    >
-      {creating ? (
-        <ExerciseForm
-          // With no list behind it, "Cancel" has to mean "close" — going back
-          // to a search the user never opened would be a dead end.
-          onCancel={() => (startCreating ? close() : setCreating(false))}
-          onSaved={(id) => {
-            if (startCreating) return confirm([id]);
-            setCreating(false);
-            setQuery("");
-            setSelected((s) => (single ? [id] : [...s, id]));
-            // Clearing an already-empty search box is a same-value no-op, so
-            // ask for the opening batch again explicitly — otherwise the
-            // exercise the user just created isn't in the list behind them.
-            refresh();
-          }}
-        />
-      ) : (
-        <div>
-          {single && replacing && (
-            <p className="text-text-3 px-4 pb-2 text-[13px] leading-snug">
-              Swapping out{" "}
-              <span className="text-text-2 font-medium">{replacing.name}</span>.
-              The sets stay. If anything is logged against them, you&apos;ll be
-              asked whether it carries across.
-            </p>
-          )}
-          <div className="bg-surface-1 sticky top-0 z-10 px-4 pb-2">
-            <div className="relative">
-              <Search className="text-text-3 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search exercises"
-                className="pl-9"
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-              {query && (
-                <button
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="text-text-3 absolute top-1/2 right-2 -translate-y-1/2 p-2"
-                >
-                  <X className="size-4" />
-                </button>
-              )}
-            </div>
-
-            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {MUSCLE_FILTERS.map((m) => (
-                <Chip
-                  key={m}
-                  active={muscle === m}
-                  onClick={() => setMuscle(m)}
-                  label={m === "all" ? "All muscles" : labelize(m)}
+    <>
+      <Sheet
+        open={open}
+        onClose={close}
+        title={
+          creating
+            ? "New exercise"
+            : single
+              ? "Replace exercise"
+              : "Add exercises"
+        }
+        maxHeight="92dvh"
+        footer={
+          creating ? undefined : (
+            <Button
+              block
+              variant="volt"
+              disabled={selected.length === 0}
+              onClick={() => confirm(selected)}
+            >
+              {single
+                ? selected.length === 0
+                  ? "Select a replacement"
+                  : "Replace exercise"
+                : selected.length === 0
+                  ? "Select exercises"
+                  : `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`}
+            </Button>
+          )
+        }
+      >
+        {creating ? (
+          <ExerciseForm
+            // With no list behind it, "Cancel" has to mean "close" — going back
+            // to a search the user never opened would be a dead end.
+            onCancel={() => (startCreating ? close() : setCreating(false))}
+            onSaved={(id) => {
+              if (startCreating) return confirm([id]);
+              setCreating(false);
+              setQuery("");
+              setSelected((s) => (single ? [id] : [...s, id]));
+              // Clearing an already-empty search box is a same-value no-op, so
+              // ask for the opening batch again explicitly — otherwise the
+              // exercise the user just created isn't in the list behind them.
+              refresh();
+            }}
+          />
+        ) : (
+          <div>
+            {single && replacing && (
+              <p className="text-text-3 px-4 pb-2 text-[13px] leading-snug">
+                Swapping out{" "}
+                <span className="text-text-2 font-medium">
+                  {replacing.name}
+                </span>
+                . The sets stay. If anything is logged against them, you&apos;ll
+                be asked whether it carries across.
+              </p>
+            )}
+            <div className="bg-surface-1 sticky top-0 z-10 px-4 pb-2">
+              <div className="relative">
+                <Search className="text-text-3 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search exercises"
+                  className="pl-9"
+                  autoCapitalize="none"
+                  autoCorrect="off"
                 />
-              ))}
-            </div>
-            <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {EQUIPMENT_FILTERS.map((eq) => (
-                <Chip
-                  key={eq}
-                  active={equipment === eq}
-                  onClick={() => setEquipment(eq)}
-                  label={eq === "all" ? "All equipment" : labelize(eq)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {loading && empty ? (
-            <p className="text-text-3 py-10 text-center text-[14px]">Loading…</p>
-          ) : empty ? (
-            <div>
-              {/* Same rule as below — the reveal goes last. With nothing in
-                  scope, last is also the top, so a search that only matches
-                  an imported exercise isn't a dead end. */}
-              {revealBlock}
-              <div className="px-4 py-10 text-center">
-                <p className="text-text-2 text-[15px]">No exercises match.</p>
-                <Button
-                  variant="outline"
-                  className="mt-4"
-                  onClick={() => setCreating(true)}
-                >
-                  <Plus className="size-4" />
-                  Create &ldquo;{query || "custom exercise"}&rdquo;
-                </Button>
+                {query && (
+                  <button
+                    onClick={() => setQuery("")}
+                    aria-label="Clear search"
+                    className="text-text-3 absolute top-1/2 right-2 -translate-y-1/2 p-2"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
               </div>
-            </div>
-          ) : (
-            <>
-              {suggested.length > 0 && (
-                <Group title="Similar exercises">
-                  {suggested.map((e) => (
-                    <Row
-                      key={e.id}
-                      item={e}
-                      selected={selected.includes(e.id)}
-                      addedCount={alreadyIn?.[e.id] ?? 0}
-                      radio={single}
-                      onToggle={() => toggle(e.id)}
-                    />
-                  ))}
-                </Group>
-              )}
-              {shownRecent.length > 0 && (
-                <Group title="Recent">
-                  {shownRecent.map((e) => (
-                    <Row
-                      key={e.id}
-                      item={e}
-                      selected={selected.includes(e.id)}
-                      addedCount={alreadyIn?.[e.id] ?? 0}
-                      radio={single}
-                      onToggle={() => toggle(e.id)}
-                    />
-                  ))}
-                </Group>
-              )}
-              <Group
-                title={
-                  suggested.length || shownRecent.length
-                    ? "All exercises"
-                    : undefined
-                }
-              >
-                {others.map((e) => (
-                  <Row
-                    key={e.id}
-                    item={e}
-                    selected={selected.includes(e.id)}
-                    addedCount={alreadyIn?.[e.id] ?? 0}
-                    radio={single}
-                    onToggle={() => toggle(e.id)}
+
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {MUSCLE_FILTERS.map((m) => (
+                  <Chip
+                    key={m}
+                    active={muscle === m}
+                    onClick={() => setMuscle(m)}
+                    label={m === "all" ? "All muscles" : labelize(m)}
                   />
                 ))}
-              </Group>
-
-              {/* Out-of-scope material never pushes in-scope material down the
-                  screen, so the reveal comes after every group. */}
-              {revealBlock}
-
-              {/* Sits above the create button so the next batch is already in
-                  flight while that button is still below the fold. */}
-              {!exhausted && (
-                <div ref={sentinelRef} className="flex justify-center py-4">
-                  {loadingMore && (
-                    <Loader2 className="text-text-3 size-4 animate-spin" />
-                  )}
-                </div>
-              )}
-
-              <div className="px-4 py-4">
-                <Button block variant="ghost" onClick={() => setCreating(true)}>
-                  <Plus className="size-4" />
-                  Create custom exercise
-                </Button>
               </div>
-            </>
-          )}
-        </div>
-      )}
-    </Sheet>
+              <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {EQUIPMENT_FILTERS.map((eq) => (
+                  <Chip
+                    key={eq}
+                    active={equipment === eq}
+                    onClick={() => setEquipment(eq)}
+                    label={eq === "all" ? "All equipment" : labelize(eq)}
+                  />
+                ))}
+              </div>
+              {/* A hold is advertised by nothing, and a tap here is already
+                  spent on selection. One caption rather than a glyph on every
+                  row: the list runs to hundreds of rows that already carry
+                  badges, and the gesture is the same on all of them. */}
+              <p className="text-text-3 pt-0.5 text-[12px]">
+                Hold an exercise to read about it.
+              </p>
+            </div>
+
+            {loading && empty ? (
+              <p className="text-text-3 py-10 text-center text-[14px]">
+                Loading…
+              </p>
+            ) : empty ? (
+              <div>
+                {/* Same rule as below — the reveal goes last. With nothing in
+                  scope, last is also the top, so a search that only matches
+                  an imported exercise isn't a dead end. */}
+                {revealBlock}
+                <div className="px-4 py-10 text-center">
+                  <p className="text-text-2 text-[15px]">No exercises match.</p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => setCreating(true)}
+                  >
+                    <Plus className="size-4" />
+                    Create &ldquo;{query || "custom exercise"}&rdquo;
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {suggested.length > 0 && (
+                  <Group title="Similar exercises">
+                    {suggested.map((e) => (
+                      <Row
+                        key={e.id}
+                        item={e}
+                        selected={selected.includes(e.id)}
+                        addedCount={alreadyIn?.[e.id] ?? 0}
+                        radio={single}
+                        onToggle={() => toggle(e.id)}
+                        onLongPress={() => setInfoFor(e)}
+                      />
+                    ))}
+                  </Group>
+                )}
+                {shownRecent.length > 0 && (
+                  <Group title="Recent">
+                    {shownRecent.map((e) => (
+                      <Row
+                        key={e.id}
+                        item={e}
+                        selected={selected.includes(e.id)}
+                        addedCount={alreadyIn?.[e.id] ?? 0}
+                        radio={single}
+                        onToggle={() => toggle(e.id)}
+                        onLongPress={() => setInfoFor(e)}
+                      />
+                    ))}
+                  </Group>
+                )}
+                <Group
+                  title={
+                    suggested.length || shownRecent.length
+                      ? "All exercises"
+                      : undefined
+                  }
+                >
+                  {others.map((e) => (
+                    <Row
+                      key={e.id}
+                      item={e}
+                      selected={selected.includes(e.id)}
+                      addedCount={alreadyIn?.[e.id] ?? 0}
+                      radio={single}
+                      onToggle={() => toggle(e.id)}
+                      onLongPress={() => setInfoFor(e)}
+                    />
+                  ))}
+                </Group>
+
+                {/* Out-of-scope material never pushes in-scope material down the
+                  screen, so the reveal comes after every group. */}
+                {revealBlock}
+
+                {/* Sits above the create button so the next batch is already in
+                  flight while that button is still below the fold. */}
+                {!exhausted && (
+                  <div ref={sentinelRef} className="flex justify-center py-4">
+                    {loadingMore && (
+                      <Loader2 className="text-text-3 size-4 animate-spin" />
+                    )}
+                  </div>
+                )}
+
+                <div className="px-4 py-4">
+                  <Button
+                    block
+                    variant="ghost"
+                    onClick={() => setCreating(true)}
+                  >
+                    <Plus className="size-4" />
+                    Create custom exercise
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Sheet>
+
+      {/* A sibling, not a child: every Sheet portals to the body, so the one
+          mounted second paints over the picker, which keeps its scroll
+          position and its ticks underneath. `sheet.tsx` tracks which of the
+          two is on top, so Escape closes this one and leaves the list open. */}
+      <Sheet
+        open={infoItem != null}
+        onClose={() => setInfoFor(null)}
+        title={infoItem?.name}
+        maxHeight="88dvh"
+        dismissLabel="Done"
+      >
+        {infoItem && <ExerciseAboutSheetBody exerciseId={infoItem.id} />}
+      </Sheet>
+    </>
   );
 }
 
@@ -475,6 +527,7 @@ function Row({
   item,
   selected,
   onToggle,
+  onLongPress,
   addedCount = 0,
   // A replace picker takes exactly one row, and a checkbox that silently
   // unticks the last one you tapped reads as a bug.
@@ -483,11 +536,20 @@ function Row({
   item: ExerciseListItem;
   selected: boolean;
   onToggle: () => void;
+  /** Hold to read what the exercise is, without spending the tap. */
+  onLongPress: () => void;
   addedCount?: number;
   radio?: boolean;
 }) {
+  // Everything the hook returns lands on the one button below: its
+  // `onClickCapture` is what stops the hold from also ticking the row, and its
+  // `style` is what stops the browser raising its own selection over ours —
+  // which is why no `select-none` or second inline style goes on this node.
+  const hold = useLongPress(onLongPress);
+
   return (
     <button
+      {...hold}
       onClick={onToggle}
       // Volt and pr-gold are indistinguishable to a colourblind reader, so the
       // badge below can't be the only carrier — the count goes in the row's

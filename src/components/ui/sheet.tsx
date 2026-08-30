@@ -8,6 +8,25 @@ import { cn, haptic } from "@/lib/utils";
 import { SPRING } from "@/lib/motion";
 
 /**
+ * Every sheet currently on screen, oldest first.
+ *
+ * The picker opens the About sheet on top of itself, and two `aria-modal`
+ * dialogs listening on `window` both act on one Escape — the inner sheet and
+ * the list behind it would close together. Only the top of this stack handles
+ * a key, which is also what keeps the Tab trap belonging to one dialog.
+ */
+const openSheets: symbol[] = [];
+
+/**
+ * The body scroll lock is ref-counted for the same reason. Each instance
+ * captured and restored `body.style.overflow` on its own, so two unmounting in
+ * one commit could restore "hidden" after the outer had restored the original
+ * and leave the page locked with nothing on top of it.
+ */
+let lockCount = 0;
+let lockedFrom = "";
+
+/**
  * Bottom sheet with drag-to-dismiss, the dominant modal pattern on phones —
  * it keeps the dismiss gesture in the thumb zone instead of a corner X.
  */
@@ -61,7 +80,9 @@ export function Sheet({
   const reduce = useReducedMotion();
   const panelRef = React.useRef<HTMLDivElement>(null);
   const restoreFocusTo = React.useRef<HTMLElement | null>(null);
-
+  // This instance's identity in `openSheets`. A symbol, so two sheets opened in
+  // the same commit can never collide.
+  const [id] = React.useState(() => Symbol("sheet"));
 
   // Read through a ref so the focus effect below never depends on `onClose`.
   // Callers pass an inline arrow, so its identity changes on every parent
@@ -77,10 +98,12 @@ export function Sheet({
   // Lock the page behind the sheet so scrolling the sheet doesn't chain.
   React.useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
+    if (lockCount === 0) lockedFrom = document.body.style.overflow;
+    lockCount += 1;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = prev;
+      lockCount -= 1;
+      if (lockCount === 0) document.body.style.overflow = lockedFrom;
     };
   }, [open]);
 
@@ -93,6 +116,8 @@ export function Sheet({
    */
   React.useEffect(() => {
     if (!open) return;
+
+    openSheets.push(id);
 
     // Held for the cleanup, which runs after React has detached the node.
     const panel = panelRef.current;
@@ -107,7 +132,9 @@ export function Sheet({
         panelRef.current?.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ) ?? [],
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      ).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
 
     // Wait for the enter animation to mount the content before focusing.
     const raf = requestAnimationFrame(() => {
@@ -122,13 +149,19 @@ export function Sheet({
       const items = focusables();
       // Prefer a text field — most sheets exist to collect one value.
       const preferred =
-        items.find((el) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ??
+        items.find(
+          (el) =>
+            el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement,
+        ) ??
         items[0] ??
         panelRef.current;
       preferred?.focus?.();
     });
 
     const onKey = (e: KeyboardEvent) => {
+      // Only the topmost sheet answers. A sheet with another one over it is
+      // not the dialog the key was meant for.
+      if (openSheets[openSheets.length - 1] !== id) return;
       if (e.key === "Escape") {
         onCloseRef.current();
         return;
@@ -144,7 +177,10 @@ export function Sheet({
       const last = items[items.length - 1];
       const active = document.activeElement;
 
-      if (e.shiftKey && (active === first || !panelRef.current?.contains(active))) {
+      if (
+        e.shiftKey &&
+        (active === first || !panelRef.current?.contains(active))
+      ) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
@@ -157,16 +193,20 @@ export function Sheet({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKey);
+      const at = openSheets.lastIndexOf(id);
+      if (at !== -1) openSheets.splice(at, 1);
       // Only restore if the trigger is still in the document and focus hasn't
       // already moved somewhere deliberate outside the sheet.
       const active = document.activeElement;
       const focusWasOurs =
-        active === document.body || active === null || (panel?.contains(active) ?? false);
+        active === document.body ||
+        active === null ||
+        (panel?.contains(active) ?? false);
       if (focusWasOurs && restoreFocusTo.current?.isConnected) {
         restoreFocusTo.current.focus?.();
       }
     };
-  }, [open]);
+  }, [open, id]);
 
   // Neutral, not volt: nothing is being committed — these sheets have already
   // written every change as it was tapped — and the accent is reserved for
@@ -217,11 +257,7 @@ export function Sheet({
             initial={reduce ? { opacity: 0 } : { y: "100%" }}
             animate={reduce ? { opacity: 1 } : { y: 0 }}
             exit={reduce ? { opacity: 0 } : { y: "100%" }}
-            transition={
-              reduce
-                ? { duration: 0.15 }
-                : SPRING.sheet
-            }
+            transition={reduce ? { duration: 0.15 } : SPRING.sheet}
             drag={reduce || !dragToDismiss ? false : "y"}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
