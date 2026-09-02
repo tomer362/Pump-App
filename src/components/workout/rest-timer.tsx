@@ -535,13 +535,19 @@ function RestTimerPanel({
         <div
           className={cn(
             "relative overflow-hidden rounded-card border transition-colors",
-            // A finished rest settles into the same `bg-volt-fade` tint the
-            // RESTING strip and the completed set rows already carry, rather
-            // than inverting to a solid volt fill: three volt states on one
-            // screen have to read as the same state, and the accent is for
-            // marking, not for filling the loudest box on the page.
+            // A finished rest settles into the same tint the RESTING strip
+            // and the completed set rows already carry, rather than inverting
+            // to a solid volt fill: three volt states on one screen have to
+            // read as the same state, and the accent is for marking, not for
+            // filling the loudest box on the page.
+            //
+            // `bg-volt-tint`, not `bg-volt-fade`: the fade is 12% alpha, and
+            // this card is `fixed` over the set table with nothing opaque
+            // behind it — so the first version of this painted 12% of a colour
+            // and 88% of whatever rows happened to be scrolled underneath.
+            // The token is that same tint over `--color-bg`, already blended.
             done
-              ? "border-volt/40 bg-volt-fade"
+              ? "border-volt/40 bg-volt-tint"
               : "border-hairline bg-surface-1",
           )}
         >
