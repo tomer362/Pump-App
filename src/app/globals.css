@@ -26,6 +26,19 @@
   --color-volt-dim: #a8c92e;
   --color-volt-fade: #d7ff3e1f;
 
+  /* `--color-volt-fade` already composited over `--color-bg`, and opaque.
+     The fade is 12% alpha, which is right on a row that sits *in* the page and
+     wrong on anything floating over it: the finished rest bar is `fixed` with
+     nothing opaque behind it, so 88% of the set table showed through the one
+     panel that is meant to be the clearest thing on the screen. Same colour,
+     nothing left to composite against.
+
+     Read out of a rendered frame rather than worked out on paper — the blend
+     truncates where the arithmetic rounds, so this is a step below #242912.
+     An engine that rounds the other way is 1/255 out, which is below anything
+     an eye or an OLED resolves. */
+  --color-volt-tint: #232812;
+
   /* --- The one second accent: personal records. */
   --color-pr: #ffd84d;
   --color-pr-fade: #ffd84d1f;

@@ -498,17 +498,28 @@ function LiveRestStrip({
 }) {
   const remaining = useRemaining();
   const progress = total > 0 ? remaining / total : 0;
+  // The store holds a finished rest for a couple of seconds so the 0:00 is
+  // seen. The strip used to spend those seconds still saying "RESTING", which
+  // is the one thing the rest is no longer doing; it now says so in the same
+  // words and the same volt the bar uses, and drops the drain overlay so the
+  // gap settles to one flat tint instead of an empty trough.
+  const done = remaining === 0;
 
   return (
     <RestStripShell
       onPrimary={onOpen}
       onEdit={onEdit}
-      label={`Resting, ${formatDuration(remaining)} left. Open the rest timer.`}
+      label={
+        done
+          ? "Rest complete. Open the rest timer."
+          : `Resting, ${formatDuration(remaining)} left. Open the rest timer.`
+      }
       accent
       running
+      done={done}
       value={formatDuration(remaining)}
-      track={progress}
-      caption={override ? "Rest" : "Resting"}
+      track={done ? undefined : progress}
+      caption={done ? "Rest done" : override ? "Rest" : "Resting"}
     />
   );
 }
@@ -519,6 +530,7 @@ function RestStripShell({
   label,
   accent,
   running,
+  done,
   value,
   track,
   caption = "Rest",
@@ -531,6 +543,8 @@ function RestStripShell({
   /** Volt: either a set carrying its own value, or the gap that's running. */
   accent: boolean;
   running?: boolean;
+  /** The running rest has hit zero and is on its way out. */
+  done?: boolean;
   value: string;
   /** 0–1 remaining, drawn as a draining fill. */
   track?: number;
@@ -541,7 +555,11 @@ function RestStripShell({
     <div
       className={cn(
         "hairline-t relative flex h-10 w-full items-center overflow-hidden",
-        running ? "bg-volt-fade" : "bg-surface-1",
+        // `bg-volt-tint` is `bg-volt-fade` over the page background, already
+        // blended — the same colour this strip has always rendered, but opaque,
+        // so it and the rest bar are one state by construction rather than by
+        // both happening to sit on `--color-bg`.
+        running || done ? "bg-volt-tint" : "bg-surface-1",
       )}
     >
       {track != null && (
@@ -566,7 +584,12 @@ function RestStripShell({
           className={cn("size-3", accent ? "text-volt" : "text-text-3")}
           strokeWidth={2.4}
         />
-        <span className="text-text-3 text-[10px] font-bold tracking-[0.1em] uppercase">
+        <span
+          className={cn(
+            "text-[10px] font-bold tracking-[0.1em] uppercase",
+            done ? "text-volt" : "text-text-3",
+          )}
+        >
           {caption}
         </span>
         <span

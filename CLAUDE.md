@@ -594,7 +594,19 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   the running `RestStrip` and the completed set rows carry, with volt text and
   a `border-volt/40`, so one rest reads as one state from the row to the strip
   to the bar. `transition-colors` on the card is what makes it settle rather
-  than snap.
+  than snap. **But the tint on anything docked is `bg-volt-tint`, never
+  `bg-volt-fade`.** The fade is 12% alpha, which is what you want on a row that
+  sits *in* the page and composites against it; the bar is `fixed` over the set
+  table with nothing opaque behind it, so the first version of this decision
+  shipped a panel you could read the workout through — 12% of a colour, 88% of
+  whatever happened to be scrolled underneath, and therefore never the tint it
+  was meant to be. `--color-volt-tint` is that same fade over `--color-bg`,
+  measured out of a rendered frame rather than computed — the blend truncates
+  where the arithmetic rounds — so the bar and a completed row are the same
+  pixel and not merely the same intention. The strip carries the finished state
+  too — it holds for the same 2.5 s — so it says "Rest done" in volt and drops
+  its drain overlay, instead of spending those seconds still claiming to be
+  resting.
 - **Pause leads the control row**, ahead of −15s: it is the control of a clock
   that is running, where ±15s only trims one that already is.
 - **The bar is summoned, not shown.** Visibility used to be the same bit as "a rest is running": ticking a set called `timer.start()` and the panel docked itself over the bottom of the set table for the whole two minutes — over the rows you are reading and the inputs you are typing the next set into. The clock is not the panel. `restBarFor` in `workout-screen.tsx` holds the `endsAt` the bar is open for (an `endsAt`, never a boolean, so a *new* rest cannot inherit the previous one's open state), the running `RestStrip` is what opens it, and `RestTimerPanel` puts itself away on a capture-phase `pointerdown` outside it or on any scroll — capture, because that dismissal has to land before whatever you tapped runs, and because `scroll` doesn't bubble to the one scroller in the root layout. The rest carries on underneath: only the panel closes. Read `restBarOpen`, which derives from the store, never `restBarFor` alone — a rest that runs out auto-clears 2.5 s later, and the stale `endsAt` would suppress the jump pill for the rest of the session. That pill now stands down for the panel being *open*, not for a rest existing.
