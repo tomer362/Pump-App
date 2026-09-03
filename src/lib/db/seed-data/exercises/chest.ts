@@ -619,7 +619,7 @@ export const CHEST: SeedExercise[] = [
   },
   {
     slug: "dip-machine",
-    name: "Dip (Machine)",
+    name: "Seated Dip (Machine)",
     primaryMuscle: "chest",
     secondaryMuscles: ["triceps"],
     equipment: "machine",

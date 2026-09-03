@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed, Globe, Lock, Trash2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
@@ -34,6 +34,7 @@ export function FinishSheet({
   onNameChange,
   onNoteChange,
   onDiscard,
+  onFinished,
 }: {
   open: boolean;
   onClose: () => void;
@@ -47,6 +48,8 @@ export function FinishSheet({
   onNameChange: (v: string) => void;
   onNoteChange: (v: string) => void;
   onDiscard: () => void;
+  /** The session stopped being live. Fires on the action's success path. */
+  onFinished: () => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(defaultName);
@@ -59,6 +62,17 @@ export function FinishSheet({
   // Defaults to the truthful option: an unticked set was not performed, and
   // silently promoting it would invent volume and fake a personal record.
   const [unfinished, setUnfinished] = useState<UnfinishedSetsMode>("keep");
+  // The celebration stays mounted until the navigation it starts commits, so
+  // the transition is what tells the Done button it is working.
+  const [leaving, startLeaving] = useTransition();
+
+  // The choreography runs for about a second and a half before the Done button
+  // is even offered, and `/history/[id]` is dynamic and prefetched by nothing.
+  // Spending that time on the round trip is what lets the tap land on the real
+  // page rather than on `history/[id]/loading.tsx`.
+  useEffect(() => {
+    if (summary) router.prefetch(`/history/${summary.workoutId}`);
+  }, [summary, router]);
 
   async function submit() {
     setSaving(true);
@@ -78,6 +92,9 @@ export function FinishSheet({
     // and the app-icon badge. Here rather than after the celebration, because
     // the celebration is dismissed by a tap that may never come.
     endWorkoutActivity();
+    // Nor is a rest still running: the store is module-level and persisted, so
+    // nothing else would ever clear it.
+    onFinished();
     // Celebrate first; the sheet closes underneath it.
     setSummary(res.data!);
   }
@@ -206,12 +223,28 @@ export function FinishSheet({
         <WorkoutCelebration
           summary={summary}
           unit={unit}
+          pending={leaving}
+          // Deliberately no `setSummary(null)` and no `router.refresh()`.
+          //
+          // Unmounting the overlay by hand happened in the same commit, while
+          // the replace was still a round trip away — so the lifter watched the
+          // workout they had just finished come back, live-looking and scrolled
+          // where they left it, before the history page landed. The overlay is
+          // `fixed inset-0 bg-bg`, so leaving it up until the navigation
+          // commits covers that gap; the route change then unmounts this whole
+          // subtree with it.
+          //
+          // The refresh re-rendered the *committed* URL, which is still
+          // `/workout/[id]` at this point — a route that now redirects to the
+          // same place we are already going. A second navigation racing the
+          // first, and a round trip against a scale-to-zero database. The
+          // navigation crosses out of the workout route into the `(app)` group,
+          // so that layout and its active-workout query are fetched fresh for
+          // it anyway.
           onDone={() => {
-            setSummary(null);
-            router.replace(`/history/${summary.workoutId}`);
-            // The finish action skips revalidation so the celebration can
-            // play; catch the rest of the app up now.
-            router.refresh();
+            startLeaving(() => {
+              router.replace(`/history/${summary.workoutId}`);
+            });
           }}
         />
       )}
