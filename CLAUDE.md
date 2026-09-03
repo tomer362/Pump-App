@@ -126,6 +126,22 @@ labels, so no value is reachable only through a tooltip.
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
 - **A hold and a drag both need `user-select: none`, and once a selection exists only `removeAllRanges()` clears it.** `useLongPress` spreads the property itself rather than trusting each consumer to remember `select-none`, and clears any range when it fires: Android Chrome starts its own selection at about the same ~500 ms, and on iOS a hold that began on a nested node can raise the handles before the style resolves. The draggable lists carry it too — a drag started on a grip travels across every row below it, which is how a selection gets painted — and `input, textarea` opt back in globally in `globals.css`, or WebKit inherits the block into the weight you just typed.
 - **A long-press gesture needs `-webkit-touch-callout: none`, not just `select-none`.** A hold on an `<a>` raises Safari's link preview card, which is neither a `contextmenu` event nor a text selection — so neither `preventDefault()` nor `select-none` reaches it, and the reorder sheet opened behind Apple's card. `useLongPress` spreads the inline style itself (with `-webkit-user-drag: none`, or a drifting hold drags the URL); the property inherits, so the press target covers the links nested inside it.
+- **Chrome's long press lands at 400 ms, before any 480 ms timer — so the hook
+  claims the gesture on the way down, not when it fires.** Android's
+  `ViewConfiguration` long-press timeout is 400 ms (accessibility only makes it
+  longer), and Chrome dispatches `contextmenu` at that instant. `useLongPress`
+  used to `preventDefault()` it only once its own timer had fired, so on every
+  hold in the installed PWA Chrome drew the link card for the exercise name —
+  and, with link-text selection on, a selection — and the reorder sheet slid up
+  over it 80 ms later. The menu is now refused for the whole of a touch press,
+  and the selection is cleared *in that handler*: Chromium selects before it
+  dispatches the event and refusing the event does not undo it, so clearing at
+  the timer would still show the handles for those 80 ms. `dragstart` is
+  refused for the same span, reaching the nested `<a>` by bubbling. A desktop
+  right-click starts no press and keeps its menu. Feedback is `data-holding`,
+  set on the target 150 ms in and styled per consumer
+  (`data-[holding]:bg-surface-2`) — an attribute on the node, not React state,
+  so a hold never re-renders the exercise block, and a tap shows nothing.
 - **`px-safe-*`, not `px-4 inset-safe-x`.** Both set `padding-left`, so one silently wins — and in portrait, where the inset is `0px`, `inset-safe-x` winning collapsed several large titles flush against the screen edge. `px-safe-4` is `max(1rem, env(safe-area-inset-left))`: the inset can only raise the padding. Use bare `inset-safe-x` only on an element with no horizontal padding of its own (the tab bar, the workout header).
 
 **The document never scrolls.** `body` is exactly `100dvh` and `overflow:
