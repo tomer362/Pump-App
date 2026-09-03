@@ -562,7 +562,10 @@ function Row({
       }
       className={cn(
         "press flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
-        selected && "bg-volt-fade",
+        // A hold being recognised tints the row so the gesture answers before
+        // the sheet does; a selected row keeps its volt, since the attribute
+        // selector would otherwise outrank it.
+        selected ? "bg-volt-fade" : "data-[holding]:bg-surface-2",
       )}
     >
       <span

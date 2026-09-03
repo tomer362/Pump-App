@@ -1886,8 +1886,12 @@ function ExerciseBlock({
         // select-none so iOS doesn't raise its text-selection handles out of a
         // hold on the exercise name. The other thing a hold here used to raise
         // — Safari's link preview card for the `<Link>` below — is killed by
-        // the inline style `useLongPress` spreads in.
-        className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 select-none"
+        // the inline style `useLongPress` spreads in. `data-holding` is the
+        // hook saying a hold is being recognised: the row tints the same
+        // neutral surface the jump flash uses — not volt, which on this screen
+        // means a set completed or a rest running — and lets go when the sheet
+        // opens or the finger moves.
+        className="flex touch-pan-y items-center gap-2 px-4 pt-4 pb-2 transition-colors duration-150 select-none data-[holding]:bg-surface-2"
       >
         {block.supersetGroup && (
           <span className="text-volt border-volt/50 grid size-5 shrink-0 place-items-center rounded border text-[10px] font-bold">
