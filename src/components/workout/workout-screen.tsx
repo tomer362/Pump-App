@@ -1657,6 +1657,9 @@ export function WorkoutScreen({
           setFinishing(false);
           setConfirmDiscard(true);
         }}
+        // A rest still counting down when the session ended: the store is
+        // module-level and persisted, so nothing else would ever clear it.
+        onFinished={() => timer.stop()}
       />
 
       <Sheet

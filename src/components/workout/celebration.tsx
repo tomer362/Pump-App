@@ -19,10 +19,13 @@ export function WorkoutCelebration({
   summary,
   unit,
   onDone,
+  pending,
 }: {
   summary: FinishSummary;
   unit: "kg" | "lb";
   onDone: () => void;
+  /** The navigation off this screen is in flight. */
+  pending?: boolean;
 }) {
   const reduce = useReducedMotion();
   const hasPr = summary.prs.length > 0;
@@ -31,9 +34,11 @@ export function WorkoutCelebration({
     haptic.success();
     if (!hasPr || reduce) return;
     let cancelled = false;
+    let loaded: typeof import("canvas-confetti") | null = null;
     // Loaded on demand so the ~7 kB canvas library never touches first paint.
     void import("canvas-confetti").then(({ default: confetti }) => {
       if (cancelled) return;
+      loaded = confetti;
       const fire = (particleRatio: number, opts: Record<string, unknown>) =>
         confetti({
           origin: { y: 0.42 },
@@ -51,6 +56,11 @@ export function WorkoutCelebration({
     });
     return () => {
       cancelled = true;
+      // The library appends its own fixed canvas to `document.body`, which
+      // outlives this component. Cancelling the import is not enough now that
+      // the overlay survives until the navigation commits: particles still in
+      // flight would otherwise carry on painting over the history page.
+      loaded?.reset();
     };
   }, [hasPr, reduce]);
 
@@ -169,7 +179,15 @@ export function WorkoutCelebration({
           transition={{ delay: 1.5, duration: 0.4 }}
           className="pt-10"
         >
-          <Button variant="volt" size="lg" block onClick={onDone}>
+          {/* A cold navigation is a round trip the overlay now waits out, so
+              the tap needs to show that it landed. */}
+          <Button
+            variant="volt"
+            size="lg"
+            block
+            loading={pending}
+            onClick={onDone}
+          >
             Done
           </Button>
         </motion.div>
