@@ -52,7 +52,7 @@ export default async function StatsPage() {
           <ConsistencyPanel userId={me.id} />
         </Suspense>
 
-        <Suspense fallback={<SkeletonChartCard height="10rem" />}>
+        <Suspense fallback={<SkeletonChartCard height="26rem" />}>
           <TrendPanel userId={me.id} unit={me.unit} />
         </Suspense>
 
