@@ -400,12 +400,18 @@ export function SetRow({
 /**
  * The rest that follows a set, as its own strip between two rows.
  *
- * Deliberately not a sixth column and not styled like the rows it sits between:
- * rest is not a measurement of the set, it's the gap after it, and the whole
- * point of putting it in the flow of the table is that you can see where the
- * gaps are uneven. So it's recessed rather than elevated — `bg-surface-1`
- * against the rows' `bg-bg`, small caps, no numerals in the table's own column
- * grid — and it reads as a divider that happens to carry a value.
+ * Deliberately not a sixth column: rest is not a measurement of the set, it's
+ * the gap after it, and the whole point of putting it in the flow of the table
+ * is that you can see where the gaps are uneven. Small caps, no numerals in the
+ * table's own column grid — a divider that happens to carry a value.
+ *
+ * It is recessed (`bg-surface-1`) only while the set above is unticked. Once
+ * that set is done the gap has been *served*, which is the same finished state
+ * the row above carries, so it takes the same tint — a block of completed sets
+ * used to read as stripes, volt row, grey gap, volt row. The recess stays where
+ * it still answers something live: the rest you have yet to take. That also
+ * means the strip no longer snaps back to grey when the timer's 2.5s "Rest
+ * done" window expires; the finished rest simply stays finished.
  *
  * Volt marks a set that carries its *own* rest rather than the exercise's. That
  * is state the lifter set, which is exactly what the accent is for, and it is
@@ -420,6 +426,7 @@ export function SetRow({
 export function RestStrip({
   seconds,
   override,
+  completed,
   runningTotal,
   onEdit,
   onOpenTimer,
@@ -428,6 +435,11 @@ export function RestStrip({
   seconds: number;
   /** True when this set carries its own value instead of inheriting. */
   override: boolean;
+  /**
+   * The set above is ticked, so this gap has been served rather than merely
+   * configured. Carries the completed row's tint.
+   */
+  completed: boolean;
   /**
    * The running timer's full duration when *this* gap is the one counting down,
    * else null. Non-null swaps in the live variant, which is the only strip that
@@ -471,6 +483,7 @@ export function RestStrip({
             }. Tap to adjust or start.`
       }
       accent={override}
+      served={completed}
       value={seconds === 0 ? "None" : formatDuration(seconds)}
     />
   );
@@ -530,6 +543,7 @@ function RestStripShell({
   label,
   accent,
   running,
+  served,
   done,
   value,
   track,
@@ -543,6 +557,8 @@ function RestStripShell({
   /** Volt: either a set carrying its own value, or the gap that's running. */
   accent: boolean;
   running?: boolean;
+  /** The gap is behind you: the set above it is complete. */
+  served?: boolean;
   /** The running rest has hit zero and is on its way out. */
   done?: boolean;
   value: string;
@@ -555,11 +571,16 @@ function RestStripShell({
     <div
       className={cn(
         "hairline-t relative flex h-10 w-full items-center overflow-hidden",
+        // 500ms is `SetRow`'s own tint transition: ticking a set has to colour
+        // the row and the gap under it as one movement, not two.
+        "transition-colors duration-500",
         // `bg-volt-tint` is `bg-volt-fade` over the page background, already
         // blended — the same colour this strip has always rendered, but opaque,
-        // so it and the rest bar are one state by construction rather than by
-        // both happening to sit on `--color-bg`.
-        running || done ? "bg-volt-tint" : "bg-surface-1",
+        // so it, the completed row above it and the rest bar are one state by
+        // construction rather than by all three happening to sit on
+        // `--color-bg`. A served gap gets it too: it is the same finished state
+        // as the row, which is why a run of completed sets stopped striping.
+        running || done || served ? "bg-volt-tint" : "bg-surface-1",
       )}
     >
       {track != null && (
