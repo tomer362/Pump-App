@@ -112,6 +112,38 @@ rounded data-end, square at the baseline. Grid/axes: solid hairlines, never
 dashed. Single series → no legend. Every chart has a table view or direct
 labels, so no value is reachable only through a tooltip.
 
+**Every chart is the same instrument** (`components/ui/chart.tsx`, arithmetic
+in `lib/chart.ts`, pinned by `tests/chart.test.ts`): metric tabs on a hairline
+with a volt underline (the accent rule's "active tab"), a **readout** above the
+plot — the number, its date, the change against the previous point — then the
+plot, then a three-figure strip (best / change / count), then any range control
+in the thumb zone. **The readout is the tooltip.** A drag across the plot scrubs
+it (`touch-action: pan-y`, so the page still scrolls), arrow keys do the same,
+and a "Latest" chip is the only way drawn back — it appears once you have left
+the latest point and not before. Plots are laid out in real pixels from a
+measured width, never a stretched `viewBox`: a non-uniform viewBox squashes
+every circle and glyph, which is why the first chart floated its markers in an
+HTML overlay and could label no axis at all.
+
+- **The x-axis is time, not session number.** Spacing sessions evenly drew
+  January and August as far apart as two consecutive weeks, so the shape of the
+  trend was an artefact of how often you trained. `timeDomain` starts at the
+  range boundary or the first session, whichever is later, and ends *now*: a
+  line that stops short of the right edge is a lift you haven't done lately.
+- **Ticks are real values** (`niceScale`, 1/2/2.5/5 steps in the display unit,
+  so a pound-reader gets clean pounds), labelled in the right-hand gutter. A
+  line zooms to its range; a bar chart's floor is pinned at zero, because a
+  bar's length is the value.
+- **One direct label, the extreme.** "Best" rides the maximum; the endpoint is
+  the readout. A dot per session only up to 24 of them — beyond that the dots
+  read as a bead string and only the ends and the selection are marked.
+- **Assistance is plotted negated.** An assisted machine's series is help
+  received, so its "best" is its minimum; drawing it as-is put −40 above −25
+  and progress ran downhill. The plot flips the sign so less help climbs, the
+  tick labels carry the minus, and the readout and figures keep the true
+  number. Deltas and "Change" are grey, never volt — an improvement is not a
+  record, and volt on the figure would claim one.
+
 ---
 
 ## Phone ergonomics — non-negotiable
