@@ -2052,6 +2052,7 @@ function ExerciseBlock({
                   <RestStrip
                     seconds={restAfter}
                     override={set.restSeconds != null}
+                    completed={set.completed}
                     runningTotal={
                       restingSetId === set.id ? restingTotal : null
                     }
