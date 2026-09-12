@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useTransient } from "@/hooks/use-transient";
 import { Check, Copy } from "lucide-react";
 import { haptic } from "@/lib/utils";
 
 /** Tap-to-copy join code. The code is a gym's only credential, so make
     handing it to someone one gesture rather than a manual transcription. */
 export function GymCode({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTransient(false, 2000);
 
   return (
     <button
@@ -15,8 +15,7 @@ export function GymCode({ code }: { code: string }) {
         haptic.light();
         try {
           await navigator.clipboard.writeText(code);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 2000);
+          flashCopied(true);
         } catch {
           /* clipboard unavailable */
         }

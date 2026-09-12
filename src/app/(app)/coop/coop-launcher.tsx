@@ -25,6 +25,13 @@ export function CoopLauncher({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One error slot serves both sheets, so switching clears it — a refusal
+  // from Create used to sit on screen inside Join.
+  const openMode = (next: "create" | "join" | null) => {
+    setError(null);
+    setBusy(false);
+    setMode(next);
+  };
 
   if (activeSession) {
     return (
@@ -61,10 +68,10 @@ export function CoopLauncher({
           see each other&apos;s progress and rest timers as you go.
         </p>
         <div className="mt-4 flex gap-2">
-          <Button block variant="volt" onClick={() => setMode("create")}>
+          <Button block variant="volt" onClick={() => openMode("create")}>
             Start a session
           </Button>
-          <Button block variant="solid" onClick={() => setMode("join")}>
+          <Button block variant="solid" onClick={() => openMode("join")}>
             Join
           </Button>
         </div>
@@ -72,7 +79,8 @@ export function CoopLauncher({
 
       <Sheet
         open={mode === "create"}
-        onClose={() => setMode(null)}
+        onClose={() => openMode(null)}
+        initialFocus="input"
         title="Start a co-op session"
         footer={
           <Button
@@ -107,7 +115,6 @@ export function CoopLauncher({
               onChange={(e) => setName(e.target.value)}
               placeholder="Saturday legs"
               maxLength={60}
-              autoFocus
             />
           </div>
 
@@ -152,7 +159,8 @@ export function CoopLauncher({
 
       <Sheet
         open={mode === "join"}
-        onClose={() => setMode(null)}
+        onClose={() => openMode(null)}
+        initialFocus="input"
         title="Join a session"
         footer={
           <Button
@@ -185,7 +193,6 @@ export function CoopLauncher({
             autoCorrect="off"
             spellCheck={false}
             className="num text-center text-[20px] font-bold tracking-[0.2em]"
-            autoFocus
           />
           {error && <p className="text-danger text-[13px]">{error}</p>}
         </div>
@@ -215,7 +222,7 @@ function Chip({
     <button
       onClick={onClick}
       className={cn(
-        "press max-w-full truncate rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
+        "press tap max-w-full truncate rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
         active ? "bg-volt text-black" : "bg-surface-2 text-text-2",
       )}
     >

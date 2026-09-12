@@ -17,12 +17,14 @@ export default async function RecordsPage() {
   const me = await requireUser();
   const records = await getPersonalRecords(me.id);
 
-  // Group by exercise so each lift reads as one block of records.
+  // Group by exercise so each lift reads as one block of records — by id,
+  // not name: an imported routine can mint a custom exercise named like one
+  // you already had, and grouping by name merged the two under one heading.
   const byExercise = new Map<string, typeof records>();
   for (const r of records) {
-    const list = byExercise.get(r.exerciseName) ?? [];
+    const list = byExercise.get(r.exerciseId) ?? [];
     list.push(r);
-    byExercise.set(r.exerciseName, list);
+    byExercise.set(r.exerciseId, list);
   }
 
   return (

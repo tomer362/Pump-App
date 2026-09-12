@@ -22,7 +22,7 @@ export function FeedList({
 }) {
   // The loaded pages are cached for the session, so coming back from a post
   // returns to the row you tapped rather than to the top of page one.
-  const { items, loading, exhausted, more } = usePagedList({
+  const { items, loading, exhausted, more, failed } = usePagedList({
     initial,
     pageSize: FEED_PAGE_SIZE,
     name: "feed",
@@ -38,7 +38,11 @@ export function FeedList({
         <PostCard key={item.postId} item={item} unit={unit} />
       ))}
       {!exhausted && (
-        <LoadMore onClick={more} loading={loading} label="Older posts" />
+        <LoadMore
+          onClick={more}
+          loading={loading}
+          label={failed ? "Couldn't load — try again" : "Older posts"}
+        />
       )}
     </div>
   );

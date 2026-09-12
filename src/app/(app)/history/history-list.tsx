@@ -1,17 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { DayLabel } from "@/components/ui/day-label";
 import { ChevronRight, Trophy } from "lucide-react";
 import { Card, Badge } from "@/components/ui/primitives";
 import { LoadMore } from "@/components/ui/load-more";
 import { loadMoreHistory } from "@/lib/actions/paginate";
 import { HISTORY_PAGE_SIZE } from "@/lib/pagination";
 import { usePagedList } from "@/hooks/use-paged-list";
-import {
-  formatDayLabel,
-  formatDurationLong,
-  formatVolume,
-} from "@/lib/utils";
+import { formatDurationLong, formatVolume, formatMonthYear } from "@/lib/utils";
 
 type Workout = {
   id: string;
@@ -38,7 +35,7 @@ export function HistoryList({
 }) {
   // Cached for the session: opening a workout from six months down and coming
   // back must not drop you at this month again.
-  const { items, loading, exhausted, more } = usePagedList({
+  const { items, loading, exhausted, more, failed } = usePagedList({
     initial,
     pageSize: HISTORY_PAGE_SIZE,
     name: "history",
@@ -53,10 +50,9 @@ export function HistoryList({
   // belongs to instead of starting a duplicate heading.
   const groups = new Map<string, Workout[]>();
   for (const w of items) {
-    const key = new Date(w.startedAt).toLocaleDateString("en-GB", {
-      month: "long",
-      year: "numeric",
-    });
+    // Not `toLocaleDateString`: Node's ICU and the browser's disagree on
+    // the odd month name, and a mismatch here discards the whole list.
+    const key = formatMonthYear(new Date(w.startedAt));
     const list = groups.get(key) ?? [];
     list.push(w);
     groups.set(key, list);
@@ -87,7 +83,7 @@ export function HistoryList({
                     )}
                   </div>
                   <p className="text-text-3 num text-[12px]">
-                    {formatDayLabel(new Date(w.startedAt))} ·{" "}
+                    <DayLabel date={w.startedAt} /> ·{" "}
                     {formatDurationLong(w.durationSeconds)} · {w.totalSets} sets
                   </p>
                 </div>
@@ -103,7 +99,11 @@ export function HistoryList({
       ))}
 
       {!exhausted && (
-        <LoadMore onClick={more} loading={loading} label="Earlier workouts" />
+        <LoadMore
+          onClick={more}
+          loading={loading}
+          label={failed ? "Couldn't load — try again" : "Earlier workouts"}
+        />
       )}
     </div>
   );

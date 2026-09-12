@@ -3,7 +3,7 @@ import { SkeletonCard, SkeletonHeader, SkeletonRows } from "@/components/ui/skel
 export default function PostLoading() {
   return (
     <div className="pb-8">
-      <SkeletonHeader width="34%" />
+      <SkeletonHeader width="34%" large={false} />
       <div className="mt-4 space-y-4 px-4">
         <SkeletonCard />
         <SkeletonRows rows={3} />

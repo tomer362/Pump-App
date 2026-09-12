@@ -196,7 +196,7 @@ export function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
+        "press tap shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
         active ? "bg-volt text-black" : "bg-surface-2 text-text-2 hover:text-text-1",
       )}
     >

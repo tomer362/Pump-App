@@ -7,6 +7,7 @@ import { CornerDownRight, Send, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
 import { TimeAgo } from "@/components/ui/time-ago";
 import { addComment, deleteComment } from "@/lib/actions/social";
+import { watchAction } from "@/components/ui/toast";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { cn, haptic } from "@/lib/utils";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
@@ -28,12 +29,15 @@ type Comment = {
 
 export function CommentThread({
   postId,
+  postAuthorId,
   comments,
   currentUserId,
   currentUserName,
   currentUserImage,
 }: {
   postId: string;
+  /** The post's owner may clear any comment off their own workout. */
+  postAuthorId?: string;
   comments: Comment[];
   currentUserId: string;
   currentUserName: string;
@@ -50,17 +54,23 @@ export function CommentThread({
     comments,
     (state, next: Comment) => [...state, next],
   );
+  // Deletions live here, not in the row: a root's replies are rendered by
+  // this component, so a row hiding itself left them on screen under nothing.
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(() => new Set());
+  const visible = optimistic.filter(
+    (c) => !removed.has(c.id) && !(c.parentId && removed.has(c.parentId)),
+  );
 
-  const roots = optimistic.filter((c) => !c.parentId);
-  const repliesOf = (id: string) =>
-    optimistic.filter((c) => c.parentId === id);
+  const roots = visible.filter((c) => !c.parentId);
+  const repliesOf = (id: string) => visible.filter((c) => c.parentId === id);
 
   function submit() {
     const text = body.trim();
     if (!text) return;
     haptic.light();
-    setBody("");
     const parentId = replyTo?.parentId ?? replyTo?.id ?? null;
+    const restoreReplyTo = replyTo;
+    setBody("");
     setReplyTo(null);
 
     startTransition(async () => {
@@ -74,9 +84,29 @@ export function CommentThread({
         username: null,
         image: currentUserImage,
       });
-      await addComment(postId, text, parentId);
+      // Refused or dropped: the text comes back into the box rather than
+      // vanishing with no word about it. `useOptimistic` drops the row itself.
+      await watchAction(addComment(postId, text, parentId), () => {
+        setBody(text);
+        setReplyTo(restoreReplyTo);
+      });
     });
   }
+
+  function remove(id: string) {
+    setRemoved((prev) => new Set(prev).add(id));
+    startTransition(async () => {
+      await watchAction(deleteComment(id), () =>
+        setRemoved((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      );
+    });
+  }
+  const canDelete = (c: Comment) =>
+    c.userId === currentUserId || postAuthorId === currentUserId;
 
   return (
     <div className="mt-5">
@@ -97,7 +127,8 @@ export function CommentThread({
             >
               <CommentRow
                 comment={c}
-                canDelete={c.userId === currentUserId}
+                canDelete={canDelete(c)}
+                onDelete={() => remove(c.id)}
                 onReply={() => {
                   setReplyTo(c);
                   inputRef.current?.focus();
@@ -108,7 +139,8 @@ export function CommentThread({
                   key={r.id}
                   comment={r}
                   indented
-                  canDelete={r.userId === currentUserId}
+                  onDelete={() => remove(r.id)}
+                  canDelete={canDelete(r)}
                   onReply={() => {
                     setReplyTo(r);
                     inputRef.current?.focus();
@@ -184,15 +216,14 @@ function CommentRow({
   indented,
   canDelete,
   onReply,
+  onDelete,
 }: {
   comment: Comment;
   indented?: boolean;
   canDelete: boolean;
   onReply: () => void;
+  onDelete: () => void;
 }) {
-  const [deleted, setDeleted] = useState(false);
-  const [, startTransition] = useTransition();
-  if (deleted) return null;
 
   return (
     <div className={cn("flex gap-2.5 py-2.5", indented && "pl-9")}>
@@ -224,12 +255,7 @@ function CommentRow({
           </button>
           {canDelete && (
             <button
-              onClick={() => {
-                setDeleted(true);
-                startTransition(async () => {
-                  await deleteComment(comment.id);
-                });
-              }}
+              onClick={onDelete}
               aria-label="Delete comment"
               className="text-text-3 press"
             >

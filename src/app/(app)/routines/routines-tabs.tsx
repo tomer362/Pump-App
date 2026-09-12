@@ -31,7 +31,13 @@ export function RoutinesTabs({
         onChange={(v) => {
           if (v === active) return;
           haptic.light();
-          router.push(v === "mine" ? "/routines" : `/routines?tab=discover&sort=${sort}`);
+          // Replace, like the sort control: pushing stacked a history entry
+          // per toggle, so back walked the segmented control instead of
+          // leaving the page.
+          router.replace(
+            v === "mine" ? "/routines" : `/routines?tab=discover&sort=${sort}`,
+            { scroll: false },
+          );
         }}
       />
     </div>

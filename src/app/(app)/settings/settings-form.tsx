@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTransient } from "@/hooks/use-transient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, ChevronRight } from "lucide-react";
@@ -44,7 +45,7 @@ export function SettingsForm({
   const [unit, setUnit] = useState(initialUnit);
   const [rest, setRest] = useState(defaultRestSeconds);
   const [image, setImage] = useState(initialImage);
-  const [saved, setSaved] = useState(false);
+  const [saved, flashSaved] = useTransient(false, 2000);
   const [error, setError] = useState<string | null>(null);
 
   function save() {
@@ -58,9 +59,8 @@ export function SettingsForm({
       });
       if (res.ok) {
         haptic.success();
-        setSaved(true);
+        flashSaved(true);
         router.refresh();
-        window.setTimeout(() => setSaved(false), 2000);
       } else setError(res.error);
     });
   }

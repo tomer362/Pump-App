@@ -1,5 +1,6 @@
 "use client";
 
+import { DayLabel } from "@/components/ui/day-label";
 import { useMemo, useRef, useState } from "react";
 import type { ExerciseSessionPoint } from "@/lib/queries/exercise";
 import { CHART_RANGES, withinRange, type ChartRangeKey } from "@/lib/stats-windows";
@@ -23,7 +24,7 @@ import {
   YAxis,
   useElementWidth,
 } from "@/components/ui/chart";
-import { formatDayLabel, formatShortDate, kgToLb } from "@/lib/utils";
+import { formatShortDate, kgToLb } from "@/lib/utils";
 
 type Metric = "est1rm" | "weight" | "volume" | "reps";
 
@@ -274,7 +275,7 @@ export function ExerciseProgressChart({
         <ChartReadout
           value={`${sign}${fmt(values[shown])}`}
           unit={unitLabel}
-          label={formatDayLabel(points[shown].date)}
+          label={<DayLabel date={points[shown].date} />}
           delta={deltaAt(shown)}
           isLatest={shown === lastIndex}
           onLatest={() => setActive(null)}

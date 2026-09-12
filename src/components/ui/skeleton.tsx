@@ -16,12 +16,31 @@ export function Skeleton({
   );
 }
 
-/** Large-title header placeholder, matching NavBar's collapsed metrics. */
-export function SkeletonHeader({ width = "40%" }: { width?: string }) {
+/**
+ * Header placeholder matching NavBar's metrics: the 44px bar, then — for a
+ * large-title page — the 36px title below it. A route that renders
+ * `large={false}` gets only the bar, or the content jumps up by a title's
+ * height when the page lands.
+ */
+export function SkeletonHeader({
+  width = "40%",
+  large = true,
+}: {
+  width?: string;
+  large?: boolean;
+}) {
   return (
     <div className="px-4 pt-safe">
-      <div className="h-11" />
-      <Skeleton className="h-9 rounded-xl" style={{ width }} />
+      {large ? (
+        <>
+          <div className="h-11" />
+          <Skeleton className="h-9 rounded-xl" style={{ width }} />
+        </>
+      ) : (
+        <div className="flex h-11 items-center justify-center">
+          <Skeleton className="h-4 rounded-md" style={{ width }} />
+        </div>
+      )}
     </div>
   );
 }

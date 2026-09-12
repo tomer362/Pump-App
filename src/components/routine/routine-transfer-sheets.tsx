@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useTransient } from "@/hooks/use-transient";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -87,7 +88,7 @@ export function ShareRoutineSheet({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<Delivery | null>(null);
+  const [done, flashDone] = useTransient<Delivery | null>(null, 2500);
 
   async function exportFile() {
     setBusy(true);
@@ -101,8 +102,7 @@ export function ShareRoutineSheet({
     }
     try {
       const how = await deliver(res.data!.filename, res.data!.json);
-      setDone(how);
-      window.setTimeout(() => setDone(null), 2500);
+      flashDone(how);
     } catch {
       setError("Couldn't save the file");
     }
@@ -110,7 +110,12 @@ export function ShareRoutineSheet({
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={`Share ${routineName}`}>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={`Share ${routineName}`}
+      dismissLabel="Done"
+    >
       <div className="space-y-2 px-4 pb-5 text-left">
         {linkWorks && (
           <Button block variant="solid" onClick={onShareLink}>
@@ -175,7 +180,7 @@ export function ImportRoutineButton({
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied, resetCopied] = useTransient(false, 2000);
   const [promptText, setPromptText] = useState<string | null>(null);
 
   function reset() {
@@ -185,7 +190,7 @@ export function ImportRoutineButton({
     setPreview(null);
     setError(null);
     setBusy(false);
-    setCopied(false);
+    resetCopied();
     setPromptText(null);
   }
 
@@ -231,8 +236,7 @@ export function ImportRoutineButton({
     try {
       await navigator.clipboard.writeText(text);
       haptic.light();
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      flashCopied(true);
     } catch {
       // Clipboard writes are refused outside a secure context and in a few
       // in-app browsers. Show the prompt rather than a dead end — selecting it
@@ -295,6 +299,9 @@ export function ImportRoutineButton({
         // A drag anywhere on the panel wins over a child's, so scrolling a
         // screenful of pasted JSON would otherwise dismiss the sheet.
         dragToDismiss={view !== "paste"}
+        // The menu view has no footer action and commits nothing, so it needs
+        // a drawn way out; the other two views bring their own footer.
+        dismissLabel="Done"
         footer={
           view === "preview" && preview ? (
             <Button block variant="volt" loading={busy} onClick={commit}>

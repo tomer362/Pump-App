@@ -35,7 +35,7 @@ export function DiscoverList({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { items, loading, exhausted, more } = usePagedList({
+  const { items, loading, exhausted, more, failed } = usePagedList({
     initial,
     pageSize: DISCOVER_PAGE_SIZE,
     // The ordering is part of the identity: pages of "popular" must never be
@@ -76,7 +76,11 @@ export function DiscoverList({
             <DiscoverCard key={r.id} routine={r} />
           ))}
           {!exhausted && (
-            <LoadMore onClick={more} loading={loading} label="More routines" />
+            <LoadMore
+          onClick={more}
+          loading={loading}
+          label={failed ? "Couldn't load — try again" : "More routines"}
+        />
           )}
         </>
       )}

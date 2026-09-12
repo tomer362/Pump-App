@@ -21,6 +21,7 @@ export default async function PostPage(props: PageProps<"/post/[id]">) {
         <PostCard item={post} unit={me.unit} />
       </div>
       <CommentThread
+        postAuthorId={post.author.id}
         postId={id}
         comments={comments}
         currentUserId={me.id}

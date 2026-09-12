@@ -30,6 +30,9 @@ import { folderRail } from "@/lib/folder-color";
 import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
 import { prescribedToken, rpeRangeLabel, uniformRpe } from "@/lib/rpe";
+import { sanitizeDecimalInput, workingSetNumber } from "@/lib/set-input";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
+import { REDUCED } from "@/lib/motion";
 import type { SetType } from "@/lib/db/schema";
 
 // Behind a gesture, so they stay out of the initial payload.
@@ -226,20 +229,33 @@ export function RoutineBuilder({
     if (!picked) return;
     haptic.light();
     setItems((prev) =>
-      prev.map((it) =>
-        it.key !== key
-          ? it
-          : {
-              ...it,
-              exerciseId: picked.id,
-              name: picked.name,
-              primaryMuscle: picked.primaryMuscle,
-              equipment: picked.equipment,
-              trackingType: picked.trackingType,
-              // Cues and machine settings described the old movement.
-              notes: null,
-            },
-      ),
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        // Across a change of tracking type the numbers mean something else —
+        // a positive load on an assisted machine is the opposite of help, and
+        // a weight on a reps-only lift is invisible. Same refusal the workout
+        // screen's swap applies; only the set count survives.
+        const sameKind = picked.trackingType === it.trackingType;
+        return {
+          ...it,
+          exerciseId: picked.id,
+          name: picked.name,
+          primaryMuscle: picked.primaryMuscle,
+          equipment: picked.equipment,
+          trackingType: picked.trackingType,
+          // Cues and machine settings described the old movement.
+          notes: null,
+          sets: sameKind
+            ? it.sets
+            : it.sets.map((s) => ({
+                ...s,
+                targetWeightKg: null,
+                targetReps: null,
+                targetSeconds: null,
+                targetDistanceM: null,
+              })),
+        };
+      }),
     );
   }, []);
 
@@ -324,7 +340,10 @@ export function RoutineBuilder({
       : "";
 
   return (
-    <div className="min-h-screen-d pb-32">
+    // `min-h-full`, not `min-h-screen-d`: this sits inside the `(app)` shell,
+    // which is already viewport-tall and adds the tab-bar spacer below — so a
+    // second viewport here made every routine scroll into 200px of nothing.
+    <div className="min-h-full pb-8">
       <header className="bg-bg hairline-b sticky top-0 z-30 pt-safe inset-safe-x">
         <div className="flex h-12 items-center gap-1 px-2">
           <IconButton
@@ -565,6 +584,7 @@ function ExerciseCard({
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
 }) {
+  const motion = useMotionPreset();
   const controls = useDragControls();
   const columns = setColumns(item.trackingType);
   // Effort gets a track of its own between the targets and the bin. It can't be
@@ -577,6 +597,9 @@ function ExerciseCard({
       value={item}
       dragListener={false}
       dragControls={controls}
+      // The CSS reduced-motion block can't reach a JS-driven layout
+      // animation, so the list has to opt in itself.
+      transition={motion.enabled ? undefined : REDUCED}
       className="bg-bg mb-2"
     >
       <div className="flex items-center gap-1 px-3 pt-3 pb-1">
@@ -669,12 +692,14 @@ function ExerciseCard({
                 })
               }
               className={cn(
-                "num h-9 rounded-lg text-[14px] font-bold",
+                // 44px of hit area on a row that keeps its height — same
+                // trick as the workout screen's set controls.
+                "num -my-1 h-11 rounded-lg text-[14px] font-bold",
                 s.setType === "normal" ? "text-text-2" : "text-volt",
               )}
             >
               {s.setType === "normal"
-                ? i + 1
+                ? workingSetNumber(item.sets, i)
                 : s.setType === "warmup"
                   ? "W"
                   : s.setType === "drop"
@@ -741,11 +766,11 @@ function ExerciseCard({
               }}
               aria-label={
                 s.targetRpe != null
-                  ? `Target effort ${s.targetRpe} for set ${i + 1}. Change it.`
-                  : `Set a target effort for set ${i + 1}`
+                  ? `Target effort ${s.targetRpe} for set ${workingSetNumber(item.sets, i)}. Change it.`
+                  : `Set a target effort for set ${workingSetNumber(item.sets, i)}`
               }
               className={cn(
-                "press num h-9 rounded-lg text-[13px] font-semibold",
+                "press num -my-1 h-11 rounded-lg text-[13px] font-semibold",
                 s.targetRpe != null ? "text-text-2" : "text-text-3",
               )}
             >
@@ -756,7 +781,7 @@ function ExerciseCard({
               onClick={() => onRemoveSet(s.key)}
               aria-label="Remove set"
               disabled={item.sets.length === 1}
-              className="press text-text-3 hover:text-danger grid h-9 place-items-center rounded-lg disabled:opacity-30"
+              className="press text-text-3 hover:text-danger -my-1 grid h-11 place-items-center rounded-lg disabled:opacity-30"
             >
               <Trash2 className="size-4" />
             </button>
@@ -778,20 +803,31 @@ function ExerciseCard({
 function TargetInput({
   value,
   placeholder,
+  integer,
   onCommit,
 }: {
   value: string;
   placeholder: string;
+  /** Reps, seconds, metres: a whole-number keypad and no decimal point. */
+  integer?: boolean;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
   return (
     <input
       value={local}
-      inputMode="decimal"
+      inputMode={integer ? "numeric" : "decimal"}
+      enterKeyHint="done"
       placeholder={placeholder}
       onFocus={(e) => requestAnimationFrame(() => e.target.select())}
-      onChange={(e) => setLocal(e.target.value.replace(/[^0-9.]/g, ""))}
+      onChange={(e) => {
+        const raw = sanitizeDecimalInput(e.target.value, integer);
+        setLocal(raw);
+        // The draft is local state, so committing per keystroke costs
+        // nothing — and it means Save never races the blur of the cell
+        // being typed into.
+        onCommit(raw);
+      }}
       onBlur={() => onCommit(local)}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
@@ -860,7 +896,7 @@ function ExerciseSettings({
               key={g ?? "none"}
               onClick={() => onPatch({ supersetGroup: g })}
               className={cn(
-                "press rounded-field h-10 flex-1 border text-[13px] font-semibold",
+                "press rounded-field h-11 flex-1 border text-[13px] font-semibold",
                 item.supersetGroup === g
                   ? "border-volt bg-volt-fade text-volt"
                   : "border-hairline bg-surface-2 text-text-2",

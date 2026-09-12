@@ -1,6 +1,6 @@
 import { Trophy } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
-import { formatWeight } from "@/lib/utils";
+import { formatWeight, formatDate } from "@/lib/utils";
 
 export type RecordRow = {
   id: string;
@@ -69,11 +69,7 @@ export function RecordsGrid({
               {r.weightKg != null && r.reps != null
                 ? `${formatWeight(r.weightKg, unit)}${unit} × ${r.reps} · `
                 : ""}
-              {r.achievedAt.toLocaleDateString("en-GB", {
-                day: "numeric",
-                month: "short",
-                year: "2-digit",
-              })}
+              {formatDate(r.achievedAt)}
             </p>
           </Card>
         );

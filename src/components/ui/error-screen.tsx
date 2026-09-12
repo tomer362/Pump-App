@@ -4,6 +4,7 @@ import { RotateCcw, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
+import { cn } from "@/lib/utils";
 
 /**
  * The screen a user actually sees when something throws.
@@ -18,14 +19,26 @@ export function ErrorScreen({
   title = "Something went wrong",
   body = "That didn't load. It's usually temporary — the database sleeps when idle and can take a moment to wake.",
   digest,
+  fullScreen = false,
 }: {
   reset?: () => void;
   title?: string;
   body?: string;
   digest?: string;
+  /**
+   * A whole viewport only outside the `(app)` shell. Inside it the shell is
+   * already viewport-tall and adds the tab-bar spacer, so a second
+   * `min-h-screen-d` here made the error page scroll into a blank void.
+   */
+  fullScreen?: boolean;
 }) {
   return (
-    <main className="flex min-h-screen-d flex-col items-center justify-center px-8 pt-safe pb-safe">
+    <main
+      className={cn(
+        "flex flex-col items-center justify-center px-8 pt-safe pb-safe",
+        fullScreen ? "min-h-screen-d" : "min-h-full",
+      )}
+    >
       <Wordmark size={22} className="mb-10 opacity-40" />
 
       <span className="bg-surface-1 border-hairline mb-5 grid size-14 place-items-center rounded-2xl border">

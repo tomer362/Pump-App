@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { useTransient } from "@/hooks/use-transient";
+import { watchAction } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { Copy, FolderInput, Pencil, Percent, Play, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +47,8 @@ export function RoutineActions({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTransient(false, 2000);
+  const [deleting, setDeleting] = useState(false);
   const [loadSheet, setLoadSheet] = useState(false);
   const [shareSheet, setShareSheet] = useState(false);
   const [moveSheet, setMoveSheet] = useState(false);
@@ -76,8 +79,7 @@ export function RoutineActions({
     }
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      flashCopied(true);
     } catch {
       setError("Couldn't copy the link");
     }
@@ -245,8 +247,14 @@ export function RoutineActions({
             <Button
               block
               variant="danger"
+              loading={deleting}
               onClick={async () => {
-                await deleteRoutine(routineId);
+                setDeleting(true);
+                const res = await watchAction(deleteRoutine(routineId));
+                if (!res.ok) {
+                  setDeleting(false);
+                  return;
+                }
                 router.replace("/routines");
                 router.refresh();
               }}

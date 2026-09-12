@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { showToast } from "@/components/ui/toast";
 import { Segmented } from "@/components/ui/primitives";
 import { MuscleVolumeChart } from "./muscle-volume-chart";
 import { getMuscleVolumeAction } from "@/lib/actions/stats-range";
@@ -26,19 +27,34 @@ export function MuscleVolumePanel({
   initial: MuscleVolume[];
   unit: "kg" | "lb";
 }) {
-  const [days, setDays] = useState("7");
-  const [data, setData] = useState(initial);
-  const [loading, setLoading] = useState(false);
+  // The window and its rows change together: `days` used to move first, so
+  // for the length of the fetch the 7-day set counts were divided by twelve.
+  const [shown, setShown] = useState({ days: "7", data: initial });
+  const [pending, setPending] = useState<string | null>(null);
+  const request = useRef(0);
+  const days = pending ?? shown.days;
+  const data = shown.data;
+  const loading = pending != null;
 
   async function pick(next: string) {
-    setDays(next);
-    setLoading(true);
-    const rows = await getMuscleVolumeAction(Number(next));
-    setLoading(false);
-    setData(rows);
+    if (next === shown.days && pending == null) return;
+    const id = ++request.current;
+    setPending(next);
+    let rows: MuscleVolume[];
+    try {
+      rows = await getMuscleVolumeAction(Number(next));
+    } catch {
+      showToast("Couldn't load that range. Check your connection.");
+      if (request.current === id) setPending(null);
+      return;
+    }
+    // A slower earlier request must never paint over a newer one.
+    if (request.current !== id) return;
+    setShown({ days: next, data: rows });
+    setPending(null);
   }
 
-  const weeks = Number(days) / 7;
+  const weeks = Number(shown.days) / 7;
   const perWeek =
     weeks === 1
       ? data

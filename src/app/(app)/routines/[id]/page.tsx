@@ -9,6 +9,7 @@ import { RoutineActions } from "./routine-actions";
 import { RoutineLikeButton } from "@/components/routine/routine-like-button";
 import { folderRail } from "@/lib/folder-color";
 import { cn, formatWeight, labelize } from "@/lib/utils";
+import { workingSetNumber } from "@/lib/set-input";
 import { isAssistedTracking } from "@/lib/tracking";
 import { restLabel } from "@/lib/rest";
 import { prescribedToken, rpeRangeLabel } from "@/lib/rpe";
@@ -178,7 +179,7 @@ export default async function RoutineDetailPage(
                     >
                       <span className="num text-text-3 font-bold">
                         {s.setType === "normal"
-                          ? j + 1
+                          ? workingSetNumber(e.sets, j)
                           : s.setType === "warmup"
                             ? "W"
                             : s.setType === "drop"

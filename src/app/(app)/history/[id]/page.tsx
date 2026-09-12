@@ -40,9 +40,18 @@ export default async function WorkoutDetailPage(
   // In-progress sessions belong on the live workout screen.
   if (!workout.endedAt) redirect(`/workout/${workout.id}`);
   const prs = isMine ? await getPersonalRecords(me.id) : [];
+  // Records *set in this session*: achieved inside its window. `>= startedAt`
+  // alone matched every record set in any later session too, so a March
+  // workout wore a trophy for every lift PR'd since.
+  const endedAt = workout.endedAt ?? new Date();
   const prSetIds = new Set(
     prs
-      .filter((p) => p.kind === "1rm" && p.achievedAt >= workout.startedAt)
+      .filter(
+        (p) =>
+          p.kind === "1rm" &&
+          p.achievedAt >= workout.startedAt &&
+          p.achievedAt <= endedAt,
+      )
       .map((p) => p.exerciseId),
   );
 

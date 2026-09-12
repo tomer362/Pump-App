@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { watchAction } from "@/components/ui/toast";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, MapPin, Radio, X } from "lucide-react";
@@ -51,7 +52,12 @@ export function GymPresenceBar({
     startTransition(async () => {
       // `null` is a deliberate "don't name a gym", not "unspecified" — the
       // action only falls back to the home gym when the field is absent.
-      await checkInAtGym({ gymId, note: note || null, minutes });
+      // Refused (the ten-minute cooldown, mostly): the strip goes back to
+      // "not checked in" rather than claiming a broadcast that never went.
+      await watchAction(
+        checkInAtGym({ gymId, note: note || null, minutes }),
+        () => setActive(false),
+      );
     });
   }
 
@@ -77,7 +83,7 @@ export function GymPresenceBar({
                 haptic.light();
                 setActive(false);
                 startTransition(async () => {
-                  await checkOut();
+                  await watchAction(checkOut(), () => setActive(true));
                 });
               }}
               className="press text-text-3 flex items-center gap-1 text-[12px] font-semibold"
