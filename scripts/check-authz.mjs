@@ -958,12 +958,16 @@ try {
     /"ok"\s*:\s*true/.test(finished.body),
     `A could not finish the fixture workout: ${finished.body.slice(0, 200)}`,
   );
+  // Content, not status: `/history/[id]` has a `loading.tsx`, so Next
+  // streams a 200 shell before `notFound()` runs (the live workout page
+  // deliberately has none, which is why probe 5 can assert the wire status).
   const privateRes = await b.page.goto(`${BASE}/history/${workoutId}`, {
-    waitUntil: "domcontentloaded",
+    waitUntil: "networkidle",
   });
+  const privateHtml = await b.page.content();
   check(
     "an unshared finished workout is not readable by another user",
-    privateRes.status() === 404,
+    privateRes.status() === 404 || !privateHtml.includes("Bench Press"),
     `status ${privateRes.status()}`,
   );
   {
