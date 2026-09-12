@@ -35,7 +35,7 @@ export default async function CoopPage() {
         back="/start"
         subtitle="Train together, track separately"
       />
-      <div className="px-4">
+      <div className="px-safe-4">
         <CoopLauncher
           routines={routines.map((r) => ({ id: r.id, name: r.name }))}
           activeSession={active ?? null}

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
 import {
@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Textarea, Segmented } from "@/components/ui/primitives";
+import {
+  FieldLabel,
+  Input,
+  Segmented,
+  Textarea,
+} from "@/components/ui/primitives";
 import {
   columnLabel,
   setColumns,
@@ -115,6 +120,14 @@ export function RoutineBuilder({
     existing?.folderId ?? null,
   );
   const [isPublic, setIsPublic] = useState(existing?.isPublic ?? true);
+  /**
+   * Leaving with a draft used to discard it silently — the chevron, and
+   * nothing asked. Compared against a snapshot of what the page opened with,
+   * so an untouched routine still leaves on one tap. A save sets `saved` so
+   * the navigation it triggers is never mistaken for abandoning the draft.
+   */
+  const saved = useRef(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [items, setItems] = useState<DraftExercise[]>(() =>
     (existing?.exercises ?? []).map((e) => ({
       key: nextKey(),
@@ -204,6 +217,12 @@ export function RoutineBuilder({
     },
     [defaultRestSeconds],
   );
+
+  const snapshot = () =>
+    JSON.stringify({ name, notes, folderId, isPublic, items });
+  const opened = useRef<string | null>(null);
+  if (opened.current === null) opened.current = snapshot();
+  const isDirty = () => !saved.current && snapshot() !== opened.current;
 
   // Same signal the workout screen gives: the picker marks what the draft
   // already contains, without stopping you programming a lift twice.
@@ -307,18 +326,26 @@ export function RoutineBuilder({
       })),
     };
 
-    const res = existing
-      ? await updateRoutine(existing.id, payload)
-      : await createRoutine(payload);
-
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    let routineId: string;
+    if (existing) {
+      const res = await updateRoutine(existing.id, payload);
+      setSaving(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      routineId = existing.id;
+    } else {
+      const res = await createRoutine(payload);
+      setSaving(false);
+      if (!res.ok || !res.data) {
+        setError(res.ok ? "Couldn't save" : res.error);
+        return;
+      }
+      routineId = res.data.routineId;
     }
-    router.push(
-      existing ? `/routines/${existing.id}` : `/routines/${(res.data as { routineId: string }).routineId}`,
-    );
+    saved.current = true;
+    router.push(`/routines/${routineId}`);
     router.refresh();
   }
 
@@ -348,7 +375,10 @@ export function RoutineBuilder({
         <div className="flex h-12 items-center gap-1 px-2">
           <IconButton
             label="Back"
-            onClick={() => router.back()}
+            onClick={() => {
+              if (isDirty()) setConfirmLeave(true);
+              else router.back();
+            }}
             className="text-text-2"
           >
             <ChevronLeft className="size-6" strokeWidth={2.4} />
@@ -525,7 +555,7 @@ export function RoutineBuilder({
       >
         {rpeFor && rpeSet && (
           <div className="px-4 pb-5">
-            <Label>Target effort (RPE)</Label>
+            <FieldLabel>Target effort (RPE)</FieldLabel>
             <RpePicker
               value={rpeSet.targetRpe}
               idPrefix="routine-set-target"
@@ -558,6 +588,35 @@ export function RoutineBuilder({
         dismissLabel="Done"
       >
         {infoItem && <ExerciseAboutSheetBody exerciseId={infoItem.exerciseId} />}
+      </Sheet>
+      <Sheet
+        open={confirmLeave}
+        onClose={() => setConfirmLeave(false)}
+        title="Discard changes?"
+      >
+        <div className="px-4 pb-5">
+          <p className="text-text-2 text-[14px] leading-relaxed">
+            {existing
+              ? "Your edits to this routine haven't been saved."
+              : "This routine hasn't been saved."}
+          </p>
+          <div className="mt-5 space-y-2">
+            <Button
+              block
+              variant="danger"
+              onClick={() => {
+                saved.current = true;
+                setConfirmLeave(false);
+                router.back();
+              }}
+            >
+              Discard
+            </Button>
+            <Button block variant="ghost" onClick={() => setConfirmLeave(false)}>
+              Keep editing
+            </Button>
+          </div>
+        </div>
       </Sheet>
     </div>
   );
@@ -867,7 +926,7 @@ function ExerciseSettings({
   return (
     <div className="space-y-6 px-4 pb-5">
       <div>
-        <Label>Rest between sets</Label>
+        <FieldLabel>Rest between sets</FieldLabel>
         {/* The shared picker, so a routine and the workout started from it can't
             disagree about the durations or about what "no rest" means. The old
             row here was hardcoded to six values, so a routine resting 45s — one
@@ -886,7 +945,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Superset group</Label>
+        <FieldLabel>Superset group</FieldLabel>
         <p className="text-text-3 mb-2 text-[12px]">
           Exercises sharing a letter are performed back to back.
         </p>
@@ -909,7 +968,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Target effort — all sets</Label>
+        <FieldLabel>Target effort — all sets</FieldLabel>
         {/* The shared picker, not a local copy of the scale: this hand-rolled
             its own chips and omitted 6.5, so a routine could prescribe an
             effort the workout screen offered and not the other way round.
@@ -939,7 +998,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Interval mode</Label>
+        <FieldLabel>Interval mode</FieldLabel>
         <p className="text-text-3 mb-2 text-[12px]">
           Runs a work/rest countdown with spoken cues instead of manual set
           logging.
@@ -961,7 +1020,7 @@ function ExerciseSettings({
         {intervalOn && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div>
-              <Label>Work (secs)</Label>
+              <FieldLabel>Work (secs)</FieldLabel>
               <TargetInput
                 value={String(item.intervalWorkSeconds ?? 30)}
                 placeholder="30"
@@ -971,7 +1030,7 @@ function ExerciseSettings({
               />
             </div>
             <div>
-              <Label>Rest (secs)</Label>
+              <FieldLabel>Rest (secs)</FieldLabel>
               <TargetInput
                 value={String(item.intervalRestSeconds ?? 30)}
                 placeholder="30"
@@ -985,7 +1044,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Note</Label>
+        <FieldLabel>Note</FieldLabel>
         <Textarea
           rows={3}
           value={notes}
@@ -1164,10 +1223,3 @@ function FolderChip({
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}

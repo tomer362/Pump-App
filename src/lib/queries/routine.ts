@@ -491,13 +491,3 @@ export async function getDiscoverRoutines(
   return rows;
 }
 
-/** The cursor for whatever the last row of a Discover page was. */
-export function discoverCursor(
-  item: DiscoverRoutine,
-  sort: DiscoverSort,
-): DiscoverCursor {
-  return {
-    value: sort === "popular" ? item.popularity : item.createdAt.toISOString(),
-    id: item.id,
-  };
-}

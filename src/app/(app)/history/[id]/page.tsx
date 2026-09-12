@@ -63,7 +63,7 @@ export default async function WorkoutDetailPage(
         subtitle={formatDayLabel(new Date(workout.startedAt))}
       />
 
-      <div className="px-4">
+      <div className="px-safe-4">
         {workout.photoUrl && (
           <div className="bg-surface-2 rounded-card relative mb-4 aspect-[4/3] overflow-hidden">
             <Image

@@ -20,11 +20,11 @@ export default async function StartPage() {
     <div>
       <NavBar title="Start" subtitle="Pick a routine or go freestyle" />
 
-      <div className="px-4 pb-6">
+      <div className="px-safe-4 pb-6">
         <StartControls activeWorkoutId={active?.id ?? null} />
       </div>
 
-      <div className="px-4 pb-4">
+      <div className="px-safe-4 pb-4">
         <SectionTitle
           action={
             <Link
@@ -66,7 +66,7 @@ export default async function StartPage() {
         )}
       </div>
 
-      <div className="px-4 pb-8">
+      <div className="px-safe-4 pb-8">
         <SectionTitle>Train with someone</SectionTitle>
         <Link href="/coop">
           <div className="press border-hairline bg-surface-1 rounded-card flex items-center gap-3 border px-4 py-3.5">

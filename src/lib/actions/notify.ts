@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { notification, post, pushSubscription, user } from "@/lib/db/schema";
@@ -184,7 +185,7 @@ export async function getNotifications(
   }));
 }
 
-export async function getUnreadNotificationCount(userId: string) {
+async function getUnreadNotificationCountUncached(userId: string) {
   const [row] = await db
     .select({ n: sql<number>`COUNT(*)::int` })
     .from(notification)
@@ -196,3 +197,6 @@ export async function getUnreadNotificationCount(userId: string) {
     );
   return row?.n ?? 0;
 }
+
+/** Per-request deduped: the layout's tab bar and `/profile` both ask. */
+export const getUnreadNotificationCount = cache(getUnreadNotificationCountUncached);

@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { cn, haptic } from "@/lib/utils";
 import { SPRING } from "@/lib/motion";
+import { SCROLLER_ID } from "@/lib/scroll-memory";
 
 /**
  * Every sheet currently on screen, oldest first.
@@ -105,15 +106,19 @@ export function Sheet({
     onCloseRef.current = onClose;
   });
 
-  // Lock the page behind the sheet so scrolling the sheet doesn't chain.
+  // Lock the page behind the sheet so scrolling the sheet doesn't chain. The
+  // lock goes on the app's one scroller, not `body`: the body never scrolls
+  // (it is `overflow: hidden` in the root layout), so locking it was a no-op.
   React.useEffect(() => {
     if (!open) return;
-    if (lockCount === 0) lockedFrom = document.body.style.overflow;
+    const scroller = document.getElementById(SCROLLER_ID);
+    if (!scroller) return;
+    if (lockCount === 0) lockedFrom = scroller.style.overflowY;
     lockCount += 1;
-    document.body.style.overflow = "hidden";
+    scroller.style.overflowY = "hidden";
     return () => {
       lockCount -= 1;
-      if (lockCount === 0) document.body.style.overflow = lockedFrom;
+      if (lockCount === 0) scroller.style.overflowY = lockedFrom;
     };
   }, [open]);
 

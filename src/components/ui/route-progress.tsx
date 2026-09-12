@@ -7,10 +7,11 @@ import { useLinkStatus } from "next/link";
  * A 2px volt rail under the status bar while a navigation is in flight.
  *
  * `useLinkStatus` only reports from *inside* a `<Link>`, so a single global
- * indicator can't call it directly. Each `PendingLink` mounts a `<LinkPending>`
- * reporter in its subtree and this module counts them — a plain module-level
- * store rather than context, because the rail and the links have no common
- * ancestor worth threading a provider through.
+ * indicator can't call it directly. A link that wants to feed the rail calls
+ * `useLinkPending` from a child of its `<Link>` (the tab bar does) and this
+ * module counts them — a plain module-level store rather than context,
+ * because the rail and the links have no common ancestor worth threading a
+ * provider through.
  *
  * The rail waits ~120ms before appearing. Every prefetched navigation resolves
  * well inside that, so the common case shows nothing at all; a flash on an

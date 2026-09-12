@@ -263,6 +263,28 @@ export function Stat({
   );
 }
 
+/**
+ * The eyebrow above a form field. One definition: five files carried their
+ * own identical `Label`/`FieldLabel`, and two of anything drift.
+ */
+export function FieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
+  const className =
+    "text-text-3 mb-2 block text-[11px] font-semibold tracking-[0.08em] uppercase";
+  return htmlFor ? (
+    <label htmlFor={htmlFor} className={className}>
+      {children}
+    </label>
+  ) : (
+    <p className={className}>{children}</p>
+  );
+}
+
 export function Badge({
   children,
   tone = "neutral",

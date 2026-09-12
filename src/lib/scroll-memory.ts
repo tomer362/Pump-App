@@ -359,10 +359,6 @@ export function resumeSaves() {
   suspendedUntil = 0;
 }
 
-export function savesSuspended(): boolean {
-  return Date.now() < suspendedUntil;
-}
-
 /** Consuming read: a latch is spent by the navigation that reads it. */
 export function takeLatch(): Latch | null {
   const value = latch;

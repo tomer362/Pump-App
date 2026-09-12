@@ -9,7 +9,7 @@ import { LoadMore } from "@/components/ui/load-more";
 import { RoutineLikeButton } from "./routine-like-button";
 import { loadMoreDiscoverRoutines } from "@/lib/actions/paginate";
 import { copyRoutine } from "@/lib/actions/routine";
-import { DISCOVER_PAGE_SIZE } from "@/lib/pagination";
+import { DISCOVER_PAGE_SIZE, discoverCursor } from "@/lib/pagination";
 import { usePagedList } from "@/hooks/use-paged-list";
 import type { DiscoverRoutine, DiscoverSort } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
@@ -44,11 +44,7 @@ export function DiscoverList({
     idOf: (r) => r.id,
     revive: reviveRoutine,
     fetchMore: (last) =>
-      loadMoreDiscoverRoutines(sort, {
-        value:
-          sort === "popular" ? last.popularity : last.createdAt.toISOString(),
-        id: last.id,
-      }),
+      loadMoreDiscoverRoutines(sort, discoverCursor(last, sort)),
   });
 
   function setSort(next: DiscoverSort) {

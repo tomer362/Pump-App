@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -20,7 +21,7 @@ export type ActiveWorkoutSummary = {
  * The in-progress workout, if any. A user has at most one — starting a new one
  * while another is open is blocked in the action layer.
  */
-export async function getActiveWorkoutSummary(
+async function getActiveWorkoutSummaryUncached(
   userId: string,
 ): Promise<ActiveWorkoutSummary | null> {
   // Raw SQL rather than a drizzle correlated subquery: inside a single-table
@@ -349,3 +350,11 @@ export async function getPersonalRecords(
 }
 
 /** Dates of finished workouts in a window — drives the streak + calendar. */
+
+/**
+ * Per-request deduped: the `(app)` layout's chrome asks this on every
+ * navigation, and `/start`, `/routines` and `/routines/[id]` ask again for
+ * their own render — two identical queries against a scale-to-zero database
+ * for one page.
+ */
+export const getActiveWorkoutSummary = cache(getActiveWorkoutSummaryUncached);

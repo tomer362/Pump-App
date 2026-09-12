@@ -63,3 +63,24 @@ export const EXERCISE_RECENT_POOL = 60;
  * what stops the hint from lying when someone does.
  */
 export const IMPORTED_HINT_LIMIT = 25;
+
+import type {
+  DiscoverCursor,
+  DiscoverRoutine,
+  DiscoverSort,
+} from "@/lib/queries/routine";
+
+/**
+ * The cursor for whatever the last row of a Discover page was. Here rather
+ * than in `queries/routine.ts`: that module is `server-only`, so the list
+ * component could never import it and rebuilt the shape by hand instead.
+ */
+export function discoverCursor(
+  item: Pick<DiscoverRoutine, "id" | "popularity" | "createdAt">,
+  sort: DiscoverSort,
+): DiscoverCursor {
+  return {
+    value: sort === "popular" ? item.popularity : item.createdAt.toISOString(),
+    id: item.id,
+  };
+}

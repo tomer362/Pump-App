@@ -45,7 +45,7 @@ export default async function RoutineDetailPage(
         }
       />
 
-      <div className="px-4">
+      <div className="px-safe-4">
         {/* Provenance: a copied routine credits whoever wrote it, which is
             what makes sharing one feel like sharing rather than taking. */}
         {routine.sourceAuthor && (

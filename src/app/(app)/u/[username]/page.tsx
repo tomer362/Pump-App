@@ -14,8 +14,8 @@ import {
 } from "@/lib/queries/social";
 import { getAchievements, getLifetimeStats } from "@/lib/queries/stats";
 import { db } from "@/lib/db";
-import { post, user as userTable, workout } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { user as userTable } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { formatVolume } from "@/lib/utils";
 
 export default async function PublicProfilePage(
@@ -39,17 +39,10 @@ export default async function PublicProfilePage(
   if (!person) notFound();
   if (person.id === me.id) redirect("/profile");
 
-  const [stats, counts, achievements, posts] = await Promise.all([
+  const [stats, counts, achievements] = await Promise.all([
     getLifetimeStats(person.id),
     getFollowCounts(person.id),
     getAchievements(person.id),
-    db
-      .select({ id: post.id })
-      .from(post)
-      .innerJoin(workout, eq(workout.id, post.workoutId))
-      .where(eq(post.userId, person.id))
-      .orderBy(desc(post.createdAt))
-      .limit(10),
   ]);
 
   // Only people you follow get their sessions rendered here. This is their
@@ -114,11 +107,9 @@ export default async function PublicProfilePage(
               </p>
             </Card>
           ) : feed.length === 0 ? (
-            <Card className="px-4 py-5">
+            <Card className="px-safe-4 py-5">
               <p className="text-text-3 text-center text-[14px]">
-                {posts.length === 0
-                  ? "No workouts shared yet."
-                  : "Nothing recent."}
+                No workouts shared yet.
               </p>
             </Card>
           ) : (

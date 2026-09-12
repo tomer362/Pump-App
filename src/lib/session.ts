@@ -38,9 +38,3 @@ export async function requireUser(): Promise<User> {
   return current;
 }
 
-/** Like requireUser but tolerates a half-finished profile (onboarding itself). */
-export async function requireUserAllowOnboarding(): Promise<User> {
-  const current = await getCurrentUser();
-  if (!current) redirect("/sign-in");
-  return current;
-}
