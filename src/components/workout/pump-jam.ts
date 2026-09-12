@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { restSoundMuted, sharedAudioContext } from "@/lib/rest-audio";
 
 /**
  * The easter egg behind a long press on the workout header's elapsed time.
@@ -151,14 +152,16 @@ function makeNoise(ctx: AudioContext): AudioBuffer {
  */
 export function startPumpJam(): PumpJamHandle | null {
   const durationMs = TOTAL_STEPS * STEP_SECONDS * 1000;
+  // Someone who muted the rest chime asked for silence from this page.
+  if (restSoundMuted()) return null;
   try {
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!Ctx) return null;
-
-    const ctx = new Ctx();
+    // The same context the rest chime lives in, not a second one: two contexts
+    // are two audio sessions, and the second used to take the session that
+    // `rest-audio` goes to lengths to keep in the mixing category.
+    const shared = sharedAudioContext();
+    if (!shared) return null;
+    // Typed non-null once, so the scheduling functions below can close over it.
+    const ctx: AudioContext = shared;
     // Resume is a no-op where it is already allowed. Not awaited: the
     // scheduler works off `currentTime`, which only advances once it runs.
     void ctx.resume();
@@ -222,12 +225,20 @@ export function startPumpJam(): PumpJamHandle | null {
         } catch {
           /* Already closing. */
         }
-        window.setTimeout(() => void ctx.close().catch(() => {}), 120);
+        // Disconnect rather than close: the context is shared with the rest
+        // chime, and closing it would take the next rest's sound with it.
+        window.setTimeout(() => {
+          try {
+            master.disconnect();
+          } catch {
+            /* Already gone. */
+          }
+        }, 120);
       },
     };
 
     // Belt and braces: the interval above stops scheduling at the last step,
-    // this closes the context once that step has finished sounding.
+    // this releases the nodes once that step has finished sounding.
     end = window.setTimeout(handle.stop, durationMs + 400);
     return handle;
   } catch {

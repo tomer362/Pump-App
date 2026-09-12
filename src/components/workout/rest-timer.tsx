@@ -69,7 +69,13 @@ const STORAGE_KEY = "pump.rest-timer";
 
 let current: RestTimerState = null;
 let currentWorkoutId: string | null = null;
-let loaded = false;
+/**
+ * Which workout the store was last seeded for. Keyed on the id rather than a
+ * one-shot boolean: the latch only ever reset on a full page load, so a
+ * client-side navigation from one session's screen to another's kept the
+ * first one's timer — and its `currentWorkoutId` — alive under the second.
+ */
+let loadedFor: string | null | undefined;
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -245,8 +251,8 @@ export function useRestTimer(workoutId?: string) {
     (onChange: () => void) => {
       // First subscription happens after mount, so the restore lands in the
       // post-hydration re-read rather than during render.
-      if (!loaded) {
-        loaded = true;
+      if (loadedFor !== (workoutId ?? null)) {
+        loadedFor = workoutId ?? null;
         currentWorkoutId = workoutId ?? null;
         current = readStorage(workoutId);
         // Before the auto-clear check — with `remainingNow` still at its

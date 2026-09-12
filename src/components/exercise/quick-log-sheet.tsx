@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { CalendarDays, Gauge, Minus, Plus, Trophy, Undo2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { showToast } from "@/components/ui/toast";
+import { sanitizeDecimalInput } from "@/lib/set-input";
 import { Button } from "@/components/ui/button";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
@@ -105,6 +108,10 @@ export function QuickLogSheet({
   // the dock, and `QuickLogLauncher` mounts after its fetch — so it never
   // renders on the server and there is no hydration text to mismatch.
   const [day, setDay] = useState<DayKey>(todayKey);
+  // Whether the lifter chose a date. Until they do, "today" is re-read at
+  // save time: a sheet left open across midnight used to keep the day it was
+  // opened on, flip to "backdated" on its own and file the set on yesterday.
+  const dateTouched = useRef(false);
 
   const [logged, setLogged] = useState<Logged[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -135,9 +142,10 @@ export function QuickLogSheet({
   function save() {
     setError(null);
     startSaving(async () => {
-      // Recomputed here rather than read off render state, so a sheet left open
-      // across midnight sends the day it actually meant.
-      const sentDay = day;
+      // Today is re-read here rather than taken off render state, so a sheet
+      // left open across midnight sends the day it actually means. A date the
+      // lifter picked is theirs and is sent as chosen.
+      const sentDay = dateTouched.current ? day : todayKey();
       const res = await quickLogSet({
         exerciseId,
         rpe,
@@ -225,7 +233,14 @@ export function QuickLogSheet({
       }
     >
       <div className="space-y-5 px-4 pb-4">
-        <DayField day={day} today={today} onChange={setDay} />
+        <DayField
+          day={day}
+          today={today}
+          onChange={(d) => {
+            dateTouched.current = true;
+            setDay(d);
+          }}
+        />
 
         {columns.map((column) => (
           <Field
@@ -367,21 +382,41 @@ export function QuickLogLauncher({
 
   useEffect(() => {
     let live = true;
-    getQuickLogPrefill(exerciseId).then((res) => {
-      if (!live) return;
-      if (res.ok && res.data) setState(res.data);
-      else setFailed(true);
-    });
+    getQuickLogPrefill(exerciseId)
+      .then((res) => {
+        if (!live) return;
+        if (res.ok && res.data) setState(res.data);
+        else setFailed(true);
+      })
+      .catch(() => {
+        // A rejected fetch used to hang the launcher on `null` forever — no
+        // sheet, no error, and no way to know the tap had registered.
+        if (live) setFailed(true);
+      });
     return () => {
       live = false;
     };
   }, [exerciseId]);
 
   useEffect(() => {
-    if (failed) onClose();
+    if (failed) {
+      showToast("Couldn't open quick log. Check your connection.");
+      onClose();
+    }
   }, [failed, onClose]);
 
-  if (!state) return null;
+  // The shell opens on the tap; the fields land when the prefill does. Three
+  // queries against a scale-to-zero database used to produce nothing at all
+  // until they answered, which read as the tap having been ignored.
+  if (!state) {
+    return (
+      <Sheet open onClose={onClose} title="Quick log">
+        <div className="px-4 pb-6">
+          <SkeletonRows rows={3} />
+        </div>
+      </Sheet>
+    );
+  }
 
   return (
     <QuickLogSheet
@@ -580,7 +615,7 @@ function Field({
             const el = e.currentTarget;
             requestAnimationFrame(() => el.select());
           }}
-          onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+          onChange={(e) => onChange(sanitizeDecimalInput(e.target.value, integer))}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}

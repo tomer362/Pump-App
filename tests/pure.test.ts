@@ -9,6 +9,11 @@ import {
 } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isUuid } from "@/lib/uuid";
+import {
+  alignPrevious,
+  sanitizeDecimalInput,
+  workingSetNumber,
+} from "@/lib/set-input";
 import { makeJoinCode } from "@/lib/join-code";
 import { exceedsImportBytes, MAX_IMPORT_BYTES } from "@/lib/routine-transfer";
 import { isBlobUrl } from "@/lib/blob";
@@ -489,5 +494,62 @@ describe("exceedsImportBytes", () => {
     expect(exceedsImportBytes(doc)).toBe(true);
     expect(exceedsImportBytes("a".repeat(MAX_IMPORT_BYTES))).toBe(false);
     expect(exceedsImportBytes("a".repeat(MAX_IMPORT_BYTES + 1))).toBe(true);
+  });
+});
+
+describe("sanitizeDecimalInput", () => {
+  it("treats a comma as the decimal point", () => {
+    expect(sanitizeDecimalInput("22,5")).toBe("22.5");
+    expect(sanitizeDecimalInput("22,5", true)).toBe("225".slice(0, 2) + "5");
+  });
+
+  it("keeps one dot and drops the rest", () => {
+    expect(sanitizeDecimalInput("1.2.3")).toBe("1.23");
+    expect(sanitizeDecimalInput("..5")).toBe(".5");
+    expect(sanitizeDecimalInput("100")).toBe("100");
+  });
+
+  it("strips everything that isn't a digit", () => {
+    expect(sanitizeDecimalInput("12kg")).toBe("12");
+    expect(sanitizeDecimalInput("-5")).toBe("5");
+    expect(sanitizeDecimalInput("")).toBe("");
+  });
+});
+
+describe("workingSetNumber", () => {
+  const sets = [
+    { setType: "warmup" },
+    { setType: "normal" },
+    { setType: "warmup" },
+    { setType: "drop" },
+    { setType: "normal" },
+  ];
+  it("does not spend a number on a warm-up", () => {
+    expect(sets.map((_, i) => workingSetNumber(sets, i))).toEqual([0, 1, 1, 2, 3]);
+  });
+});
+
+describe("alignPrevious", () => {
+  const prev = [
+    { setType: "warmup", w: 40 },
+    { setType: "normal", w: 100 },
+    { setType: "normal", w: 100 },
+  ];
+  it("matches warm-ups to warm-ups and working sets to working sets", () => {
+    const sets = [
+      { setType: "warmup" },
+      { setType: "warmup" },
+      { setType: "normal" },
+      { setType: "normal" },
+      { setType: "normal" },
+    ];
+    expect(alignPrevious(prev, sets).map((p) => p?.w ?? null)).toEqual([
+      40, null, 100, 100, null,
+    ]);
+  });
+
+  it("is not thrown off by a session with no warm-up", () => {
+    const sets = [{ setType: "normal" }, { setType: "normal" }];
+    expect(alignPrevious(prev, sets).map((p) => p?.w ?? null)).toEqual([100, 100]);
   });
 });

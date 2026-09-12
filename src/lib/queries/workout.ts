@@ -99,6 +99,8 @@ export type PreviousSet = {
   reps: number | null;
   seconds: number | null;
   distanceM: number | null;
+  /** So this session's rows can be matched like for like — see `alignPrevious`. */
+  setType: string;
 };
 
 export type FullWorkout = {
@@ -237,6 +239,7 @@ export async function getPreviousSets(
     reps: number | null;
     seconds: number | null;
     distance_m: number | null;
+    set_type: string;
     position: number;
   }>(sql`
     WITH ranked AS (
@@ -246,6 +249,7 @@ export async function getPreviousSets(
         ws.reps,
         ws.seconds,
         ws.distance_m,
+        ws.set_type,
         ws.position,
         DENSE_RANK() OVER (
           PARTITION BY we.exercise_id ORDER BY w.started_at DESC
@@ -262,7 +266,7 @@ export async function getPreviousSets(
         )})
         ${excludeWorkoutId ? sql`AND w.id <> ${excludeWorkoutId}` : sql``}
     )
-    SELECT exercise_id, weight_kg, reps, seconds, distance_m, position
+    SELECT exercise_id, weight_kg, reps, seconds, distance_m, set_type, position
     FROM ranked WHERE rk = 1
     ORDER BY exercise_id, position
   `);
@@ -274,6 +278,7 @@ export async function getPreviousSets(
       reps: r.reps,
       seconds: r.seconds,
       distanceM: r.distance_m,
+      setType: r.set_type,
     });
     out.set(r.exercise_id, list);
   }

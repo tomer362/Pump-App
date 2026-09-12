@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Bell, X } from "lucide-react";
+import { DUR, EASE_OUT_QUART, REDUCED } from "@/lib/motion";
 import { haptic } from "@/lib/utils";
 import { enableNotifications, markNotifyAsked } from "@/lib/notify-client";
 import { primeRestAudio } from "@/lib/rest-audio";
@@ -25,12 +27,15 @@ const DISMISSED_KEY = "pump.rest-alert-prompt";
 export function RestAlertPrompt() {
   const [show, setShow] = useState(false);
 
+  const reduce = useReducedMotion();
+
   // Every input here is client-only — `Notification` doesn't exist on the server
   // and neither does localStorage — so the probe can't run during render, and a
   // `useState` initialiser reading them would make the first client render
-  // disagree with the HTML. Deferred a frame rather than run in the effect body,
-  // which also keeps the row from appearing in the same paint as the set table:
-  // it slides in after, instead of shifting the rows down under a thumb.
+  // disagree with the HTML. Deferred a frame so it never lands in the hydration
+  // paint, and then *animated* in below: a row that simply appeared after
+  // first paint shifted the whole set table down under a thumb aiming at a
+  // checkmark. Growing over 200 ms is a movement the eye tracks; a jump isn't.
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       if (!workoutAlertsSupported()) return;
@@ -61,6 +66,12 @@ export function RestAlertPrompt() {
   };
 
   return (
+    <motion.div
+      initial={reduce ? { opacity: 0 } : { height: 0, opacity: 0 }}
+      animate={reduce ? { opacity: 1 } : { height: "auto", opacity: 1 }}
+      transition={reduce ? REDUCED : { duration: DUR.base, ease: EASE_OUT_QUART }}
+      className="overflow-hidden"
+    >
     <div className="bg-surface-1 hairline-b flex items-center gap-2 py-1.5 pr-1 pl-4">
       <Bell className="text-text-3 size-3.5 shrink-0" strokeWidth={2.2} />
       <span className="text-text-2 min-w-0 flex-1 text-[12px] leading-snug">
@@ -95,5 +106,6 @@ export function RestAlertPrompt() {
         <X className="size-3.5" strokeWidth={2.6} />
       </button>
     </div>
+    </motion.div>
   );
 }

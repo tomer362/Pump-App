@@ -3,6 +3,7 @@ import { Archivo } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
 import { ScrollRestoration } from "@/components/ui/scroll-restoration";
+import { Toaster } from "@/components/ui/toast";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -93,6 +94,8 @@ export default function RootLayout({
         </div>
         <ScrollRestoration />
         <ServiceWorkerRegistrar />
+        {/* The one place a failed background write can say so. */}
+        <Toaster />
       </body>
     </html>
   );

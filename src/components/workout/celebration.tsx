@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/primitives";
 import { AchievementIcon } from "@/components/achievement-icon";
 import type { FinishSummary } from "@/lib/actions/workout";
 import { formatDurationLong, formatWeight, haptic } from "@/lib/utils";
-import { EASE_OUT_QUART } from "@/lib/motion";
+import { EASE_OUT_QUART, REDUCED } from "@/lib/motion";
 
 /**
  * The pay-off screen. Sequence: checkmark strokes itself in → stats count up in
@@ -76,9 +76,11 @@ export function WorkoutCelebration({
           <DrawnCheck />
 
           <motion.h1
-            initial={{ opacity: 0, y: 10 }}
+            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.55, duration: 0.4, ease: EASE_OUT_QUART }}
+            transition={
+              reduce ? REDUCED : { delay: 0.55, duration: 0.4, ease: EASE_OUT_QUART }
+            }
             className="font-display mt-6 text-center text-[32px] leading-[1.05] font-extrabold tracking-[-0.03em]"
           >
             Workout complete
@@ -86,7 +88,7 @@ export function WorkoutCelebration({
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.68, duration: 0.4 }}
+            transition={reduce ? REDUCED : { delay: 0.68, duration: 0.4 }}
             className="text-text-3 mt-1.5 text-[14px]"
           >
             {hasPr
@@ -122,14 +124,18 @@ export function WorkoutCelebration({
               {summary.prs.map((pr, i) => (
                 <motion.div
                   key={`${pr.exerciseName}-${i}`}
-                  initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                  initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{
-                    delay: 1.25 + i * 0.09,
-                    type: "spring",
-                    stiffness: 380,
-                    damping: 26,
-                  }}
+                  transition={
+                    reduce
+                      ? REDUCED
+                      : {
+                          delay: 1.25 + i * 0.09,
+                          type: "spring",
+                          stiffness: 380,
+                          damping: 26,
+                        }
+                  }
                   className="border-pr/40 bg-pr-fade rounded-card flex items-center gap-3 border px-4 py-3"
                 >
                   <span className="bg-pr grid size-9 shrink-0 place-items-center rounded-full text-black">
@@ -173,10 +179,13 @@ export function WorkoutCelebration({
 
         <div className="flex-1" />
 
+        {/* The button waits for the choreography — unless there is none, in
+            which case the only way off the screen must not be hidden for a
+            second and a half from the person who asked for less motion. */}
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.5, duration: 0.4 }}
+          transition={reduce ? REDUCED : { delay: 1.5, duration: 0.4 }}
           className="pt-10"
         >
           {/* A cold navigation is a round trip the overlay now waits out, so
@@ -293,11 +302,12 @@ function CountStat({
   delay: number;
 }) {
   const shown = useCountUp(countTo ?? 0, delay, countTo != null);
+  const reduce = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4, ease: EASE_OUT_QUART }}
+      transition={reduce ? REDUCED : { delay, duration: 0.4, ease: EASE_OUT_QUART }}
       className="border-hairline bg-surface-1 rounded-card border px-4 py-3"
     >
       <p className="text-text-3 text-[11px] font-semibold tracking-[0.06em] uppercase">
