@@ -55,11 +55,19 @@ export async function loadMoreDiscoverRoutines(
   if (
     !cursor ||
     typeof cursor.id !== "string" ||
-    !/^[0-9a-f-]{36}$/i.test(cursor.id) ||
-    (typeof cursor.value !== "number" && typeof cursor.value !== "string")
+    !/^[0-9a-f-]{36}$/i.test(cursor.id)
   ) {
     return [];
   }
+  // The value's shape depends on the sort: a finite number for "popular", a
+  // parseable instant for "new". Anything else reached the keyset comparison
+  // as NaN or an invalid Date, which Postgres rejected as a bind error.
+  const value = cursor.value;
+  const valid =
+    sort === "popular"
+      ? typeof value === "number" && Number.isFinite(value)
+      : typeof value === "string" && !Number.isNaN(new Date(value).getTime());
+  if (!valid) return [];
 
   return getDiscoverRoutines(me.id, {
     sort: sort as DiscoverSort,

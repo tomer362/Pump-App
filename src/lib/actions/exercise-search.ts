@@ -1,6 +1,7 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/session";
+import { isUuid } from "@/lib/uuid";
 import { exerciseVideoLink } from "@/lib/exercise-video";
 import { RECENT_BONUS } from "@/lib/exercise-match";
 import { tokenizeQuery } from "@/lib/exercise-search-terms";
@@ -158,6 +159,7 @@ export async function getExerciseAboutAction(
 ): Promise<ExerciseAboutSheetData | null> {
   const me = await getCurrentUser();
   if (!me) return null;
+  if (!isUuid(exerciseId)) return null;
 
   const row = await getExercise(exerciseId);
   if (!row) return null;
@@ -192,6 +194,7 @@ export async function getReplacementSuggestionsAction(
 ): Promise<ExerciseListItem[]> {
   const me = await getCurrentUser();
   if (!me) return [];
+  if (!isUuid(exerciseId)) return [];
   return getReplacementSuggestions(me.id, exerciseId);
 }
 
@@ -201,5 +204,9 @@ export async function getExercisesByIdsAction(
 ): Promise<ExerciseListItem[]> {
   const me = await getCurrentUser();
   if (!me) return [];
+  // A picker hands back a handful of ids; anything else is not a picker. A
+  // non-uuid element used to throw out of the query, and there was no bound
+  // on how many a caller could ask for at once.
+  if (!Array.isArray(ids) || ids.length > 50 || !ids.every(isUuid)) return [];
   return getExercisesByIds(me.id, ids);
 }

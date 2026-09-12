@@ -1,4 +1,5 @@
 import "server-only";
+import { escapeLike } from "@/lib/exercise-search-terms";
 import { and, desc, eq, gt, ilike, ne, or, sql, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -180,6 +181,22 @@ export async function getUserFeed(
   return rows.map(toFeedItem);
 }
 
+/**
+ * Whether a workout was published to the feed. `/history/[id]` is reachable
+ * from every post card, so a shared session has to open for a viewer — but
+ * one the lifter kept private ("Keep private" on the finish sheet) has no
+ * post, and `getFullWorkout` takes no viewer. This is the gate the page
+ * applies for anyone but the owner.
+ */
+export async function isWorkoutShared(workoutId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: post.id })
+    .from(post)
+    .where(eq(post.workoutId, workoutId))
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Capped: an unbounded thread lets one spammer make the page un-renderable. */
 export async function getComments(postId: string, limit = 200) {
   return db
@@ -294,7 +311,10 @@ export async function searchPeople(
         ne(user.id, viewerId),
         sql`${user.onboardedAt} IS NOT NULL`,
         q
-          ? or(ilike(user.name, `%${q}%`), ilike(user.username, `%${q}%`))
+          ? or(
+              ilike(user.name, `%${escapeLike(q)}%`),
+              ilike(user.username, `%${escapeLike(q)}%`),
+            )
           : undefined,
       ),
     )
@@ -346,7 +366,10 @@ export async function getPendingFriendRequests(
         eq(friendRequest.addresseeId, userId),
         eq(friendRequest.status, "pending"),
       ),
-    );
+    )
+    // The one list whose length somebody *else* controls; same cap and same
+    // reason as `getSentFriendRequests`.
+    .limit(100);
   return rows.map(toPerson);
 }
 

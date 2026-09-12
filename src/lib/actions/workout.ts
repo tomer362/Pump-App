@@ -19,6 +19,7 @@ import {
   type SetType,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { isUuid } from "@/lib/uuid";
 import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
@@ -47,6 +48,7 @@ async function ownedWorkout(
 ): Promise<Denied | WorkoutGrant> {
   const me = await getCurrentUser();
   if (!me) return { error: "Not signed in" };
+  if (!isUuid(workoutId)) return { error: "Workout not found" };
   const [w] = await db
     .select()
     .from(workout)
@@ -62,6 +64,7 @@ async function ownedWorkoutExercise(
 ): Promise<Denied | WorkoutExerciseGrant> {
   const me = await getCurrentUser();
   if (!me) return { error: "Not signed in" };
+  if (!isUuid(workoutExerciseId)) return { error: "Not found" };
   const [row] = await db
     .select({ we: workoutExercise, w: workout })
     .from(workoutExercise)
@@ -304,6 +307,16 @@ export async function addExercisesToWorkout(
 ): Promise<ActionResult<{ added: AddedExercise[] }>> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
+  if (!Array.isArray(exerciseIds) || !exerciseIds.every(isUuid)) {
+    return { ok: false, error: "Exercise not found" };
+  }
   if (!exerciseIds.length) return { ok: true, data: { added: [] } };
 
   const [{ max }] = await db
@@ -384,6 +397,13 @@ export async function removeWorkoutExercise(
 ): Promise<ActionResult> {
   const guard = await ownedWorkoutExercise(workoutExerciseId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   await db
     .delete(workoutExercise)
@@ -620,6 +640,13 @@ export async function addSet(
 ): Promise<ActionResult<{ setId: string }>> {
   const guard = await ownedWorkoutExercise(workoutExerciseId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   // Carry the previous set's load forward — that's what people actually do.
   const [last] = await db
@@ -659,9 +686,14 @@ export async function addSet(
 export async function removeSet(setId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(setId)) return { ok: false, error: "Set not found" };
 
   const [row] = await db
-    .select({ workoutId: workout.id, weId: workoutExercise.id })
+    .select({
+      workoutId: workout.id,
+      weId: workoutExercise.id,
+      endedAt: workout.endedAt,
+    })
     .from(workoutSet)
     .innerJoin(
       workoutExercise,
@@ -671,6 +703,11 @@ export async function removeSet(setId: string): Promise<ActionResult> {
     .where(and(eq(workoutSet.id, setId), eq(workout.userId, me.id)))
     .limit(1);
   if (!row) return { ok: false, error: "Set not found" };
+  // Same rule as the exercise-level mutations above: a finished workout's
+  // counters describe its rows, so its rows stay.
+  if (row.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   await db.transaction(async (tx) => {
     await tx.delete(workoutSet).where(eq(workoutSet.id, setId));
@@ -727,6 +764,7 @@ export async function updateSet(
 > {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(setId)) return { ok: false, error: "Set not found" };
 
   const parsed = setPatchSchema.safeParse(patch);
   if (!parsed.success) return { ok: false, error: "Invalid set values" };

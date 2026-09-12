@@ -22,7 +22,9 @@ import {
 } from "@/lib/routine-write";
 import { getCurrentUser } from "@/lib/session";
 import { rpeInput } from "@/lib/rpe";
+import { isUuid } from "@/lib/uuid";
 import { notify } from "./notify";
+import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
 
 /**
@@ -37,6 +39,29 @@ async function ownsFolder(userId: string, folderId: string) {
     .where(and(eq(routineFolder.id, folderId), eq(routineFolder.userId, userId)))
     .limit(1);
   return Boolean(row);
+}
+
+/**
+ * Every exercise a routine names must be a built-in or one of the caller's own
+ * rows — the invariant `copyRoutine` and the file import enforce through
+ * `resolveExercisesForUser`. The editor's two writers took any uuid and wrote
+ * it verbatim, so a routine could be pointed at a stranger's private custom
+ * exercise, whose name then rendered on `/routines/[id]` through a join that
+ * is deliberately unfiltered. One `IN` query, however many exercises.
+ */
+async function ownsExercises(userId: string, exerciseIds: string[]) {
+  const ids = [...new Set(exerciseIds)];
+  if (!ids.length) return true;
+  const rows = await db
+    .select({ id: exercise.id })
+    .from(exercise)
+    .where(
+      and(
+        inArray(exercise.id, ids),
+        sql`(${exercise.ownerId} IS NULL OR ${exercise.ownerId} = ${userId})`,
+      ),
+    );
+  return rows.length === ids.length;
 }
 
 /** Shape the routine editor posts back. The whole routine is saved at once. */
@@ -92,6 +117,14 @@ export async function createRoutine(
   if (folderId && !(await ownsFolder(me.id, folderId))) {
     return { ok: false, error: "Folder not found" };
   }
+  if (
+    !(await ownsExercises(
+      me.id,
+      parsed.data.exercises.map((e) => e.exerciseId),
+    ))
+  ) {
+    return { ok: false, error: "Exercise not found" };
+  }
 
   const id = await db.transaction(async (tx) => {
     const [r] = await tx
@@ -124,6 +157,7 @@ export async function updateRoutine(
 ): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(routineId)) return { ok: false, error: "Routine not found" };
 
   const parsed = routineInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -142,6 +176,14 @@ export async function updateRoutine(
     return { ok: false, error: "Folder not found" };
   }
   const movedFolder = folderId !== existing.folderId;
+  if (
+    !(await ownsExercises(
+      me.id,
+      parsed.data.exercises.map((e) => e.exerciseId),
+    ))
+  ) {
+    return { ok: false, error: "Exercise not found" };
+  }
 
   await db.transaction(async (tx) => {
     await tx
@@ -237,6 +279,7 @@ async function remapForeignExercises(
 export async function deleteRoutine(routineId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(routineId)) return { ok: false, error: "Routine not found" };
 
   await db
     .delete(routine)
@@ -256,6 +299,17 @@ export async function copyRoutine(
 ): Promise<ActionResult<{ routineId: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(routineId)) return { ok: false, error: "Routine not found" };
+
+  // Each copy credits the author's `saveCount` — which feeds the generated
+  // `popularity` column Discover is ordered by — and pushes them a
+  // notification. Unbounded, a loop here is a way to buy a routine the top of
+  // Discover and to fill one inbox doing it.
+  const limited = await rateLimit(me.id, "copy_routine", {
+    limit: 30,
+    windowSeconds: 3600,
+  });
+  if (!limited.ok) return limited;
 
   const [src] = await db
     .select()
@@ -339,12 +393,15 @@ export async function copyRoutine(
           intervalRestSeconds: re.intervalRestSeconds,
         })),
       )
-      .returning({ id: routineExercise.id, position: routineExercise.position });
+      .returning({ id: routineExercise.id });
 
-    const byPosition = new Map(inserted.map((r) => [r.position, r.id]));
+    // `.returning()` comes back in `VALUES` order, so the i-th new row is the
+    // i-th source exercise. Keyed on the source id rather than `position`:
+    // nothing makes positions unique within a routine, and two exercises
+    // sharing one used to collapse their sets onto a single copy.
+    const bySourceId = new Map(res.map((re, i) => [re.id, inserted[i]?.id]));
     const rows = rsets.flatMap((rs) => {
-      const re = res.find((x) => x.id === rs.routineExerciseId);
-      const newReId = re ? byPosition.get(re.position) : undefined;
+      const newReId = bySourceId.get(rs.routineExerciseId);
       if (!newReId) return [];
       return [
         {
@@ -399,6 +456,7 @@ export async function saveWorkoutAsRoutine(
 ): Promise<ActionResult<{ routineId: string }>> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(workoutId)) return { ok: false, error: "Workout not found" };
 
   const [w] = await db
     .select()
@@ -461,11 +519,11 @@ export async function saveWorkoutAsRoutine(
           intervalRestSeconds: we.intervalRestSeconds,
         })),
       )
-      .returning({ id: routineExercise.id, position: routineExercise.position });
+      .returning({ id: routineExercise.id });
 
-    const byPosition = new Map(inserted.map((x) => [x.position, x.id]));
-    const rows = wes.flatMap((we) => {
-      const reId = byPosition.get(we.position);
+    // Same pairing as `copyRoutine`: by insert order, never by position.
+    const rows = wes.flatMap((we, i) => {
+      const reId = inserted[i]?.id;
       if (!reId) return [];
       return (byWe.get(we.id) ?? []).map((s, j) => ({
         routineExerciseId: reId,

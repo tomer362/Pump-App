@@ -1,5 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { getCurrentUser } from "@/lib/session";
+import { rateLimit } from "@/lib/actions/rate-limit";
 import {
   IMAGE_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
@@ -31,6 +32,13 @@ export async function POST(request: Request) {
       onBeforeGenerateToken: async () => {
         const me = await getCurrentUser();
         if (!me) throw new Error("Not signed in");
+        // Each token is a 4 MB upload against the deployment's one shared
+        // Blob allowance; a photo a workout is the honest ceiling.
+        const limited = await rateLimit(me.id, "blob_upload", {
+          limit: 30,
+          windowSeconds: 3600,
+        });
+        if (!limited.ok) throw new Error(limited.error);
         return {
           allowedContentTypes: [...IMAGE_CONTENT_TYPES],
           maximumSizeInBytes: MAX_UPLOAD_BYTES,
@@ -51,9 +59,13 @@ export async function POST(request: Request) {
 
     return Response.json(result);
   } catch (err) {
+    // Only our own refusals are worth echoing. The SDK's messages describe its
+    // internals, and a client that hit one gets the same generic answer.
+    const message = (err as Error).message;
+    const ours = /Not signed in|Too many|Try again/i.test(message);
     return Response.json(
-      { error: (err as Error).message },
-      { status: 400 },
+      { error: ours ? message : "Upload refused" },
+      { status: ours && /Not signed in/.test(message) ? 401 : 400 },
     );
   }
 }
