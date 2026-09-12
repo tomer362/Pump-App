@@ -34,7 +34,7 @@ export default async function GymPage({
       />
 
       <div className="space-y-6 px-4">
-        <Card className="px-4 py-4">
+        <Card className="px-safe-4 py-4">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-text-3 text-[11px] font-semibold tracking-[0.08em] uppercase">

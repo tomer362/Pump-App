@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { Heart, MessageCircle, Share2, Trophy } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui/primitives";
 import { toggleLike } from "@/lib/actions/social";
+import { watchAction } from "@/components/ui/toast";
 import type { FeedItem } from "@/lib/queries/social";
 import { TimeAgo } from "@/components/ui/time-ago";
 import { cn, formatDurationLong, formatVolume, haptic } from "@/lib/utils";
@@ -35,7 +36,12 @@ export function PostCard({
       setBurst((n) => n + 1);
     }
     startTransition(async () => {
-      const res = await toggleLike(item.postId);
+      // A refusal — rate limited, post gone, offline — snaps the heart back.
+      // It used to stay volt with the count up by one, forever.
+      const res = await watchAction(toggleLike(item.postId), () => {
+        setLiked(!next);
+        setLikeCount((n) => Math.max(0, n + (next ? -1 : 1)));
+      });
       if (res.ok && res.data) {
         setLiked(res.data.liked);
         setLikeCount(res.data.likeCount);

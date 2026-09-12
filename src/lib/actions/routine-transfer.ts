@@ -10,7 +10,7 @@ import {
   exportFilename,
   parseRoutineExport,
   serializeRoutineExport,
-  MAX_IMPORT_BYTES,
+  exceedsImportBytes,
   type RoutineDocument,
 } from "@/lib/routine-transfer";
 import {
@@ -123,7 +123,7 @@ export async function previewRoutineImport(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
-  if (typeof json !== "string" || json.length > MAX_IMPORT_BYTES) {
+  if (typeof json !== "string" || exceedsImportBytes(json)) {
     return { ok: false, error: "That file is too large to be a routine" };
   }
 
@@ -141,9 +141,11 @@ export async function previewRoutineImport(
   // The same resolver the import runs, in dry-run: it reads, decides, and
   // writes nothing. Sharing the code is the point — a preview that computes
   // "creates 2 new exercises" any other way is one that will eventually lie.
-  const resolved = await db.transaction((tx: Tx) =>
-    resolveExercisesForUser(tx, me.id, toRefs(doc), { dryRun: true }),
-  );
+  // No transaction: a dry run writes nothing, so holding one open per preview
+  // bought nothing but a lock.
+  const resolved = await resolveExercisesForUser(db, me.id, toRefs(doc), {
+    dryRun: true,
+  });
 
   const exercises = doc.routine.exercises.map((e, i) => ({
     name: e.exercise.name,
@@ -172,7 +174,7 @@ export async function importRoutine(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
-  if (typeof json !== "string" || json.length > MAX_IMPORT_BYTES) {
+  if (typeof json !== "string" || exceedsImportBytes(json)) {
     return { ok: false, error: "That file is too large to be a routine" };
   }
 

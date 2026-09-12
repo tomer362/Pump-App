@@ -87,7 +87,7 @@ export function PhotoInput({
             type="button"
             onClick={() => input.current?.click()}
             disabled={busy}
-            className="press text-volt text-[14px] font-semibold disabled:opacity-50"
+            className="press text-volt tap inline-flex items-center text-[14px] font-semibold disabled:opacity-50"
           >
             {value ? "Replace" : label}
           </button>
@@ -98,7 +98,7 @@ export function PhotoInput({
                 haptic.light();
                 onChange(null);
               }}
-              className="press text-text-3 ml-3 inline-flex items-center gap-1 text-[13px]"
+              className="press text-text-3 tap ml-3 inline-flex items-center gap-1 text-[13px]"
             >
               <X className="size-3.5" />
               Remove

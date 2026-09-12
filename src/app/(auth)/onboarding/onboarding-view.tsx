@@ -9,10 +9,21 @@ import { Input, Segmented } from "@/components/ui/primitives";
 import { Wordmark } from "@/components/wordmark";
 import { checkUsernameAvailable, completeOnboarding } from "@/lib/actions/user";
 import { cn } from "@/lib/utils";
+import { REST_PRESETS, restLabel } from "@/lib/rest";
 import { ENTER, REDUCED } from "@/lib/motion";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
 
-const REST_PRESETS = [60, 90, 120, 180, 240];
+
+/**
+ * The canonical presets (`lib/rest.ts`), plus whatever is stored if it is
+ * not among them — otherwise a 150 s default lit no chip and read as unset,
+ * the same defect the routine builder's old hardcoded row had.
+ */
+function restChips(current: number) {
+  return REST_PRESETS.includes(current as (typeof REST_PRESETS)[number])
+    ? [...REST_PRESETS]
+    : [...REST_PRESETS, current].sort((a, b) => a - b);
+}
 
 export function OnboardingView({
   defaultName,
@@ -174,8 +185,8 @@ export function OnboardingView({
           </Field>
 
           <Field label="Default rest between sets">
-            <div className="flex gap-2">
-              {REST_PRESETS.map((s) => (
+            <div className="grid grid-cols-4 gap-2">
+              {restChips(rest).map((s) => (
                 <button
                   key={s}
                   onClick={() => setRest(s)}
@@ -186,7 +197,7 @@ export function OnboardingView({
                       : "border-hairline bg-surface-2 text-text-2",
                   )}
                 >
-                  {s < 60 ? `${s}s` : `${s / 60}m`}
+                  {restLabel(s)}
                 </button>
               ))}
             </div>

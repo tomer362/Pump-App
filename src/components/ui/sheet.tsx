@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { cn, haptic } from "@/lib/utils";
 import { SPRING } from "@/lib/motion";
+import { SCROLLER_ID } from "@/lib/scroll-memory";
 
 /**
  * Every sheet currently on screen, oldest first.
@@ -41,6 +42,7 @@ export function Sheet({
   footer,
   dismissLabel,
   dragToDismiss = true,
+  initialFocus = "auto",
 }: {
   open: boolean;
   onClose: () => void;
@@ -76,6 +78,15 @@ export function Sheet({
    * still close by backdrop, Escape and their own footer button.
    */
   dragToDismiss?: boolean;
+  /**
+   * `"input"` focuses the first field even on a touch device, for a sheet
+   * that exists to collect one value (a join code, a gym name) and wants the
+   * keyboard up. The default keeps focus on the panel there. Callers used
+   * `autoFocus` on the input for this, and the two fought: React focused the
+   * field on mount, the sheet then moved focus to the panel a frame later,
+   * and the keyboard opened and closed again.
+   */
+  initialFocus?: "auto" | "input";
 }) {
   const reduce = useReducedMotion();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -95,15 +106,19 @@ export function Sheet({
     onCloseRef.current = onClose;
   });
 
-  // Lock the page behind the sheet so scrolling the sheet doesn't chain.
+  // Lock the page behind the sheet so scrolling the sheet doesn't chain. The
+  // lock goes on the app's one scroller, not `body`: the body never scrolls
+  // (it is `overflow: hidden` in the root layout), so locking it was a no-op.
   React.useEffect(() => {
     if (!open) return;
-    if (lockCount === 0) lockedFrom = document.body.style.overflow;
+    const scroller = document.getElementById(SCROLLER_ID);
+    if (!scroller) return;
+    if (lockCount === 0) lockedFrom = scroller.style.overflowY;
     lockCount += 1;
-    document.body.style.overflow = "hidden";
+    scroller.style.overflowY = "hidden";
     return () => {
       lockCount -= 1;
-      if (lockCount === 0) document.body.style.overflow = lockedFrom;
+      if (lockCount === 0) scroller.style.overflowY = lockedFrom;
     };
   }, [open]);
 
@@ -142,7 +157,10 @@ export function Sheet({
       // keyboard, which swallows the bottom half of the sheet before the user
       // has said they want to type. Move focus to the panel instead — it is
       // `tabIndex={-1}`, so `aria-modal` and the Tab trap still hold.
-      if (window.matchMedia?.("(pointer: coarse)").matches) {
+      if (
+        initialFocus !== "input" &&
+        window.matchMedia?.("(pointer: coarse)").matches
+      ) {
         panelRef.current?.focus?.();
         return;
       }
@@ -206,7 +224,7 @@ export function Sheet({
         restoreFocusTo.current.focus?.();
       }
     };
-  }, [open, id]);
+  }, [open, id, initialFocus]);
 
   // Neutral, not volt: nothing is being committed — these sheets have already
   // written every change as it was tapped — and the accent is reserved for

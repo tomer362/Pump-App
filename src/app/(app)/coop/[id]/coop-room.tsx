@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTransient } from "@/hooks/use-transient";
+import { watchAction } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Check, Copy, Dumbbell, LogOut, Square } from "lucide-react";
@@ -36,7 +38,7 @@ export function CoopRoom({
 }) {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState(initial);
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTransient(false, 2000);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
 
@@ -71,8 +73,7 @@ export function CoopRoom({
     haptic.light();
     try {
       await navigator.clipboard.writeText(snapshot.joinCode);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      flashCopied(true);
     } catch {
       /* clipboard unavailable */
     }
@@ -160,8 +161,8 @@ export function CoopRoom({
               loading={busy}
               onClick={async () => {
                 setBusy(true);
-                await endCoopSession(snapshot.id);
-                router.refresh();
+                const res = await watchAction(endCoopSession(snapshot.id));
+                if (res.ok) router.refresh();
                 setBusy(false);
               }}
             >
@@ -176,7 +177,11 @@ export function CoopRoom({
               loading={busy}
               onClick={async () => {
                 setBusy(true);
-                await leaveCoopSession(snapshot.id);
+                const res = await watchAction(leaveCoopSession(snapshot.id));
+                if (!res.ok) {
+                  setBusy(false);
+                  return;
+                }
                 router.replace("/start");
                 router.refresh();
               }}

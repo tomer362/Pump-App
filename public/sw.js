@@ -22,6 +22,21 @@ self.addEventListener("install", () => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+  // The one cell this worker keeps is versioned with it (see `STATE_CACHE`),
+  // so a generation that changes the alarm's shape never reads the old one.
+  // Anything from a previous generation is dropped here.
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k.startsWith("pump-") && k !== STATE_CACHE)
+            .map((k) => caches.delete(k)),
+        ),
+      )
+      .catch(() => undefined),
+  );
   // A new worker generation replaces one that may have been counting a rest.
   event.waitUntil(restoreRestAlarm());
 });
@@ -86,7 +101,7 @@ self.addEventListener("push", (event) => {
  * answers a `fetch`. It is Cache Storage rather than IndexedDB only because a
  * single cell in IDB is forty lines of request plumbing and this is four.
  */
-const STATE_CACHE = "pump-workout-state";
+const STATE_CACHE = "pump-workout-state-v2";
 const ALARM_KEY = "/__pump/rest-alarm";
 
 async function saveAlarm(alarm) {
@@ -373,12 +388,21 @@ self.addEventListener("notificationclick", (event) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clients) => {
-        // Reuse an open tab rather than piling up new ones.
-        for (const client of clients) {
-          if ("focus" in client) {
-            client.navigate(target);
-            return client.focus();
-          }
+        // Reuse an open tab rather than piling up new ones — preferring one
+        // already showing the target, which then needs no navigation at all.
+        const here = clients.find(
+          (c) => "focus" in c && new URL(c.url).pathname === target,
+        );
+        if (here) return here.focus();
+        const client = clients.find((c) => "focus" in c);
+        if (client) {
+          // `navigate()` rejects for a window this worker doesn't control,
+          // which `includeUncontrolled` lets in. Unawaited, that was an
+          // unhandled rejection inside `waitUntil`; uncaught, it would skip
+          // the focus. Either way the app comes forward.
+          return Promise.resolve(client.navigate(target))
+            .catch(() => undefined)
+            .then(() => client.focus());
         }
         return self.clients.openWindow(target);
       }),

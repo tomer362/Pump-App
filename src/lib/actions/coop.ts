@@ -15,17 +15,10 @@ import {
   workoutSet,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { withFreshJoinCode } from "@/lib/join-code";
+import { isUuid } from "@/lib/uuid";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
-
-function makeJoinCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return out;
-}
 
 /**
  * Start a shared session. Each participant still gets their own `workout` row —
@@ -66,39 +59,56 @@ export async function createCoopSession(input: {
     return { ok: false, error: "Finish your current workout first" };
   }
 
-  const joinCode = makeJoinCode();
+  // The routine a session is seeded from is copied into every joiner's own
+  // workout, so it is readable by the whole room. The same visibility rule
+  // `copyRoutine` applies: yours, or public. Checked here rather than inside
+  // `createLinkedWorkout` so the refusal is an answer and not a silent empty
+  // session.
+  if (parsed.data.routineId) {
+    const [r] = await db
+      .select({ userId: routine.userId, isPublic: routine.isPublic })
+      .from(routine)
+      .where(eq(routine.id, parsed.data.routineId))
+      .limit(1);
+    if (!r) return { ok: false, error: "Routine not found" };
+    if (r.userId !== me.id && !r.isPublic) {
+      return { ok: false, error: "That routine is private" };
+    }
+  }
 
-  const result = await db.transaction(async (tx) => {
-    const [session] = await tx
-      .insert(coopSession)
-      .values({
-        hostId: me.id,
-        routineId: parsed.data.routineId ?? null,
-        name: parsed.data.name,
-        joinCode,
-        loadMultiplier: parsed.data.loadMultiplier ?? 1,
-      })
-      .returning({ id: coopSession.id, joinCode: coopSession.joinCode });
+  const result = await withFreshJoinCode((joinCode) =>
+    db.transaction(async (tx) => {
+      const [session] = await tx
+        .insert(coopSession)
+        .values({
+          hostId: me.id,
+          routineId: parsed.data.routineId ?? null,
+          name: parsed.data.name,
+          joinCode,
+          loadMultiplier: parsed.data.loadMultiplier ?? 1,
+        })
+        .returning({ id: coopSession.id, joinCode: coopSession.joinCode });
 
-    const workoutId = await createLinkedWorkout(
-      tx,
-      me.id,
-      me.homeGymId,
-      me.defaultRestSeconds,
-      session.id,
-      parsed.data.routineId ?? null,
-      parsed.data.name,
-      parsed.data.loadMultiplier ?? 1,
-    );
+      const workoutId = await createLinkedWorkout(
+        tx,
+        me.id,
+        me.homeGymId,
+        me.defaultRestSeconds,
+        session.id,
+        parsed.data.routineId ?? null,
+        parsed.data.name,
+        parsed.data.loadMultiplier ?? 1,
+      );
 
-    await tx.insert(coopParticipant).values({
-      coopSessionId: session.id,
-      userId: me.id,
-      workoutId,
-    });
+      await tx.insert(coopParticipant).values({
+        coopSessionId: session.id,
+        userId: me.id,
+        workoutId,
+      });
 
-    return session;
-  });
+      return session;
+    }),
+  );
 
   revalidatePath("/coop");
   return {
@@ -120,12 +130,14 @@ export async function joinCoopSession(
   });
   if (!limited.ok) return limited;
 
+  const parsedCode = z.string().trim().min(1).max(16).safeParse(code);
+  if (!parsedCode.success) {
+    return { ok: false, error: "No session with that code" };
+  }
   const [session] = await db
     .select()
     .from(coopSession)
-    .where(
-      eq(coopSession.joinCode, z.string().trim().max(16).parse(code).toUpperCase()),
-    )
+    .where(eq(coopSession.joinCode, parsedCode.data.toUpperCase()))
     .limit(1);
   if (!session) return { ok: false, error: "No session with that code" };
   if (session.endedAt) return { ok: false, error: "That session has ended" };
@@ -201,8 +213,12 @@ async function createLinkedWorkout(
 
   if (!routineId) return w.id;
 
+  // A joiner copies whatever the host chose. The host's pick was checked for
+  // visibility in `createCoopSession`; a routine made private *after* the
+  // session opened still seeds the people already in the room, which is what
+  // sharing a session means. A deleted one simply seeds nothing.
   const [r] = await tx
-    .select({ id: routine.id, isPublic: routine.isPublic, userId: routine.userId })
+    .select({ id: routine.id })
     .from(routine)
     .where(eq(routine.id, routineId))
     .limit(1);
@@ -243,12 +259,15 @@ async function createLinkedWorkout(
         intervalRestSeconds: re.intervalRestSeconds,
       })),
     )
-    .returning({ id: workoutExercise.id, position: workoutExercise.position });
+    .returning({ id: workoutExercise.id });
 
-  const byPosition = new Map(inserted.map((x) => [x.position, x.id]));
+  // `.returning()` comes back in `VALUES` order, so the i-th inserted row is
+  // the i-th source exercise. Keyed on the source id, not on `position`:
+  // nothing in the schema makes positions unique within a routine, and two
+  // exercises sharing one used to collapse their sets onto a single block.
+  const bySourceId = new Map(res.map((re, i) => [re.id, inserted[i]?.id]));
   const rows = rsets.flatMap((rs) => {
-    const re = res.find((x) => x.id === rs.routineExerciseId);
-    const weId = re ? byPosition.get(re.position) : undefined;
+    const weId = bySourceId.get(rs.routineExerciseId);
     if (!weId) return [];
     return [
       {
@@ -281,15 +300,19 @@ export async function endCoopSession(
 ): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(coopSessionId)) return { ok: false, error: "Session not found" };
 
-  await db
+  const ended = await db
     .update(coopSession)
     .set({ endedAt: new Date() })
     .where(
       and(eq(coopSession.id, coopSessionId), eq(coopSession.hostId, me.id)),
-    );
+    )
+    .returning({ id: coopSession.id });
+  if (!ended.length) return { ok: false, error: "Session not found" };
 
   revalidatePath("/coop");
+  revalidatePath(`/coop/${coopSessionId}`);
   return { ok: true };
 }
 
@@ -298,27 +321,31 @@ export async function leaveCoopSession(
 ): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(coopSessionId)) return { ok: false, error: "Session not found" };
 
-  await db
-    .delete(coopParticipant)
-    .where(
-      and(
-        eq(coopParticipant.coopSessionId, coopSessionId),
-        eq(coopParticipant.userId, me.id),
-      ),
-    );
-  // The participant's own workout is left alone — it's their session to keep.
-  await db
-    .update(workout)
-    .set({ coopSessionId: null })
-    .where(
-      and(
-        eq(workout.userId, me.id),
-        eq(workout.coopSessionId, coopSessionId),
-      ),
-    );
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(coopParticipant)
+      .where(
+        and(
+          eq(coopParticipant.coopSessionId, coopSessionId),
+          eq(coopParticipant.userId, me.id),
+        ),
+      );
+    // The participant's own workout is left alone — it's their session to keep.
+    await tx
+      .update(workout)
+      .set({ coopSessionId: null })
+      .where(
+        and(
+          eq(workout.userId, me.id),
+          eq(workout.coopSessionId, coopSessionId),
+        ),
+      );
+  });
 
   revalidatePath("/coop");
+  revalidatePath(`/coop/${coopSessionId}`);
   return { ok: true };
 }
 
@@ -329,12 +356,20 @@ export async function setCoopResting(
 ): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(coopSessionId)) return { ok: false, error: "Session not found" };
+
+  // Same bound as every rest column. Unbounded, `1e15` made an invalid Date
+  // that threw out of the update, and any large finite value pinned a lifter
+  // as "resting" in the room for as long as the session lasted.
+  const secs =
+    typeof seconds === "number" && Number.isFinite(seconds)
+      ? Math.min(1800, Math.max(0, seconds))
+      : 0;
 
   await db
     .update(coopParticipant)
     .set({
-      restingUntil:
-        seconds && seconds > 0 ? new Date(Date.now() + seconds * 1000) : null,
+      restingUntil: secs > 0 ? new Date(Date.now() + secs * 1000) : null,
     })
     .where(
       and(
@@ -384,6 +419,7 @@ export async function getCoopSnapshot(
 ): Promise<CoopSnapshot | null> {
   const me = await getCurrentUser();
   if (!me) return null;
+  if (!isUuid(coopSessionId)) return null;
 
   const [membership] = await db
     .select({ userId: coopParticipant.userId })

@@ -14,7 +14,9 @@ import type {
   RepMax,
 } from "@/lib/queries/exercise";
 import { useRouteMemory } from "@/hooks/use-route-memory";
-import { cn, formatDayLabel, formatVolume, formatWeight } from "@/lib/utils";
+import { cn, formatVolume, formatWeight } from "@/lib/utils";
+import { workingSetNumber } from "@/lib/set-input";
+import { DayLabel } from "@/components/ui/day-label";
 import { isAssistedTracking } from "@/lib/tracking";
 
 type Tab = "about" | "history" | "charts" | "records";
@@ -159,10 +161,13 @@ function Charts({
         </Card>
         {s.firstPerformedAt && (
           <p className="text-text-3 mt-2 text-[12px]">
-            First logged {formatDayLabel(s.firstPerformedAt)}
-            {s.lastPerformedAt
-              ? ` · last ${formatDayLabel(s.lastPerformedAt)}`
-              : ""}
+            First logged <DayLabel date={s.firstPerformedAt} />
+            {s.lastPerformedAt && (
+              <>
+                {" · last "}
+                <DayLabel date={s.lastPerformedAt} />
+              </>
+            )}
           </p>
         )}
       </div>
@@ -217,7 +222,7 @@ function History({
           <Card className="press px-4 py-3">
             <div className="mb-1.5 flex items-baseline gap-2">
               <p className="text-text-3 flex-1 text-[12px]">
-                {formatDayLabel(new Date(h.date))}
+                <DayLabel date={h.date} />
               </p>
               {/* Assistance sums to nothing, so the session line carries the
                   count of sets it did instead of a 0 kg total. */}
@@ -231,7 +236,7 @@ function History({
               {h.sets.map((s, i) => (
                 <span key={i} className="num text-[14px]">
                   <span className="text-text-3">
-                    {s.setType === "warmup" ? "W" : i + 1}
+                    {s.setType === "warmup" ? "W" : workingSetNumber(h.sets, i)}
                   </span>{" "}
                   <span className="font-semibold">
                     {s.weightKg != null

@@ -146,6 +146,7 @@ export function useExerciseBatches(
     cursor: initial?.cursor ?? null,
   }));
   const [loadingMore, setLoadingMore] = useState(false);
+  const [nonce, setNonce] = useState(0);
 
   /**
    * Whose rows the current `loaded` can be trusted to be — the server-rendered
@@ -211,7 +212,7 @@ export function useExerciseBatches(
       });
     }, debounceMs);
     return () => window.clearTimeout(timer);
-  }, [enabled, signature, debounceMs]);
+  }, [enabled, signature, debounceMs, nonce]);
 
   const loadMore = useCallback(async () => {
     const current = loadedRef.current;
@@ -224,8 +225,8 @@ export function useExerciseBatches(
     }
     inFlight.current = true;
     setLoadingMore(true);
-    // Bump the opening-batch token too: a filter change mid-scroll must not
-    // land after this batch and be overwritten by it.
+    // Read the opening-batch token, so a filter change mid-scroll — which
+    // bumps it — makes this batch land as stale and be ignored.
     const id = request.current;
     const batch = await searchExerciseBatchAction({
       ...filtersRef.current,
@@ -298,9 +299,14 @@ export function useExerciseBatches(
     /** Everything the current filters can return is on screen. */
     exhausted: loaded.cursor == null,
     sentinelRef,
-    /** Refetch the opening batch — after creating an exercise, say. */
+    /**
+     * Refetch the opening batch — after creating an exercise, say. Through a
+     * nonce the fetch effect depends on: blanking the key used to change
+     * nothing the effect watched, so the library never refetched and, with
+     * the key no longer matching the signature, never auto-loaded again.
+     */
     refresh: useCallback(() => {
-      setLoaded((prev) => ({ ...prev, key: "" }));
+      setNonce((n) => n + 1);
     }, []),
   };
 }

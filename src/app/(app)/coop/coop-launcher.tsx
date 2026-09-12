@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Card, Input } from "@/components/ui/primitives";
+import {
+  Card,
+  FieldLabel,
+  Input,
+} from "@/components/ui/primitives";
 import { LoadGrid } from "@/components/workout/load-picker";
 import { createCoopSession, joinCoopSession } from "@/lib/actions/coop";
 import { cn } from "@/lib/utils";
@@ -25,6 +29,13 @@ export function CoopLauncher({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One error slot serves both sheets, so switching clears it — a refusal
+  // from Create used to sit on screen inside Join.
+  const openMode = (next: "create" | "join" | null) => {
+    setError(null);
+    setBusy(false);
+    setMode(next);
+  };
 
   if (activeSession) {
     return (
@@ -61,10 +72,10 @@ export function CoopLauncher({
           see each other&apos;s progress and rest timers as you go.
         </p>
         <div className="mt-4 flex gap-2">
-          <Button block variant="volt" onClick={() => setMode("create")}>
+          <Button block variant="volt" onClick={() => openMode("create")}>
             Start a session
           </Button>
-          <Button block variant="solid" onClick={() => setMode("join")}>
+          <Button block variant="solid" onClick={() => openMode("join")}>
             Join
           </Button>
         </div>
@@ -72,7 +83,8 @@ export function CoopLauncher({
 
       <Sheet
         open={mode === "create"}
-        onClose={() => setMode(null)}
+        onClose={() => openMode(null)}
+        initialFocus="input"
         title="Start a co-op session"
         footer={
           <Button
@@ -101,18 +113,17 @@ export function CoopLauncher({
       >
         <div className="space-y-5 px-4 pb-4">
           <div>
-            <Label>Session name</Label>
+            <FieldLabel>Session name</FieldLabel>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Saturday legs"
               maxLength={60}
-              autoFocus
             />
           </div>
 
           <div>
-            <Label>Routine (optional)</Label>
+            <FieldLabel>Routine (optional)</FieldLabel>
             <p className="text-text-3 mb-2 text-[12px]">
               Everyone who joins gets their own copy of it.
             </p>
@@ -137,7 +148,7 @@ export function CoopLauncher({
               to scale in an empty session. */}
           {routineId && (
             <div>
-              <Label>Load</Label>
+              <FieldLabel>Load</FieldLabel>
               <p className="text-text-3 mb-2 text-[12px]">
                 Applies to everyone who joins, so a deload week means the same
                 thing for the whole room.
@@ -152,7 +163,8 @@ export function CoopLauncher({
 
       <Sheet
         open={mode === "join"}
-        onClose={() => setMode(null)}
+        onClose={() => openMode(null)}
+        initialFocus="input"
         title="Join a session"
         footer={
           <Button
@@ -185,7 +197,6 @@ export function CoopLauncher({
             autoCorrect="off"
             spellCheck={false}
             className="num text-center text-[20px] font-bold tracking-[0.2em]"
-            autoFocus
           />
           {error && <p className="text-danger text-[13px]">{error}</p>}
         </div>
@@ -194,13 +205,6 @@ export function CoopLauncher({
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}
 
 function Chip({
   label,
@@ -215,7 +219,7 @@ function Chip({
     <button
       onClick={onClick}
       className={cn(
-        "press max-w-full truncate rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
+        "press tap max-w-full truncate rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors",
         active ? "bg-volt text-black" : "bg-surface-2 text-text-2",
       )}
     >

@@ -9,5 +9,5 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  return <ErrorScreen reset={reset} digest={error.digest} />;
+  return <ErrorScreen fullScreen reset={reset} digest={error.digest} />;
 }

@@ -1,5 +1,6 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { cache } from "react";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   exercise,
@@ -20,7 +21,7 @@ export type ActiveWorkoutSummary = {
  * The in-progress workout, if any. A user has at most one — starting a new one
  * while another is open is blocked in the action layer.
  */
-export async function getActiveWorkoutSummary(
+async function getActiveWorkoutSummaryUncached(
   userId: string,
 ): Promise<ActiveWorkoutSummary | null> {
   // Raw SQL rather than a drizzle correlated subquery: inside a single-table
@@ -99,6 +100,8 @@ export type PreviousSet = {
   reps: number | null;
   seconds: number | null;
   distanceM: number | null;
+  /** So this session's rows can be matched like for like — see `alignPrevious`. */
+  setType: string;
 };
 
 export type FullWorkout = {
@@ -237,6 +240,7 @@ export async function getPreviousSets(
     reps: number | null;
     seconds: number | null;
     distance_m: number | null;
+    set_type: string;
     position: number;
   }>(sql`
     WITH ranked AS (
@@ -246,6 +250,7 @@ export async function getPreviousSets(
         ws.reps,
         ws.seconds,
         ws.distance_m,
+        ws.set_type,
         ws.position,
         DENSE_RANK() OVER (
           PARTITION BY we.exercise_id ORDER BY w.started_at DESC
@@ -262,7 +267,7 @@ export async function getPreviousSets(
         )})
         ${excludeWorkoutId ? sql`AND w.id <> ${excludeWorkoutId}` : sql``}
     )
-    SELECT exercise_id, weight_kg, reps, seconds, distance_m, position
+    SELECT exercise_id, weight_kg, reps, seconds, distance_m, set_type, position
     FROM ranked WHERE rk = 1
     ORDER BY exercise_id, position
   `);
@@ -274,6 +279,7 @@ export async function getPreviousSets(
       reps: r.reps,
       seconds: r.seconds,
       distanceM: r.distance_m,
+      setType: r.set_type,
     });
     out.set(r.exercise_id, list);
   }
@@ -281,9 +287,12 @@ export async function getPreviousSets(
 }
 
 /** Finished workouts, newest first — the History tab and profile. */
+/** Same shape as the feed's: the timestamp alone ties and skips rows. */
+export type HistoryCursor = { at: Date; id: string };
+
 export async function getWorkoutHistory(
   userId: string,
-  { limit = 20, before }: { limit?: number; before?: Date } = {},
+  { limit = 20, before }: { limit?: number; before?: HistoryCursor } = {},
 ) {
   return db
     .select({
@@ -302,10 +311,12 @@ export async function getWorkoutHistory(
       and(
         eq(workout.userId, userId),
         isNotNull(workout.endedAt),
-        before ? lt(workout.startedAt, before) : undefined,
+        before
+          ? sql`(${workout.startedAt}, ${workout.id}) < (${before.at}, ${before.id}::uuid)`
+          : undefined,
       ),
     )
-    .orderBy(desc(workout.startedAt))
+    .orderBy(desc(workout.startedAt), desc(workout.id))
     .limit(limit);
 }
 
@@ -339,3 +350,11 @@ export async function getPersonalRecords(
 }
 
 /** Dates of finished workouts in a window — drives the streak + calendar. */
+
+/**
+ * Per-request deduped: the `(app)` layout's chrome asks this on every
+ * navigation, and `/start`, `/routines` and `/routines/[id]` ask again for
+ * their own render — two identical queries against a scale-to-zero database
+ * for one page.
+ */
+export const getActiveWorkoutSummary = cache(getActiveWorkoutSummaryUncached);

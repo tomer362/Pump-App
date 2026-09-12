@@ -19,9 +19,27 @@ import {
 import { getCurrentUser } from "@/lib/session";
 import { grantAchievements } from "./achievements";
 import { notifyFriends } from "@/lib/push-fanout";
+import { isUniqueViolation, withFreshJoinCode } from "@/lib/join-code";
+import { isUuid } from "@/lib/uuid";
 import { notify, notifyPostAuthor } from "./notify";
 import { rateLimit } from "./rate-limit";
 import type { ActionResult } from "./user";
+
+/**
+ * A target id arrives off the wire like any other argument. `user.id` is text,
+ * so a made-up id doesn't fail the uuid check — it fails the foreign key on
+ * `follow`/`friend_request` instead, which throws out of the action rather
+ * than answering. One indexed read settles it.
+ */
+async function userExists(id: string) {
+  if (typeof id !== "string" || !id || id.length > 64) return false;
+  const [row] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, id))
+    .limit(1);
+  return Boolean(row);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Follow                                                                      */
@@ -34,6 +52,17 @@ export async function toggleFollow(
   if (!me) return { ok: false, error: "Not signed in" };
   if (me.id === targetId)
     return { ok: false, error: "You can't follow yourself" };
+  if (!(await userExists(targetId))) {
+    return { ok: false, error: "Person not found" };
+  }
+
+  // Following writes a row and revalidates the feed on every flip; unbounded,
+  // a loop here is a free write amplifier.
+  const limited = await rateLimit(me.id, "toggle_follow", {
+    limit: 60,
+    windowSeconds: 60,
+  });
+  if (!limited.ok) return limited;
 
   const [existing] = await db
     .select()
@@ -70,6 +99,9 @@ export async function sendFriendRequest(
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
   if (me.id === targetId) return { ok: false, error: "That's you" };
+  if (!(await userExists(targetId))) {
+    return { ok: false, error: "Person not found" };
+  }
 
   // If they already asked us, treat this as accepting rather than creating a
   // mirrored request that could never resolve.
@@ -93,13 +125,28 @@ export async function sendFriendRequest(
   });
   if (!limited.ok) return limited;
 
-  await db
-    .insert(friendRequest)
-    .values({ requesterId: me.id, addresseeId: targetId, status: "pending" })
-    .onConflictDoUpdate({
-      target: [friendRequest.requesterId, friendRequest.addresseeId],
-      set: { status: "pending", respondedAt: null },
-    });
+  // A request they already declined stays declined. Re-opening it here would
+  // let one person re-ask — and re-notify — thirty times an hour for as long
+  // as they liked; the answer "no" has to be able to stick. Nothing is
+  // reported back, because "they declined you" is theirs to tell, not ours.
+  let written: { status: string }[];
+  try {
+    written = await db
+      .insert(friendRequest)
+      .values({ requesterId: me.id, addresseeId: targetId, status: "pending" })
+      .onConflictDoUpdate({
+        target: [friendRequest.requesterId, friendRequest.addresseeId],
+        set: { status: "pending", respondedAt: null },
+        setWhere: sql`${friendRequest.status} <> 'declined'`,
+      })
+      .returning({ status: friendRequest.status });
+  } catch (err) {
+    // `friend_pair_sym_idx`: they asked us in the same instant and their row
+    // landed first. That is the "already asked us" branch above, one race
+    // later — so answer it the same way.
+    if (!isUniqueViolation(err)) throw err;
+    return acceptFriendRequest(targetId);
+  }
 
   // Following is implied by friending — you want their workouts in your feed.
   await db
@@ -107,17 +154,38 @@ export async function sendFriendRequest(
     .values({ followerId: me.id, followingId: targetId })
     .onConflictDoNothing();
 
-  await notify({
-    userId: targetId,
-    actorId: me.id,
-    type: "friend_request",
-    body: `${me.name} sent you a friend request`,
-    url: "/friends",
-  });
+  if (written.length) {
+    await notify({
+      userId: targetId,
+      actorId: me.id,
+      type: "friend_request",
+      body: `${me.name} sent you a friend request`,
+      url: "/friends",
+    });
+  }
 
   revalidatePath("/friends");
   return { ok: true, data: { status: "pending" } };
 }
+
+/**
+ * Friendship implied the follows (`sendFriendRequest` and `acceptFriendRequest`
+ * both insert them), so ending it has to take them back. Without this a
+ * declined requester — or an ex-friend — kept every workout you posted in
+ * their feed, because `getFollowingFeed` reads `follow` and nothing else.
+ */
+async function unfollowBothWays(tx: Tx, a: string, b: string) {
+  await tx
+    .delete(follow)
+    .where(
+      or(
+        and(eq(follow.followerId, a), eq(follow.followingId, b)),
+        and(eq(follow.followerId, b), eq(follow.followingId, a)),
+      ),
+    );
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function acceptFriendRequest(
   requesterId: string,
@@ -169,41 +237,55 @@ export async function declineFriendRequest(
 ): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (typeof requesterId !== "string" || !requesterId) {
+    return { ok: false, error: "Person not found" };
+  }
 
-  await db
-    .update(friendRequest)
-    .set({ status: "declined", respondedAt: new Date() })
-    .where(
-      and(
-        eq(friendRequest.requesterId, requesterId),
-        eq(friendRequest.addresseeId, me.id),
-      ),
-    );
+  await db.transaction(async (tx) => {
+    await tx
+      .update(friendRequest)
+      .set({ status: "declined", respondedAt: new Date() })
+      .where(
+        and(
+          eq(friendRequest.requesterId, requesterId),
+          eq(friendRequest.addresseeId, me.id),
+        ),
+      );
+    await unfollowBothWays(tx, me.id, requesterId);
+  });
 
   revalidatePath("/friends");
+  revalidatePath("/feed");
   return { ok: true };
 }
 
 export async function removeFriend(otherId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (typeof otherId !== "string" || !otherId) {
+    return { ok: false, error: "Person not found" };
+  }
 
-  await db
-    .delete(friendRequest)
-    .where(
-      or(
-        and(
-          eq(friendRequest.requesterId, me.id),
-          eq(friendRequest.addresseeId, otherId),
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(friendRequest)
+      .where(
+        or(
+          and(
+            eq(friendRequest.requesterId, me.id),
+            eq(friendRequest.addresseeId, otherId),
+          ),
+          and(
+            eq(friendRequest.requesterId, otherId),
+            eq(friendRequest.addresseeId, me.id),
+          ),
         ),
-        and(
-          eq(friendRequest.requesterId, otherId),
-          eq(friendRequest.addresseeId, me.id),
-        ),
-      ),
-    );
+      );
+    await unfollowBothWays(tx, me.id, otherId);
+  });
 
   revalidatePath("/friends");
+  revalidatePath("/feed");
   return { ok: true };
 }
 
@@ -271,7 +353,10 @@ export async function toggleLike(
     return { liked: false, likeCount: row?.likeCount ?? 0 };
   });
 
-  if (result.liked) {
+  // Once per (post, liker). The limiter allows sixty flips a minute, and
+  // every re-like used to write another inbox row and another push to the
+  // author — sixty banners a minute from one thumb on one heart.
+  if (result.liked && !(await alreadyNotified(postId, me.id, "like"))) {
     await notifyPostAuthor(
       postId,
       me.id,
@@ -281,6 +366,21 @@ export async function toggleLike(
   }
 
   return { ok: true, data: result };
+}
+
+async function alreadyNotified(postId: string, actorId: string, type: "like") {
+  const [row] = await db
+    .select({ id: notification.id })
+    .from(notification)
+    .where(
+      and(
+        eq(notification.postId, postId),
+        eq(notification.actorId, actorId),
+        eq(notification.type, type),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function addComment(
@@ -316,15 +416,24 @@ export async function addComment(
   // the thread only walks replies of its own roots — while still counting
   // toward commentCount.
   let resolvedParent: string | null = null;
+  let repliedToUserId: string | null = null;
   if (parentId) {
+    if (!z.string().uuid().safeParse(parentId).success) {
+      return { ok: false, error: "That comment no longer exists" };
+    }
     const [parent] = await db
-      .select({ id: postComment.id, parentId: postComment.parentId })
+      .select({
+        id: postComment.id,
+        parentId: postComment.parentId,
+        userId: postComment.userId,
+      })
       .from(postComment)
       .where(and(eq(postComment.id, parentId), eq(postComment.postId, postId)))
       .limit(1);
     if (!parent) return { ok: false, error: "That comment no longer exists" };
     // Single-level threading: a reply to a reply attaches to its root.
     resolvedParent = parent.parentId ?? parent.id;
+    repliedToUserId = parent.userId;
   }
 
   const [row] = await db.transaction(async (tx) => {
@@ -344,12 +453,36 @@ export async function addComment(
     return inserted;
   });
 
-  await notifyPostAuthor(
-    postId,
-    me.id,
-    resolvedParent ? "comment_reply" : "comment",
-    `${me.name} commented: ${parsed.data.slice(0, 80)}`,
-  );
+  // A reply goes to the person replied to; the post's author hears about it
+  // as a comment on their post, unless they are that person. It used to send
+  // the "reply" to the post author alone, so the one person a reply is
+  // addressed to was the one who never heard about it.
+  const excerpt = parsed.data.slice(0, 80);
+  if (repliedToUserId) {
+    await notify({
+      userId: repliedToUserId,
+      actorId: me.id,
+      type: "comment_reply",
+      body: `${me.name} replied: ${excerpt}`,
+      postId,
+      url: `/post/${postId}`,
+    });
+  }
+  const [author] = await db
+    .select({ userId: post.userId })
+    .from(post)
+    .where(eq(post.id, postId))
+    .limit(1);
+  if (author && author.userId !== repliedToUserId) {
+    await notify({
+      userId: author.userId,
+      actorId: me.id,
+      type: "comment",
+      body: `${me.name} commented: ${excerpt}`,
+      postId,
+      url: `/post/${postId}`,
+    });
+  }
 
   revalidatePath(`/post/${postId}`);
   return { ok: true, data: { commentId: row.id } };
@@ -359,10 +492,23 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
 
+  if (!z.string().uuid().safeParse(commentId).success) {
+    return { ok: false, error: "Comment not found" };
+  }
+
+  // Yours to delete if you wrote it — or if it sits on your workout. The post
+  // author had no way to clear a stranger's comment off their own session
+  // before, and the thread cap that a stranger could fill was the only limit.
   const [c] = await db
     .select({ postId: postComment.postId })
     .from(postComment)
-    .where(and(eq(postComment.id, commentId), eq(postComment.userId, me.id)))
+    .innerJoin(post, eq(post.id, postComment.postId))
+    .where(
+      and(
+        eq(postComment.id, commentId),
+        or(eq(postComment.userId, me.id), eq(post.userId, me.id)),
+      ),
+    )
     .limit(1);
   if (!c) return { ok: false, error: "Comment not found" };
 
@@ -394,15 +540,6 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
 /* Gyms + presence                                                             */
 /* -------------------------------------------------------------------------- */
 
-function makeJoinCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return out;
-}
-
 export async function createGym(input: {
   name: string;
   city?: string | null;
@@ -426,16 +563,18 @@ export async function createGym(input: {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
   }
 
-  const joinCode = makeJoinCode();
-  const [g] = await db
-    .insert(gym)
-    .values({
-      name: parsed.data.name,
-      city: parsed.data.city ?? null,
-      joinCode,
-      createdById: me.id,
-    })
-    .returning({ id: gym.id, joinCode: gym.joinCode });
+  const g = await withFreshJoinCode(async (joinCode) => {
+    const [row] = await db
+      .insert(gym)
+      .values({
+        name: parsed.data.name,
+        city: parsed.data.city ?? null,
+        joinCode,
+        createdById: me.id,
+      })
+      .returning({ id: gym.id, joinCode: gym.joinCode });
+    return row;
+  });
 
   await db
     .insert(gymMember)
@@ -464,7 +603,9 @@ export async function joinGymByCode(
   });
   if (!limited.ok) return limited;
 
-  const normalized = z.string().trim().max(16).parse(code).toUpperCase();
+  const parsedCode = z.string().trim().min(1).max(16).safeParse(code);
+  if (!parsedCode.success) return { ok: false, error: "No gym with that code" };
+  const normalized = parsedCode.data.toUpperCase();
   const [g] = await db
     .select()
     .from(gym)
@@ -488,6 +629,7 @@ export async function joinGymByCode(
 export async function leaveGym(gymId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(gymId)) return { ok: false, error: "Gym not found" };
 
   await db
     .delete(gymMember)
@@ -504,10 +646,31 @@ export async function leaveGym(gymId: string): Promise<ActionResult> {
 export async function setHomeGym(gymId: string | null): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+
+  // The home gym is stamped onto every workout you start and is what a
+  // check-in inherits, so — like `checkInAtGym` — it can only name a gym you
+  // are actually a member of. `user.home_gym_id` carries no foreign key, so
+  // without this any string at all would persist.
+  if (gymId !== null) {
+    if (!isUuid(gymId)) return { ok: false, error: "Gym not found" };
+    const [member] = await db
+      .select({ gymId: gymMember.gymId })
+      .from(gymMember)
+      .where(and(eq(gymMember.gymId, gymId), eq(gymMember.userId, me.id)))
+      .limit(1);
+    if (!member) return { ok: false, error: "You're not a member of that gym" };
+  }
+
   await db.update(user).set({ homeGymId: gymId }).where(eq(user.id, me.id));
   revalidatePath("/gyms");
   return { ok: true };
 }
+
+const checkInSchema = z.object({
+  gymId: z.string().uuid().nullable().optional(),
+  note: z.string().trim().max(140).nullable().optional(),
+  minutes: z.number().int().min(15).max(240).optional(),
+});
 
 /**
  * Broadcast "I'm at the gym" for a bounded window. Stored as a TTL row that
@@ -523,19 +686,26 @@ export async function checkInAtGym(input: {
 
   // The heaviest action in the app: one call pushes to every friend's device.
   // Without a cooldown a loop here is a notification cannon.
+  // Validated before the limiter: a malformed call must not spend the one
+  // check-in the window allows. `minutes` used to be bare arithmetic on
+  // whatever arrived, and `new Date(NaN)` threw out of the insert.
+  const parsed = checkInSchema.safeParse(input ?? {});
+  if (!parsed.success) return { ok: false, error: "Invalid check-in" };
+
   const limited = await rateLimit(me.id, "gym_checkin", {
     limit: 1,
     windowSeconds: 600,
   });
   if (!limited.ok) return limited;
 
-  const minutes = Math.min(240, Math.max(15, input.minutes ?? 90));
+  const minutes = parsed.data.minutes ?? 90;
   const expiresAt = new Date(Date.now() + minutes * 60_000);
 
   // `null` and "absent" are different answers: the picker sends `null` for
   // "don't say where", and only a caller that never mentioned a gym at all
   // should inherit the home gym.
-  const requested = "gymId" in input ? (input.gymId ?? null) : me.homeGymId;
+  const requested =
+    "gymId" in parsed.data ? (parsed.data.gymId ?? null) : me.homeGymId;
 
   // A gym name reaches every friend's notification, so it can't be an
   // arbitrary id off the wire — you may only broadcast from a gym you joined.
@@ -554,7 +724,7 @@ export async function checkInAtGym(input: {
     if (!row) {
       // An explicit pick that isn't yours is a refusal; a stale home gym just
       // means the broadcast doesn't name a place.
-      if ("gymId" in input)
+      if ("gymId" in parsed.data)
         return { ok: false, error: "You're not a member of that gym" };
     } else {
       gymId = row.id;
@@ -562,52 +732,56 @@ export async function checkInAtGym(input: {
     }
   }
 
-  const note = input.note?.trim() || null;
+  const note = parsed.data.note?.trim() || null;
+  const where = gymName ? `is at ${gymName}` : "is at the gym";
 
-  await db
-    .insert(gymPresence)
-    .values({
-      userId: me.id,
-      gymId,
-      note,
-      startedAt: new Date(),
-      expiresAt,
-    })
-    .onConflictDoUpdate({
-      target: gymPresence.userId,
-      set: {
+  // The presence row and the inbox fan-out land together or not at all: a
+  // failure between them used to leave you "at the gym" with half your
+  // friends told. Push stays outside — it is best-effort by design, and the
+  // inbox row is what a friend can actually rely on.
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(gymPresence)
+      .values({
+        userId: me.id,
         gymId,
         note,
         startedAt: new Date(),
         expiresAt,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: gymPresence.userId,
+        set: {
+          gymId,
+          note,
+          startedAt: new Date(),
+          expiresAt,
+        },
+      });
 
-  // Push is best-effort; the inbox row is what the user can actually rely on.
-  const friendIds = await db
-    .select({ id: user.id })
-    .from(user)
-    .where(
-      sql`${user.id} IN (
-        SELECT CASE WHEN requester_id = ${me.id} THEN addressee_id ELSE requester_id END
-        FROM ${friendRequest}
-        WHERE status = 'accepted' AND (requester_id = ${me.id} OR addressee_id = ${me.id})
-      )`,
-    )
-    .limit(200);
+    const friendIds = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(
+        sql`${user.id} IN (
+          SELECT CASE WHEN requester_id = ${me.id} THEN addressee_id ELSE requester_id END
+          FROM ${friendRequest}
+          WHERE status = 'accepted' AND (requester_id = ${me.id} OR addressee_id = ${me.id})
+        )`,
+      )
+      .limit(200);
 
-  const where = gymName ? `is at ${gymName}` : "is at the gym";
-
-  if (friendIds.length) {
-    await db.insert(notification).values(
-      friendIds.map((f) => ({
-        userId: f.id,
-        actorId: me.id,
-        type: "gym_presence" as const,
-        body: note ? `${me.name} ${where} — ${note}` : `${me.name} ${where}`,
-      })),
-    );
-  }
+    if (friendIds.length) {
+      await tx.insert(notification).values(
+        friendIds.map((f) => ({
+          userId: f.id,
+          actorId: me.id,
+          type: "gym_presence" as const,
+          body: note ? `${me.name} ${where} — ${note}` : `${me.name} ${where}`,
+        })),
+      );
+    }
+  });
 
   await notifyFriends(me.id, {
     title: `${me.name} ${where}`,

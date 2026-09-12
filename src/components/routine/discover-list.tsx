@@ -9,7 +9,7 @@ import { LoadMore } from "@/components/ui/load-more";
 import { RoutineLikeButton } from "./routine-like-button";
 import { loadMoreDiscoverRoutines } from "@/lib/actions/paginate";
 import { copyRoutine } from "@/lib/actions/routine";
-import { DISCOVER_PAGE_SIZE } from "@/lib/pagination";
+import { DISCOVER_PAGE_SIZE, discoverCursor } from "@/lib/pagination";
 import { usePagedList } from "@/hooks/use-paged-list";
 import type { DiscoverRoutine, DiscoverSort } from "@/lib/queries/routine";
 import { haptic } from "@/lib/utils";
@@ -35,7 +35,7 @@ export function DiscoverList({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { items, loading, exhausted, more } = usePagedList({
+  const { items, loading, exhausted, more, failed } = usePagedList({
     initial,
     pageSize: DISCOVER_PAGE_SIZE,
     // The ordering is part of the identity: pages of "popular" must never be
@@ -44,11 +44,7 @@ export function DiscoverList({
     idOf: (r) => r.id,
     revive: reviveRoutine,
     fetchMore: (last) =>
-      loadMoreDiscoverRoutines(sort, {
-        value:
-          sort === "popular" ? last.popularity : last.createdAt.toISOString(),
-        id: last.id,
-      }),
+      loadMoreDiscoverRoutines(sort, discoverCursor(last, sort)),
   });
 
   function setSort(next: DiscoverSort) {
@@ -76,7 +72,11 @@ export function DiscoverList({
             <DiscoverCard key={r.id} routine={r} />
           ))}
           {!exhausted && (
-            <LoadMore onClick={more} loading={loading} label="More routines" />
+            <LoadMore
+          onClick={more}
+          loading={loading}
+          label={failed ? "Couldn't load — try again" : "More routines"}
+        />
           )}
         </>
       )}

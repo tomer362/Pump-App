@@ -74,16 +74,42 @@ export function FinishSheet({
     if (summary) router.prefetch(`/history/${summary.workoutId}`);
   }, [summary, router]);
 
+  // The sheet stays mounted for the whole session and the screen can re-seed
+  // its name and note from a fresh payload while it is closed; opening it
+  // then has to read the current strings, or it writes the old ones back
+  // through `onNameChange` the moment it opens.
+  // Adjusted during render rather than in an effect, which is React's own
+  // pattern for state that follows a prop change — and it lands before the
+  // first paint of the open sheet, so there is no frame of stale text.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName(defaultName);
+      setNote(defaultNote);
+    }
+  }
+
   async function submit() {
     setSaving(true);
     setError(null);
-    const res = await finishWorkout(workoutId, {
-      shareToFeed: share,
-      caption: note || null,
-      photoUrl,
-      unfinishedSets: unfinishedCount > 0 ? unfinished : "delete",
-    });
-    setSaving(false);
+    let res: Awaited<ReturnType<typeof finishWorkout>>;
+    try {
+      res = await finishWorkout(workoutId, {
+        shareToFeed: share,
+        caption: note || null,
+        photoUrl,
+        unfinishedSets: unfinishedCount > 0 ? unfinished : "delete",
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
+      });
+    } catch {
+      // A thrown action — a dropped connection, a transaction that failed —
+      // used to leave this button spinning forever, with no way to finish
+      // the session short of a reload.
+      res = { ok: false, error: "Couldn't save. Check your connection and try again." };
+    } finally {
+      setSaving(false);
+    }
     if (!res.ok) {
       setError(res.error);
       return;
@@ -106,11 +132,21 @@ export function FinishSheet({
         onClose={onClose}
         title="Finish workout"
         footer={
-          <Button block variant="volt" onClick={submit} loading={saving}>
-            {unfinishedCount > 0 && unfinished === "complete"
-              ? "Complete all and save"
-              : "Finish and save"}
-          </Button>
+          <div>
+            {/* In the pinned footer, not at the foot of the scrolled body:
+                that put the refusal under the fold, below the button that
+                had just been tapped. */}
+            {error && (
+              <p role="alert" className="text-danger mb-2 text-[13px]">
+                {error}
+              </p>
+            )}
+            <Button block variant="volt" onClick={submit} loading={saving}>
+              {unfinishedCount > 0 && unfinished === "complete"
+                ? "Complete all and save"
+                : "Finish and save"}
+            </Button>
+          </div>
         }
       >
         <div className="space-y-5 px-4 pb-4">
@@ -215,7 +251,6 @@ export function FinishSheet({
             </div>
           </div>
 
-          {error && <p className="text-danger text-[13px]">{error}</p>}
         </div>
       </Sheet>
 

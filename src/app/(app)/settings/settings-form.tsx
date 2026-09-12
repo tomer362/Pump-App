@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTransient } from "@/hooks/use-transient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  FieldLabel,
   Input,
   Segmented,
   Textarea,
@@ -14,8 +16,19 @@ import {
 import { PhotoInput } from "@/components/ui/photo-input";
 import { setAvatar, updateProfile } from "@/lib/actions/user";
 import { cn, haptic } from "@/lib/utils";
+import { REST_PRESETS, restLabel } from "@/lib/rest";
 
-const REST_PRESETS = [60, 90, 120, 180, 240];
+
+/**
+ * The canonical presets (`lib/rest.ts`), plus whatever is stored if it is
+ * not among them — otherwise a 150 s default lit no chip and read as unset,
+ * the same defect the routine builder's old hardcoded row had.
+ */
+function restChips(current: number) {
+  return REST_PRESETS.includes(current as (typeof REST_PRESETS)[number])
+    ? [...REST_PRESETS]
+    : [...REST_PRESETS, current].sort((a, b) => a - b);
+}
 
 export function SettingsForm({
   name: initialName,
@@ -44,7 +57,7 @@ export function SettingsForm({
   const [unit, setUnit] = useState(initialUnit);
   const [rest, setRest] = useState(defaultRestSeconds);
   const [image, setImage] = useState(initialImage);
-  const [saved, setSaved] = useState(false);
+  const [saved, flashSaved] = useTransient(false, 2000);
   const [error, setError] = useState<string | null>(null);
 
   function save() {
@@ -58,9 +71,8 @@ export function SettingsForm({
       });
       if (res.ok) {
         haptic.success();
-        setSaved(true);
+        flashSaved(true);
         router.refresh();
-        window.setTimeout(() => setSaved(false), 2000);
       } else setError(res.error);
     });
   }
@@ -69,7 +81,7 @@ export function SettingsForm({
     <div className="space-y-6 px-4">
       {uploadsEnabled && (
         <div>
-          <Label>Photo</Label>
+          <FieldLabel>Photo</FieldLabel>
           <PhotoInput
             value={image}
             onChange={(url) => {
@@ -91,7 +103,7 @@ export function SettingsForm({
       )}
 
       <div>
-        <Label>Display name</Label>
+        <FieldLabel>Display name</FieldLabel>
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -100,7 +112,7 @@ export function SettingsForm({
       </div>
 
       <div>
-        <Label>Bio</Label>
+        <FieldLabel>Bio</FieldLabel>
         <Textarea
           rows={2}
           value={bio}
@@ -111,7 +123,7 @@ export function SettingsForm({
       </div>
 
       <div>
-        <Label>Weight unit</Label>
+        <FieldLabel>Weight unit</FieldLabel>
         <Segmented
           value={unit}
           onChange={setUnit}
@@ -127,9 +139,9 @@ export function SettingsForm({
       </div>
 
       <div>
-        <Label>Default rest timer</Label>
-        <div className="flex gap-2">
-          {REST_PRESETS.map((s) => (
+        <FieldLabel>Default rest timer</FieldLabel>
+        <div className="grid grid-cols-4 gap-2">
+          {restChips(rest).map((s) => (
             <button
               key={s}
               onClick={() => setRest(s)}
@@ -140,7 +152,7 @@ export function SettingsForm({
                   : "border-hairline bg-surface-2 text-text-2",
               )}
             >
-              {s < 60 ? `${s}s` : `${s / 60}m`}
+              {restLabel(s)}
             </button>
           ))}
         </div>
@@ -166,7 +178,7 @@ export function SettingsForm({
       {error && <p className="text-danger text-center text-[13px]">{error}</p>}
 
       <div>
-        <Label>Account</Label>
+        <FieldLabel>Account</FieldLabel>
         <Card className="divide-hairline divide-y overflow-hidden">
           <Row label="Email" value={email} />
           <Row label="Username" value={username ? `@${username}` : "Not set"} />
@@ -199,10 +211,3 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}

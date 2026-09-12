@@ -635,6 +635,25 @@ export async function getExerciseHistory(
   exerciseId: string,
   limit = 30,
 ): Promise<ExerciseHistoryPoint[]> {
+  // Bounded in SQL to the most recent `limit` sessions before the sets are
+  // joined. It used to read every set ever logged for the exercise and slice
+  // in JS — thousands of rows per tab open for a long-time lifter, against a
+  // scale-to-zero database.
+  const recent = db
+    .select({ id: workout.id })
+    .from(workout)
+    .innerJoin(workoutExercise, eq(workoutExercise.workoutId, workout.id))
+    .where(
+      and(
+        eq(workout.userId, userId),
+        eq(workoutExercise.exerciseId, exerciseId),
+        sql`${workout.endedAt} IS NOT NULL`,
+      ),
+    )
+    .groupBy(workout.id, workout.startedAt)
+    .orderBy(desc(workout.startedAt))
+    .limit(limit);
+
   const rows = await db
     .select({
       workoutId: workout.id,
@@ -654,9 +673,8 @@ export async function getExerciseHistory(
     .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(
       and(
-        eq(workout.userId, userId),
+        inArray(workout.id, recent),
         eq(workoutExercise.exerciseId, exerciseId),
-        sql`${workout.endedAt} IS NOT NULL`,
         sql`${workoutSet.completedAt} IS NOT NULL`,
       ),
     )
@@ -697,7 +715,7 @@ export async function getExerciseHistory(
     }
   }
 
-  return [...byWorkout.values()].slice(0, limit);
+  return [...byWorkout.values()];
 }
 
 export type LastLoggedSet = {
@@ -930,6 +948,13 @@ export type ExerciseSummary = {
 };
 
 /** The header figures on the exercise detail screen. */
+/**
+ * The three aggregates below take an `exerciseId` with no ownership filter,
+ * like `getExercise` — and like it, the page is what 404s a foreign custom
+ * exercise. What keeps them from leaking anyway is that every one is scoped
+ * by `w.user_id`: a stranger's id simply matches no sessions. A fourth
+ * aggregate has to carry the same predicate, or it is the leak.
+ */
 export async function getExerciseSummary(
   userId: string,
   exerciseId: string,

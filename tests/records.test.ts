@@ -135,3 +135,49 @@ describe("recalculatePersonalRecords", () => {
     await cleanup([], [ex]);
   });
 });
+
+describe("recalculatePersonalRecords ties", () => {
+  let userId: string;
+  let exerciseId: string;
+
+  beforeAll(async () => {
+    userId = await makeUser();
+    exerciseId = await makeExercise();
+  });
+
+  afterAll(async () => {
+    await cleanup([userId], [exerciseId]);
+  });
+
+  it("gives an equal best to the earlier session, every time", async () => {
+    const older = await makeFinishedWorkout(
+      userId,
+      exerciseId,
+      [{ weightKg: 80, reps: 5 }],
+      new Date("2026-04-01T10:00:00Z"),
+    );
+    await makeFinishedWorkout(
+      userId,
+      exerciseId,
+      [{ weightKg: 80, reps: 5 }],
+      new Date("2026-04-08T10:00:00Z"),
+    );
+
+    // Without a tiebreak DISTINCT ON picked whichever row the scan met first,
+    // so the PR badge could move between two rebuilds of the same data.
+    for (let i = 0; i < 3; i++) {
+      await db.transaction((tx) =>
+        recalculatePersonalRecords(tx, userId, [exerciseId]),
+      );
+      const records = await recordsFor(userId, exerciseId);
+      expect(records.get("1rm")?.workoutId).toBe(older.workoutId);
+      expect(records.get("weight")?.workoutId).toBe(older.workoutId);
+    }
+
+    const [olderRow] = await db
+      .select({ prCount: workout.prCount })
+      .from(workout)
+      .where(eq(workout.id, older.workoutId));
+    expect(olderRow.prCount).toBe(1);
+  });
+});

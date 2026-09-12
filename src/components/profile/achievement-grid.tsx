@@ -101,6 +101,7 @@ export function AchievementGrid({
         open={selected != null}
         onClose={() => setSelected(null)}
         title={selected?.title}
+        dismissLabel="Done"
       >
         {selected && (
           <div className="flex flex-col items-center px-6 pb-8 text-center">

@@ -8,6 +8,8 @@ import { WorkoutDetailActions } from "./workout-detail-actions";
 import { SetRpeRow } from "./set-rpe-row";
 import { requireUser } from "@/lib/session";
 import { getFullWorkout, getPersonalRecords } from "@/lib/queries/workout";
+import { isWorkoutShared } from "@/lib/queries/social";
+import { isUuid } from "@/lib/uuid";
 import {
   formatDayLabel,
   formatDurationLong,
@@ -23,17 +25,33 @@ export default async function WorkoutDetailPage(
 ) {
   const { id } = await props.params;
   const me = await requireUser();
+  if (!isUuid(id)) notFound();
 
   const workout = await getFullWorkout(id);
   if (!workout) notFound();
-  // In-progress sessions belong on the live workout screen.
-  if (!workout.endedAt) redirect(`/workout/${workout.id}`);
 
   const isMine = workout.userId === me.id;
+  // Yours, or published to the feed. Every set, weight, note and photo of a
+  // session somebody chose to keep private used to be readable by anyone
+  // signed in who had the id — `getFullWorkout` takes no viewer, and the only
+  // thing `isMine` gated was the PR badges and the edit row. Same answer for
+  // a missing and a forbidden workout, so a probe learns nothing.
+  if (!isMine && !(await isWorkoutShared(workout.id))) notFound();
+  // In-progress sessions belong on the live workout screen.
+  if (!workout.endedAt) redirect(`/workout/${workout.id}`);
   const prs = isMine ? await getPersonalRecords(me.id) : [];
+  // Records *set in this session*: achieved inside its window. `>= startedAt`
+  // alone matched every record set in any later session too, so a March
+  // workout wore a trophy for every lift PR'd since.
+  const endedAt = workout.endedAt ?? new Date();
   const prSetIds = new Set(
     prs
-      .filter((p) => p.kind === "1rm" && p.achievedAt >= workout.startedAt)
+      .filter(
+        (p) =>
+          p.kind === "1rm" &&
+          p.achievedAt >= workout.startedAt &&
+          p.achievedAt <= endedAt,
+      )
       .map((p) => p.exerciseId),
   );
 
@@ -45,7 +63,7 @@ export default async function WorkoutDetailPage(
         subtitle={formatDayLabel(new Date(workout.startedAt))}
       />
 
-      <div className="px-4">
+      <div className="px-safe-4">
         {workout.photoUrl && (
           <div className="bg-surface-2 rounded-card relative mb-4 aspect-[4/3] overflow-hidden">
             <Image

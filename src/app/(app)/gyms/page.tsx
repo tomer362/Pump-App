@@ -17,7 +17,7 @@ export default async function GymsPage() {
         subtitle="Where you train, and who else is there"
       />
 
-      <div className="px-4">
+      <div className="px-safe-4">
         <GymManager gyms={gyms} homeGymId={me.homeGymId} />
 
         {gyms.length === 0 && (

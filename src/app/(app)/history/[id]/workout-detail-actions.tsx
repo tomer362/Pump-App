@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { saveWorkoutAsRoutine } from "@/lib/actions/routine";
 import { deleteWorkout } from "@/lib/actions/workout";
+import { watchAction } from "@/components/ui/toast";
 
 export function WorkoutDetailActions({
   workoutId,
@@ -17,6 +18,7 @@ export function WorkoutDetailActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,8 +69,16 @@ export function WorkoutDetailActions({
             <Button
               block
               variant="danger"
+              loading={deleting}
               onClick={async () => {
-                await deleteWorkout(workoutId);
+                // A refused delete used to look exactly like a successful one:
+                // straight to /history either way.
+                setDeleting(true);
+                const res = await watchAction(deleteWorkout(workoutId));
+                if (!res.ok) {
+                  setDeleting(false);
+                  return;
+                }
                 router.replace("/history");
                 router.refresh();
               }}

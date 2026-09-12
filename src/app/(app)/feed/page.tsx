@@ -27,7 +27,7 @@ export default async function FeedPage() {
     getFollowingFeed(me.id, { limit: FEED_PAGE_SIZE }),
     getFriendsAtGym(me.id),
     getMyPresence(me.id),
-    getDiscoveryFeed(me.id, 6),
+    getDiscoveryFeed(me.id, 3),
     getMyGyms(me.id),
   ]);
 
@@ -101,7 +101,7 @@ export default async function FeedPage() {
             Discover
           </SectionTitle>
           <div className="space-y-3">
-            {discovery.slice(0, 3).map((item) => (
+            {discovery.map((item) => (
               <PostCard key={item.postId} item={item} unit={me.unit} />
             ))}
           </div>

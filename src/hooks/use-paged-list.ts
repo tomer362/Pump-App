@@ -57,6 +57,8 @@ export function usePagedList<T>({
   const [extra, setExtra] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [ended, setEnded] = useState(false);
+  /** The last page request failed; the button offers a retry instead of hiding. */
+  const [failed, setFailed] = useState(false);
 
   const base = mergeSaved(initial, saved, idOf);
   const items = useMemo(
@@ -74,8 +76,19 @@ export function usePagedList<T>({
     const last = items[items.length - 1];
     if (!last || loading) return;
     setLoading(true);
-    const next = await fetchMore(last).catch(() => [] as T[]);
+    let next: T[];
+    try {
+      next = await fetchMore(last);
+    } catch {
+      // A dropped request used to be read as an empty page, which marked
+      // the list exhausted and hid "Load more" for good — on a phone on gym
+      // wifi, the one place a retry is needed most.
+      setLoading(false);
+      setFailed(true);
+      return;
+    }
     setLoading(false);
+    setFailed(false);
     if (next.length < pageSize) setEnded(true);
     if (!next.length) return;
     // Guard against a duplicate if a row lands on the cursor boundary.
@@ -84,5 +97,5 @@ export function usePagedList<T>({
     if (key) writeList(key, merged);
   }, [items, base.length, loading, fetchMore, pageSize, idOf, key]);
 
-  return { items, loading, exhausted, more };
+  return { items, loading, exhausted, failed, more };
 }

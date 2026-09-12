@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ChevronRight, Trophy } from "lucide-react";
 import type { RecentRecord } from "@/lib/queries/stats";
-import { formatWeight } from "@/lib/utils";
+import { formatWeight, formatDate } from "@/lib/utils";
 
 const KIND: Record<string, { label: string; weighted: boolean }> = {
   "1rm": { label: "Est. 1RM", weighted: true },
@@ -52,11 +52,7 @@ export function PrTimeline({
               </p>
               <p className="text-text-3 num text-[12px]">
                 {meta.label} ·{" "}
-                {r.achievedAt.toLocaleDateString("en-GB", {
-                  day: "numeric",
-                  month: "short",
-                  year: "2-digit",
-                })}
+                {formatDate(r.achievedAt)}
               </p>
             </div>
             <p className="num shrink-0 text-[15px] font-bold">

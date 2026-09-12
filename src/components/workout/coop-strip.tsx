@@ -38,6 +38,9 @@ export function CoopStrip({
     try {
       const next = await getCoopSnapshot(initial.id);
       if (next) setSnapshot(next);
+    } catch {
+      /* A dropped poll is the next poll's problem; fired every three seconds
+         from an interval, an unhandled rejection here was one per tick. */
     } finally {
       inFlight.current = false;
     }
@@ -79,8 +82,15 @@ function Mate({ p }: { p: CoopSnapshot["participants"][number] }) {
   // A rest countdown read off a stale snapshot would sit still for three
   // seconds at a time. The endpoint sends the end time; the tick is local.
   useEffect(() => {
-    if (restingUntil == null) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    if (restingUntil == null || restingUntil <= Date.now()) return;
+    const id = window.setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      // Once the rest has run out there is nothing left to count; without
+      // this the strip in the sticky header re-rendered once a second for the
+      // rest of the session, or until the next poll changed the end time.
+      if (t >= restingUntil) window.clearInterval(id);
+    }, 1000);
     return () => window.clearInterval(id);
   }, [restingUntil]);
 

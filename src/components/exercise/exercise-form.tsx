@@ -1,5 +1,8 @@
 "use client";
 
+import { FieldLabel } from "@/components/ui/primitives";
+export { FieldLabel };
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/primitives";
@@ -77,15 +80,25 @@ export function ExerciseForm({
       trackingType: tracking,
       instructions: instructions.trim() || null,
     };
-    const res = exerciseId
-      ? await updateCustomExercise({ ...fields, exerciseId })
-      : await createCustomExercise(fields);
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    let savedId: string;
+    if (exerciseId) {
+      const res = await updateCustomExercise({ ...fields, exerciseId });
+      setSaving(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      savedId = exerciseId;
+    } else {
+      const res = await createCustomExercise(fields);
+      setSaving(false);
+      if (!res.ok || !res.data) {
+        setError(res.ok ? "Couldn't save" : res.error);
+        return;
+      }
+      savedId = res.data.exerciseId;
     }
-    onSaved(exerciseId ?? (res.data as { exerciseId: string }).exerciseId);
+    onSaved(savedId);
   }
 
   return (
@@ -174,14 +187,6 @@ export function ExerciseForm({
   );
 }
 
-export function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}
-
 export function Chip({
   label,
   active,
@@ -196,7 +201,7 @@ export function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
+        "press tap shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
         active ? "bg-volt text-black" : "bg-surface-2 text-text-2 hover:text-text-1",
       )}
     >

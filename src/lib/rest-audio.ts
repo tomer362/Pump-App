@@ -145,6 +145,15 @@ function applyAudioSessionType() {
   }
 }
 
+/**
+ * The page's one audio context, for anything else that wants to make a sound.
+ * A second context is a second audio session — on iOS it competes with the
+ * one `primeRestAudio` keeps in the mixing category, and can take the music.
+ */
+export function sharedAudioContext(): AudioContext | null {
+  return audioContext();
+}
+
 function audioContext() {
   if (ctx) return ctx;
   const Ctx =

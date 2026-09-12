@@ -112,9 +112,13 @@ export function ExercisePicker({
   useEffect(() => {
     if (!replacingId) return;
     let live = true;
-    getReplacementSuggestionsAction(replacingId).then((items) => {
-      if (live) setSuggestions({ for: replacingId, items });
-    });
+    getReplacementSuggestionsAction(replacingId)
+      .then((items) => {
+        if (live) setSuggestions({ for: replacingId, items });
+      })
+      .catch(() => {
+        /* Suggestions are a convenience; the search below still works. */
+      });
     return () => {
       live = false;
     };

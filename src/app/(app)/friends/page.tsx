@@ -29,7 +29,7 @@ export default async function FriendsPage() {
     <div className="pb-8">
       <NavBar title="Friends" back="/profile" />
 
-      <div className="px-4">
+      <div className="px-safe-4">
         <PeopleSearch />
       </div>
 

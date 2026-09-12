@@ -63,7 +63,10 @@ export function useScrollWatch({
       let activeBottom = 0;
       for (const section of document.querySelectorAll<HTMLElement>("[data-block-id]")) {
         const title = section.querySelector<HTMLElement>("[data-block-title]");
-        if (!title) break;
+        // A block mid-enter or mid-exit may have no title yet; skipping it
+        // keeps the ones below it measured. `break` stopped the whole scan and
+        // left the header and the jump pill stale for everything after.
+        if (!title) continue;
         if (title.getBoundingClientRect().bottom > top) {
           // This exercise's title is still on screen, so it hasn't taken over
           // yet — unless the one before it has left entirely, in which case

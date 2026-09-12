@@ -19,13 +19,14 @@ import {
   type SetType,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { isUuid } from "@/lib/uuid";
 import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
 import { estimate1RM } from "@/lib/utils";
 import { rpeValue } from "@/lib/rpe";
-import { isAssistedTracking, scoringLoadKg } from "@/lib/tracking";
+import { isAssistedTracking, scoringLoadKg, scoringLoadSql } from "@/lib/tracking";
 import { grantAchievements } from "./achievements";
 import type { ActionResult } from "./user";
 
@@ -47,6 +48,7 @@ async function ownedWorkout(
 ): Promise<Denied | WorkoutGrant> {
   const me = await getCurrentUser();
   if (!me) return { error: "Not signed in" };
+  if (!isUuid(workoutId)) return { error: "Workout not found" };
   const [w] = await db
     .select()
     .from(workout)
@@ -62,6 +64,7 @@ async function ownedWorkoutExercise(
 ): Promise<Denied | WorkoutExerciseGrant> {
   const me = await getCurrentUser();
   if (!me) return { error: "Not signed in" };
+  if (!isUuid(workoutExerciseId)) return { error: "Not found" };
   const [row] = await db
     .select({ we: workoutExercise, w: workout })
     .from(workoutExercise)
@@ -304,6 +307,16 @@ export async function addExercisesToWorkout(
 ): Promise<ActionResult<{ added: AddedExercise[] }>> {
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
+  if (!Array.isArray(exerciseIds) || !exerciseIds.every(isUuid)) {
+    return { ok: false, error: "Exercise not found" };
+  }
   if (!exerciseIds.length) return { ok: true, data: { added: [] } };
 
   const [{ max }] = await db
@@ -384,6 +397,13 @@ export async function removeWorkoutExercise(
 ): Promise<ActionResult> {
   const guard = await ownedWorkoutExercise(workoutExerciseId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   await db
     .delete(workoutExercise)
@@ -620,6 +640,13 @@ export async function addSet(
 ): Promise<ActionResult<{ setId: string }>> {
   const guard = await ownedWorkoutExercise(workoutExerciseId);
   if ("error" in guard) return { ok: false, error: guard.error };
+  // A finished workout's totals, records and `pr_count` were written at
+  // finish from the rows it had then; changing the rows afterwards leaves the
+  // counters describing sets that no longer exist. `replaceWorkoutExercise`
+  // already refuses — these are the same public endpoints and refuse too.
+  if (guard.workout.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   // Carry the previous set's load forward — that's what people actually do.
   const [last] = await db
@@ -659,9 +686,14 @@ export async function addSet(
 export async function removeSet(setId: string): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(setId)) return { ok: false, error: "Set not found" };
 
   const [row] = await db
-    .select({ workoutId: workout.id, weId: workoutExercise.id })
+    .select({
+      workoutId: workout.id,
+      weId: workoutExercise.id,
+      endedAt: workout.endedAt,
+    })
     .from(workoutSet)
     .innerJoin(
       workoutExercise,
@@ -671,6 +703,11 @@ export async function removeSet(setId: string): Promise<ActionResult> {
     .where(and(eq(workoutSet.id, setId), eq(workout.userId, me.id)))
     .limit(1);
   if (!row) return { ok: false, error: "Set not found" };
+  // Same rule as the exercise-level mutations above: a finished workout's
+  // counters describe its rows, so its rows stay.
+  if (row.endedAt) {
+    return { ok: false, error: "That workout is already finished" };
+  }
 
   await db.transaction(async (tx) => {
     await tx.delete(workoutSet).where(eq(workoutSet.id, setId));
@@ -691,6 +728,17 @@ export async function removeSet(setId: string): Promise<ActionResult> {
 
   return { ok: true };
 }
+
+/** Patch key → column name, for the one raw UPDATE in `updateSets`. */
+const SET_COLUMN = {
+  weightKg: "weight_kg",
+  reps: "reps",
+  seconds: "seconds",
+  distanceM: "distance_m",
+  rpe: "rpe",
+  restSeconds: "rest_seconds",
+  setType: "set_type",
+} as const;
 
 const setPatchSchema = z.object({
   weightKg: z.number().min(0).max(1000).nullable().optional(),
@@ -727,6 +775,7 @@ export async function updateSet(
 > {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
+  if (!isUuid(setId)) return { ok: false, error: "Set not found" };
 
   const parsed = setPatchSchema.safeParse(patch);
   if (!parsed.success) return { ok: false, error: "Invalid set values" };
@@ -812,7 +861,17 @@ export async function updateSet(
     isPr = !best || est > best.value + 0.01;
   }
 
-  if (p.completed !== undefined) await bumpCoopProgress(row.workoutId);
+  // Anything that changes what the room's counters say — a tick, a corrected
+  // weight or rep count, or a set retyped as a warm-up — re-derives them.
+  // Only `completed` used to, so a fixed weight never reached the room.
+  if (
+    p.completed !== undefined ||
+    p.weightKg !== undefined ||
+    p.reps !== undefined ||
+    p.setType !== undefined
+  ) {
+    await bumpCoopProgress(row.workoutId);
+  }
 
   return {
     ok: true,
@@ -862,6 +921,7 @@ export async function updateSets(
       weightKg: workoutSet.weightKg,
       reps: workoutSet.reps,
       trackingType: exercise.trackingType,
+      workoutId: workout.id,
     })
     .from(workoutSet)
     .innerJoin(
@@ -902,11 +962,35 @@ export async function updateSets(
     byEstimate.set(est, [...(byEstimate.get(est) ?? []), r.id]);
   }
 
-  for (const [estimated1rm, group] of byEstimate) {
-    await db
-      .update(workoutSet)
-      .set({ ...columns, estimated1rm })
-      .where(inArray(workoutSet.id, group));
+  // One statement whatever the spread of estimates: this is the mid-workout
+  // hot path, and a fill down sets with differing existing reps used to be
+  // one sequential UPDATE per distinct estimate.
+  const setClause = Object.keys(columns).length
+    ? sql.join(
+        Object.entries(columns).map(
+          ([key, value]) => sql`${sql.identifier(SET_COLUMN[key as keyof typeof SET_COLUMN])} = ${value}`,
+        ),
+        sql`, `,
+      )
+    : null;
+  await db.execute(sql`
+    UPDATE ${workoutSet}
+    SET ${setClause ? sql`${setClause}, ` : sql``}estimated_1rm = v.est
+    FROM (VALUES ${sql.join(
+      [...byEstimate].flatMap(([est, group]) =>
+        group.map((id) => sql`(${id}::uuid, ${est}::real)`),
+      ),
+      sql`, `,
+    )}) AS v(id, est)
+    WHERE ${workoutSet.id} = v.id
+  `);
+
+  // A fill only ever targets untick sets, but a retyped set type or a corrected
+  // load still changes what a co-op room shows for this lifter.
+  if (p.weightKg !== undefined || p.reps !== undefined || p.setType !== undefined) {
+    for (const workoutId of new Set(rows.map((r) => r.workoutId))) {
+      await bumpCoopProgress(workoutId);
+    }
   }
 
   return { ok: true, data: { updated: rows.length } };
@@ -1015,6 +1099,13 @@ export async function finishWorkout(
     caption?: string | null;
     photoUrl?: string | null;
     unfinishedSets?: UnfinishedSetsMode;
+    /**
+     * The caller's clock offset, for the two achievements that ask what time
+     * of day it is. A Vercel function runs in UTC, so "before 7 a.m." judged on
+     * the server clock was wrong for everyone not in Britain in winter. Never
+     * stored — same posture as quick-log's.
+     */
+    tzOffsetMinutes?: number | null;
   } = {},
 ): Promise<ActionResult<FinishSummary>> {
   const guard = await ownedWorkout(workoutId);
@@ -1096,14 +1187,20 @@ export async function finishWorkout(
     // Handful of rows in practice, and each needs its own 1RM, so a loop beats
     // building a CASE expression.
     for (const s of promoted) {
+      // Same guard as `updateSet`: no load, no estimate. `estimate1RM` returns
+      // 0 for a non-positive input, and a stored 0 is exactly the value `0016`
+      // nulled out — "mark them done" on a bodyweight set used to write it.
+      const est =
+        !isAssistedTracking(trackingOf(s.workoutExerciseId)) &&
+        s.weightKg != null &&
+        s.reps != null &&
+        s.weightKg > 0 &&
+        s.reps > 0
+          ? (s.estimated1rm ?? estimate1RM(s.weightKg, s.reps))
+          : null;
       await tx
         .update(workoutSet)
-        .set({
-          completedAt: endedAt,
-          estimated1rm: isAssistedTracking(trackingOf(s.workoutExerciseId))
-            ? null
-            : (s.estimated1rm ?? estimate1RM(s.weightKg ?? 0, s.reps ?? 0)),
-        })
+        .set({ completedAt: endedAt, estimated1rm: est })
         .where(eq(workoutSet.id, s.id));
     }
 
@@ -1242,8 +1339,15 @@ export async function finishWorkout(
   // otherwise shows a finished lifter with a forever-ticking clock.
   if (w.coopSessionId) await endCoopSessionIfAllFinished(w.coopSessionId);
 
+  const tz =
+    typeof opts.tzOffsetMinutes === "number" &&
+    Number.isInteger(opts.tzOffsetMinutes) &&
+    Math.abs(opts.tzOffsetMinutes) <= 840
+      ? opts.tzOffsetMinutes
+      : 0;
   const unlocked = await grantAchievements(me.id, {
     finishedWorkoutAt: endedAt,
+    tzOffsetMinutes: tz,
     workoutVolumeKg: totalVolumeKg,
     durationSeconds,
     newPrCount: prs.length,
@@ -1360,10 +1464,13 @@ async function bumpCoopProgress(workoutId: string) {
   }>(sql`
     SELECT
       COUNT(*)::int AS sets,
-      COALESCE(SUM(COALESCE(ws.weight_kg, 0) * COALESCE(ws.reps, 0)), 0)::real AS volume,
+      -- An assisted machine's weight column is help received, not load:
+      -- the same rule sumSetTotals writes the workout's own total by.
+      COALESCE(SUM(${sql.raw(scoringLoadSql("e", "ws"))} * COALESCE(ws.reps, 0)), 0)::real AS volume,
       MAX(ws.completed_at) AS last_at
     FROM ${workoutSet} ws
     JOIN ${workoutExercise} we ON we.id = ws.workout_exercise_id
+    JOIN ${exercise} e ON e.id = we.exercise_id
     WHERE we.workout_id = ${workoutId}::uuid
       AND ws.completed_at IS NOT NULL
       AND ws.set_type <> 'warmup'

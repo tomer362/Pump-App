@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTransient } from "@/hooks/use-transient";
+import { watchAction } from "@/components/ui/toast";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, UserPlus, UserCheck, UserMinus, Clock } from "lucide-react";
@@ -28,14 +30,13 @@ export function PersonRow({
   const [following, setFollowing] = useState(person.isFollowing);
   const [, startTransition] = useTransition();
   // Drives the two-avatars-snap-together confirmation.
-  const [justAdded, setJustAdded] = useState(false);
+  const [justAdded, flashJustAdded] = useTransient(false, 1600);
   // Second-tap confirmation for the destructive actions.
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, flashConfirming, stopConfirming] = useTransient(false, 3000);
 
   function celebrate() {
     haptic.success();
-    setJustAdded(true);
-    window.setTimeout(() => setJustAdded(false), 1600);
+    flashJustAdded(true);
   }
 
   return (
@@ -66,15 +67,16 @@ export function PersonRow({
             onClick={() => {
               if (!confirming) {
                 haptic.light();
-                setConfirming(true);
-                window.setTimeout(() => setConfirming(false), 3000);
+                flashConfirming(true);
                 return;
               }
-              setConfirming(false);
+              stopConfirming();
               setStatus("none");
               haptic.medium();
               startTransition(async () => {
-                await removeFriend(person.id);
+                await watchAction(removeFriend(person.id), () =>
+                  setStatus("friends"),
+                );
               });
             }}
             className={cn(
@@ -101,14 +103,15 @@ export function PersonRow({
             onClick={() => {
               if (!confirming) {
                 haptic.light();
-                setConfirming(true);
-                window.setTimeout(() => setConfirming(false), 3000);
+                flashConfirming(true);
                 return;
               }
-              setConfirming(false);
+              stopConfirming();
               setStatus("none");
               startTransition(async () => {
-                await removeFriend(person.id);
+                await watchAction(removeFriend(person.id), () =>
+                  setStatus("pending_out"),
+                );
               });
             }}
             className={cn(
@@ -128,7 +131,9 @@ export function PersonRow({
                 setStatus("friends");
                 celebrate();
                 startTransition(async () => {
-                  await acceptFriendRequest(person.id);
+                  await watchAction(acceptFriendRequest(person.id), () =>
+                    setStatus("pending_in"),
+                  );
                 });
               }}
             >
@@ -141,7 +146,9 @@ export function PersonRow({
               onClick={() => {
                 setStatus("none");
                 startTransition(async () => {
-                  await declineFriendRequest(person.id);
+                  await watchAction(declineFriendRequest(person.id), () =>
+                    setStatus("pending_in"),
+                  );
                 });
               }}
             >
@@ -156,7 +163,11 @@ export function PersonRow({
               setStatus("pending_out");
               haptic.light();
               startTransition(async () => {
-                const res = await sendFriendRequest(person.id);
+                // "Requested" was painted before the ask and never taken
+                // back when the ask was refused.
+                const res = await watchAction(sendFriendRequest(person.id), () =>
+                  setStatus("none"),
+                );
                 if (res.ok && res.data?.status === "friends") {
                   setStatus("friends");
                   celebrate();
@@ -172,10 +183,13 @@ export function PersonRow({
         {showFollow && status !== "pending_in" && (
           <button
             onClick={() => {
-              setFollowing((v) => !v);
+              const next = !following;
+              setFollowing(next);
               haptic.light();
               startTransition(async () => {
-                const res = await toggleFollow(person.id);
+                const res = await watchAction(toggleFollow(person.id), () =>
+                  setFollowing(!next),
+                );
                 if (res.ok && res.data) setFollowing(res.data.following);
               });
             }}

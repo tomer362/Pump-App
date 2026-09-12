@@ -39,12 +39,17 @@ export function StartControls({
         onClick={async () => {
           setLoading(true);
           setError(null);
-          const res = await startEmptyWorkout();
-          if (res.ok && res.data) router.push(`/workout/${res.data.workoutId}`);
-          else {
+          try {
+            const res = await startEmptyWorkout();
+            if (res.ok && res.data) {
+              router.push(`/workout/${res.data.workoutId}`);
+              return;
+            }
             setError(res.ok ? "Could not start" : res.error);
-            setLoading(false);
+          } catch {
+            setError("Couldn't start. Check your connection and try again.");
           }
+          setLoading(false);
         }}
       >
         <Play className="size-4" fill="currentColor" />

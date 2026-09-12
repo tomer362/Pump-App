@@ -89,7 +89,13 @@ export function FolderManagerSheet({
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Folders" maxHeight="88dvh">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Folders"
+      maxHeight="88dvh"
+      dismissLabel="Done"
+    >
       <div
         className="px-4 pb-5"
         style={{ paddingBottom: keyboardInset ? keyboardInset + 20 : undefined }}

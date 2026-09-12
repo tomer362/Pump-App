@@ -5,9 +5,15 @@ import { Bell, BellOff, Info, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/primitives";
 import { removePushSubscription } from "@/lib/actions/push";
-import { isIOS, isStandalone, subscribeToPush } from "@/lib/notify-client";
+import { enableNotifications, isIOS, isStandalone } from "@/lib/notify-client";
 
-type State = "unsupported" | "needs-install" | "denied" | "off" | "on";
+type State =
+  | "loading"
+  | "unsupported"
+  | "needs-install"
+  | "denied"
+  | "off"
+  | "on";
 
 /**
  * Web push opt-in.
@@ -23,7 +29,9 @@ export function PushSettings({
   configured: boolean;
   vapidPublicKey: string;
 }) {
-  const [state, setState] = useState<State>("off");
+  // Starts undecided: painting "off" and swapping to "on" once the probe
+  // answered was a visible lie on every visit.
+  const [state, setState] = useState<State>("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,18 +56,22 @@ export function PushSettings({
     setBusy(true);
     setError(null);
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setState(permission === "denied" ? "denied" : "off");
+      // The one opt-in sequence, shared with the workout alerts and the
+      // nudge: permission, worker, un-mute, then push. Calling
+      // `requestPermission()` bare here granted the permission but left
+      // `pump.workout-alerts` muted, so the alerts card reported "off" about
+      // a permission the lifter had just granted.
+      const res = await enableNotifications(vapidPublicKey);
+      if (!res.ok) {
+        setState(res.permission === "denied" ? "denied" : "off");
+        if (res.error) setError(res.error);
         return;
       }
-
-      const reg =
-        (await navigator.serviceWorker.getRegistration()) ??
-        (await navigator.serviceWorker.register("/sw.js"));
-      await navigator.serviceWorker.ready;
-
-      await subscribeToPush(reg, vapidPublicKey);
+      if (!res.pushed) {
+        setError("Notifications are on, but push couldn't be set up here.");
+        setState("off");
+        return;
+      }
       setState("on");
     } catch (err) {
       setError(
@@ -97,6 +109,11 @@ export function PushSettings({
       </Card>
     );
   }
+
+  // Nothing until the probe has answered — the card's first word is a
+  // claim about the device, and "off" was the wrong one on every visit for
+  // someone who had it on.
+  if (state === "loading") return null;
 
   return (
     <div className="space-y-4">

@@ -878,6 +878,127 @@ try {
       : "absent from the manifest — moved out of \"use server\" scope",
   );
 
+  // 9. A co-op session is seeded from a routine that every joiner copies into
+  //    their own workout, so the host's pick has to pass the same visibility
+  //    rule `copyRoutine` applies. It used to read `isPublic` and ignore it.
+  await b.page.goto(`${BASE}/coop`, { waitUntil: "networkidle" });
+  const coopActions = actionIdsFromManifest("src/lib/actions/coop.ts", [
+    "createCoopSession",
+  ]);
+  requireFixture(
+    coopActions.size === 1,
+    "expected createCoopSession in the dev manifest",
+  );
+  {
+    const res = await postAction(
+      b.page,
+      `${BASE}/coop`,
+      coopActions.get("createCoopSession"),
+      [{ name: "Authz seeded", routineId }],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "createCoopSession refuses to seed from another user's private routine",
+      ran && /That routine is private|Routine not found/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // 10. The routine editor writes whatever exercise ids it is handed, and the
+  //     detail page's join is deliberately unfiltered — so a routine naming
+  //     A's private custom exercise would render its name to B.
+  {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines/new`,
+      createRoutineAction.get("createRoutine"),
+      [
+        {
+          name: "Authz borrowed",
+          isPublic: false,
+          exercises: [{ exerciseId: customId, sets: [] }],
+        },
+      ],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "createRoutine refuses another user's custom exercise id",
+      ran && !/"ok"\s*:\s*true/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // 11. A finished session kept private has no post, and `/history/[id]`
+  //     used to render it to anyone signed in who had the id. A finishes the
+  //     live workout from step 5 without sharing; B must get a 404. And once
+  //     it is finished, its rows are what its counters describe — the set
+  //     mutations refuse even for the owner.
+  await a.page.goto(`${BASE}/workout/${workoutId}`, { waitUntil: "networkidle" });
+  const finishActions = actionIdsFromManifest("src/lib/actions/workout.ts", [
+    "finishWorkout",
+    "removeSet",
+    "addSet",
+  ]);
+  requireFixture(
+    finishActions.size === 3,
+    `expected 3 finish-path action ids in the dev manifest, found ${finishActions.size}`,
+  );
+  // Tick the one set so there is something to finish with.
+  await postAction(a.page, `${BASE}/feed`, setActions.get("updateSet"), [
+    victimSetId,
+    { weightKg: 60, reps: 5, completed: true },
+  ]);
+  const finished = await postAction(
+    a.page,
+    `${BASE}/feed`,
+    finishActions.get("finishWorkout"),
+    [workoutId, { shareToFeed: false, unfinishedSets: "keep" }],
+  );
+  requireFixture(
+    /"ok"\s*:\s*true/.test(finished.body),
+    `A could not finish the fixture workout: ${finished.body.slice(0, 200)}`,
+  );
+  // Content, not status: `/history/[id]` has a `loading.tsx`, so Next
+  // streams a 200 shell before `notFound()` runs (the live workout page
+  // deliberately has none, which is why probe 5 can assert the wire status).
+  const privateRes = await b.page.goto(`${BASE}/history/${workoutId}`, {
+    waitUntil: "networkidle",
+  });
+  const privateHtml = await b.page.content();
+  check(
+    "an unshared finished workout is not readable by another user",
+    privateRes.status() === 404 || !privateHtml.includes("Bench Press"),
+    `status ${privateRes.status()}`,
+  );
+  {
+    const res = await postAction(
+      a.page,
+      `${BASE}/feed`,
+      finishActions.get("removeSet"),
+      [victimSetId],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "removeSet refuses a set on a finished workout",
+      ran && /already finished/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+  {
+    const res = await postAction(
+      a.page,
+      `${BASE}/feed`,
+      finishActions.get("addSet"),
+      [victimBlockId],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "addSet refuses a block on a finished workout",
+      ran && /already finished/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
   await a.ctx.close();
   await b.ctx.close();
 } catch (err) {

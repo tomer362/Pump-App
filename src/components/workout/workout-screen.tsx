@@ -44,6 +44,10 @@ import {
 import { RpePicker } from "./rpe-picker";
 import { RestPicker } from "./rest-picker";
 import { RestTimerBar, useRestTimer } from "./rest-timer";
+import { useTransient } from "@/hooks/use-transient";
+import { showToast, watchAction } from "@/components/ui/toast";
+import { alignPrevious } from "@/lib/set-input";
+import { isAssistedTracking } from "@/lib/tracking";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
 import { FinishSheet } from "./finish-sheet";
 import { CoopStrip } from "./coop-strip";
@@ -88,8 +92,6 @@ const IntervalRunner = dynamic(() =>
   import("./interval-runner").then((m) => m.IntervalRunner),
 );
 
-type ExerciseDraft = FullWorkout["exercises"][number] & { sets: never };
-
 /**
  * Rows and exercises appearing and leaving. Duration-based rather than a
  * spring: these animate `height`, and a spring's overshoot on a collapsing row
@@ -112,7 +114,12 @@ type Block = {
   supersetGroup: string | null;
   intervalWorkSeconds: number | null;
   intervalRestSeconds: number | null;
-  previous: { weightKg: number | null; reps: number | null; seconds: number | null }[];
+  previous: {
+    weightKg: number | null;
+    reps: number | null;
+    seconds: number | null;
+    setType: string;
+  }[];
   sets: SetDraft[];
 };
 
@@ -222,6 +229,7 @@ export function WorkoutScreen({
   const [picking, setPicking] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [replaceFor, setReplaceFor] = useState<string | null>(null);
@@ -270,9 +278,20 @@ export function WorkoutScreen({
    * fixed, in miniature.
    */
   const [restBarFor, setRestBarFor] = useState<number | null>(null);
-  const [prFlash, setPrFlash] = useState<string | null>(null);
+  const [prFlash, flashPr] = useTransient<string | null>(null, 2600);
 
-  const bestByExercise = useRef(current1rm);
+  // A copy, never the prop itself: this is written to as PRs land, and the
+  // prop is the RSC payload — mutating it meant comparing against a hand-edited
+  // copy of the first load's records for the rest of the session. A fresh
+  // payload after `router.refresh()` is merged in by taking the higher figure,
+  // so a record set this session (which the server only writes at finish) is
+  // never forgotten and then celebrated twice.
+  const bestByExercise = useRef<Record<string, number>>({ ...current1rm });
+  useEffect(() => {
+    for (const [id, value] of Object.entries(current1rm)) {
+      bestByExercise.current[id] = Math.max(bestByExercise.current[id] ?? 0, value);
+    }
+  }, [current1rm]);
 
   /**
    * The live fill in progress: the cell driving it, the field, and the sets it
@@ -325,7 +344,7 @@ export function WorkoutScreen({
    * rest bar to say where to go — this flags the seconds right after such a
    * set, when the pill should show even though the row is on screen.
    */
-  const [supersetCue, setSupersetCue] = useState(false);
+  const [supersetCue, flashSupersetCue, clearSupersetCue] = useTransient(false, 7000);
 
   // Feeds the picker so a lift already on the board says so before you add it
   // a second time. Counted, because a second block of the same lift is legal.
@@ -420,8 +439,8 @@ export function WorkoutScreen({
       // unmounts this component to navigate, and React is free to abandon an
       // in-flight transition on unmount — which would silently drop the write.
       // One round-trip for the whole fill either way.
-      if (ids.length > 1) void updateSets(ids, values);
-      else void updateSet(setId, values);
+      if (ids.length > 1) void watchAction(updateSets(ids, values));
+      else void watchAction(updateSet(setId, values));
     },
     [blocks],
   );
@@ -458,7 +477,7 @@ export function WorkoutScreen({
       // Where we are in a superset rotation is "who was ticked last".
       if (next) setLastBlockId(block.id);
       // Any tick answers the previous cue, whatever it pointed at.
-      setSupersetCue(false);
+      clearSupersetCue();
 
       // Completing a working set starts the rest clock — Strong's key behaviour.
       if (next && set.setType !== "warmup") {
@@ -471,8 +490,7 @@ export function WorkoutScreen({
           // No rest means no rest bar, so nothing would otherwise name the
           // partner you're supposed to walk straight to. Surface the pill for
           // a few seconds even though its row may be in view.
-          setSupersetCue(true);
-          window.setTimeout(() => setSupersetCue(false), 7000);
+          flashSupersetCue(true);
         } else if (restSeconds > 0) {
           // Tagged with the set, so the strip sitting in that gap can show the
           // same countdown as the bar rather than its planned duration.
@@ -485,32 +503,61 @@ export function WorkoutScreen({
           }
         }
 
+        // Never for an assisted machine: its weight column is help received,
+        // `current1rm` holds no 1RM for it, so every set would "beat" a best
+        // of zero and the gold burst would fire for needing more help.
         const est =
-          set.weightKg != null && set.reps != null
+          !isAssistedTracking(block.trackingType) &&
+          set.weightKg != null &&
+          set.reps != null
             ? estimate1RM(set.weightKg, set.reps)
             : 0;
         const best = bestByExercise.current[block.exerciseId] ?? 0;
         if (est > best + 0.01) {
           bestByExercise.current[block.exerciseId] = est;
-          setPrFlash(set.id);
+          flashPr(set.id);
           haptic.success();
-          window.setTimeout(() => setPrFlash((v) => (v === set.id ? null : v)), 2600);
         }
       }
-      if (!next) {
+      if (!next && timer.state?.setId === set.id) {
+        // Only the rest this set started. Correcting a mis-tick three
+        // exercises up used to stop the rest running for the set just done.
         timer.stop();
         if (workout.coopSessionId) void setCoopResting(workout.coopSessionId, null);
       }
 
-      void updateSet(set.id, { completed: next });
+      void watchAction(updateSet(set.id, { completed: next }), () => {
+        // The tick was optimistic and the database never took it: untick,
+        // or the header counts a set that isn't there.
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id !== block.id
+              ? b
+              : {
+                  ...b,
+                  sets: b.sets.map((s) =>
+                    s.id === set.id ? { ...s, completed: !next } : s,
+                  ),
+                },
+          ),
+        );
+      });
     },
-    [blocks, defaultRestSeconds, timer, workout.coopSessionId],
+    [
+      blocks,
+      defaultRestSeconds,
+      timer,
+      workout.coopSessionId,
+      clearSupersetCue,
+      flashPr,
+      flashSupersetCue,
+    ],
   );
 
   const appendSet = useCallback(async (block: Block) => {
     dirty.current = true;
     haptic.light();
-    const res = await addSet(block.id);
+    const res = await watchAction(addSet(block.id));
     if (!res.ok || !res.data) return;
     const last = block.sets[block.sets.length - 1];
     setBlocks((prev) =>
@@ -571,7 +618,7 @@ export function WorkoutScreen({
       );
 
       if (!setId) return;
-      void updateSet(setId, { seconds, completed: true });
+      void watchAction(updateSet(setId, { seconds, completed: true }));
     },
     [],
   );
@@ -585,14 +632,14 @@ export function WorkoutScreen({
           : { ...b, sets: b.sets.filter((s) => s.id !== setId) },
       ),
     );
-    void removeSet(setId);
+    void watchAction(removeSet(setId));
   }, []);
 
   const dropExercise = useCallback((blockId: string) => {
     dirty.current = true;
     setBlocks((prev) => prev.filter((b) => b.id !== blockId));
     setMenuFor(null);
-    void removeWorkoutExercise(blockId);
+    void watchAction(removeWorkoutExercise(blockId));
   }, []);
 
   /**
@@ -607,7 +654,9 @@ export function WorkoutScreen({
       dirty.current = true;
       setReplaceFor(null);
       setReplaceAsk(null);
-      const res = await replaceWorkoutExercise(blockId, exerciseId, keepValues);
+      const res = await watchAction(
+        replaceWorkoutExercise(blockId, exerciseId, keepValues),
+      );
       if (!res.ok || !res.data) return;
       const r = res.data;
       haptic.light();
@@ -651,7 +700,7 @@ export function WorkoutScreen({
       dirty.current = true;
       setPicking(false);
       if (!ids.length) return;
-      const res = await addExercisesToWorkout(workout.id, ids);
+      const res = await watchAction(addExercisesToWorkout(workout.id, ids));
       if (!res.ok || !res.data) return;
 
       // Append from the action's return value rather than refreshing. A
@@ -698,7 +747,7 @@ export function WorkoutScreen({
   const saveMeta = useCallback(
     (patch: { name?: string; note?: string | null }) => {
       dirty.current = true;
-      void updateWorkoutMeta(workout.id, patch);
+      void watchAction(updateWorkoutMeta(workout.id, patch));
     },
     [workout.id],
   );
@@ -725,7 +774,7 @@ export function WorkoutScreen({
             : b,
         ),
       );
-      void updateWorkoutExerciseSettings(blockId, { restSeconds: seconds });
+      void watchAction(updateWorkoutExerciseSettings(blockId, { restSeconds: seconds }));
     },
     [],
   );
@@ -735,7 +784,7 @@ export function WorkoutScreen({
     setBlocks((prev) =>
       prev.map((b) => (b.id === blockId ? { ...b, notes } : b)),
     );
-    void updateWorkoutExerciseSettings(blockId, { notes });
+    void watchAction(updateWorkoutExerciseSettings(blockId, { notes }));
   }, []);
 
   /**
@@ -756,10 +805,10 @@ export function WorkoutScreen({
       haptic.light();
       setMenuFor(null);
       setBlocks(next);
-      void reorderWorkoutExercises(
+      void watchAction(reorderWorkoutExercises(
         workout.id,
         next.map((b) => b.id),
-      );
+      ));
     },
     [blocks, workout.id],
   );
@@ -775,7 +824,7 @@ export function WorkoutScreen({
       if (next.length !== blocks.length) return;
       haptic.light();
       setBlocks(next);
-      void reorderWorkoutExercises(workout.id, ids);
+      void watchAction(reorderWorkoutExercises(workout.id, ids));
     },
     [blocks, workout.id],
   );
@@ -812,7 +861,7 @@ export function WorkoutScreen({
       setBlocks((prev) =>
         prev.map((b) => (b.id === blockId ? { ...b, supersetGroup } : b)),
       );
-      void updateWorkoutExerciseSettings(blockId, { supersetGroup });
+      void watchAction(updateWorkoutExerciseSettings(blockId, { supersetGroup }));
     },
     [],
   );
@@ -827,10 +876,10 @@ export function WorkoutScreen({
             : b,
         ),
       );
-      void updateWorkoutExerciseSettings(blockId, {
+      void watchAction(updateWorkoutExerciseSettings(blockId, {
         intervalWorkSeconds: work,
         intervalRestSeconds: rest,
-      });
+      }));
     },
     [],
   );
@@ -841,7 +890,7 @@ export function WorkoutScreen({
 
   const reduce = useReducedMotion();
   const headerRef = useRef<HTMLElement>(null);
-  const [flashSetId, setFlashSetId] = useState<string | null>(null);
+  const [flashSetId, flashSet] = useTransient<string | null>(null, 1600);
 
   // Where each exercise's column headers come to rest when they stick. Measured
   // rather than hard-coded: the header carries a safe-area inset and, in a
@@ -913,13 +962,9 @@ export function WorkoutScreen({
         behavior: reduce ? "auto" : "smooth",
         block: "center",
       });
-      setFlashSetId(setId);
-      window.setTimeout(
-        () => setFlashSetId((v) => (v === setId ? null : v)),
-        1600,
-      );
+      flashSet(setId);
     },
-    [reduce],
+    [reduce, flashSet],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -961,6 +1006,7 @@ export function WorkoutScreen({
 
   const menuBlock = blocks.find((b) => b.id === menuFor) ?? null;
   const removeBlock = blocks.find((b) => b.id === confirmRemove) ?? null;
+  const removeCount = removeBlock ? loggedSets(removeBlock).length : 0;
   const replaceBlock = blocks.find((b) => b.id === replaceFor) ?? null;
   const restBlock = blocks.find((b) => b.id === restFor?.blockId) ?? null;
   const restSet =
@@ -993,7 +1039,10 @@ export function WorkoutScreen({
         .find((b) => b.id === typeMenuFor.blockId)
         ?.sets.find((s) => s.id === typeMenuFor.setId)) ||
     null;
-  const anyCompleted = totals.sets > 0;
+  // Anything ticked, warm-ups included — the server finishes on that. It used
+  // to count working sets only, so three ticked warm-ups left Finish greyed
+  // out with nothing on screen saying why.
+  const anyCompleted = totals.done > 0;
 
   /* ---------------------------------------------------------------------- */
 
@@ -1043,8 +1092,11 @@ export function WorkoutScreen({
                   type="button"
                   aria-label="Stop music"
                   onClick={jam.stop}
-                  className="flex h-3 items-end gap-[2px]"
+                  // 44px of hit area on a 12px glyph; the negative margin keeps
+                  // the two-line title block at its height.
+                  className="-my-4 flex min-h-11 min-w-11 items-center justify-center"
                 >
+                  <span className="flex h-3 items-end gap-[2px]">
                   {[0, 1, 2].map((i) => (
                     <span
                       key={i}
@@ -1056,6 +1108,7 @@ export function WorkoutScreen({
                       }
                     />
                   ))}
+                  </span>
                 </button>
               )}
             </div>
@@ -1066,9 +1119,12 @@ export function WorkoutScreen({
             size="sm"
             onClick={() => {
               haptic.medium();
+              if (!anyCompleted) {
+                showToast("Tick at least one set to finish.", "info");
+                return;
+              }
               setFinishing(true);
             }}
-            disabled={!anyCompleted}
           >
             Finish
           </Button>
@@ -1524,8 +1580,8 @@ export function WorkoutScreen({
         {removeBlock && (
           <div className="px-4 pb-5">
             <p className="text-text-2 text-[14px] leading-relaxed">
-              {loggedSets(removeBlock).length}{" "}
-              {loggedSets(removeBlock).length === 1
+              {removeCount}{" "}
+              {removeCount === 1
                 ? "logged set goes"
                 : "logged sets go"}{" "}
               with it. This can&apos;t be undone.
@@ -1617,11 +1673,20 @@ export function WorkoutScreen({
             <Button
               block
               variant="danger"
+              loading={discarding}
               onClick={async () => {
-                // Before the round-trip: the notification and the badge are
-                // claims about a live session, and this one is over either way.
+                if (discarding) return;
+                setDiscarding(true);
+                const res = await watchAction(discardWorkout(workout.id));
+                if (!res.ok) {
+                  // Still live, so nothing is torn down and nobody is sent
+                  // to the feed as though it had worked.
+                  setDiscarding(false);
+                  return;
+                }
+                // The notification and the badge are claims about a live
+                // session; only once the server agrees it is over do they go.
                 endWorkoutActivity();
-                await discardWorkout(workout.id);
                 router.replace("/feed");
               }}
             >
@@ -1826,6 +1891,13 @@ function ExerciseBlock({
   onOpenTypeMenu: (setId: string) => void;
 }) {
   const reduce = useReducedMotion();
+  // Last session's sets lined up like for like — warm-up to warm-up, working
+  // set to working set — instead of by row index, which one extra warm-up
+  // threw off for the whole exercise.
+  const aligned = useMemo(
+    () => alignPrevious(block.previous, block.sets),
+    [block.previous, block.sets],
+  );
   const longPress = useLongPress(onRequestReorder, { enabled: canReorder });
   const columns = setColumns(block.trackingType);
   // Deliberately `weight` and not `assist`: an assisted station is a selectorised
@@ -2037,7 +2109,7 @@ function ExerciseBlock({
                     index={workingIndex}
                     unit={unit}
                     trackingType={block.trackingType}
-                    previous={block.previous[i] ?? null}
+                    previous={aligned[i] ?? null}
                     flash={flashSetId === set.id}
                     onPatch={(patch, opts) => onPatchSet(set.id, patch, opts)}
                     onToggleComplete={() => onToggle(set)}
@@ -2383,6 +2455,27 @@ function ExerciseOptions({
   onReplace: () => void;
 }) {
   const [notes, setNotes] = useState(block.notes ?? "");
+  // Commit on unmount too. The textarea only wrote on blur, and dismissing
+  // the sheet by backdrop, Escape or the handle unmounts it without one —
+  // the cue that was just typed simply went. Same shape as `NumberCell`.
+  const notesRef = useRef(notes);
+  const committedNotes = useRef(block.notes ?? "");
+  const onSetNotesRef = useRef(onSetNotes);
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+  useEffect(() => {
+    onSetNotesRef.current = onSetNotes;
+  }, [onSetNotes]);
+  useEffect(
+    () => () => {
+      const trimmed = notesRef.current.trim();
+      if (trimmed !== committedNotes.current.trim()) {
+        onSetNotesRef.current(trimmed || null);
+      }
+    },
+    [],
+  );
   const intervalOn = block.intervalWorkSeconds != null;
 
   return (
@@ -2467,6 +2560,11 @@ function ExerciseOptions({
         </div>
       </div>
 
+      {/* Only where the row has a seconds column to receive a round. On a
+          squat the runner wrote `seconds` into a column the row can't show,
+          and ticked sets with no weight and no reps — invisible, and worth
+          nothing. */}
+      {setColumns(block.trackingType).includes("seconds") && (
       <div>
         <SheetLabel>
           <Timer className="size-3.5" />
@@ -2505,6 +2603,7 @@ function ExerciseOptions({
           })}
         </div>
       </div>
+      )}
 
       <div>
         <SheetLabel>
@@ -2515,7 +2614,10 @@ function ExerciseOptions({
           rows={3}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => onSetNotes(notes.trim() || null)}
+          onBlur={() => {
+            committedNotes.current = notes;
+            onSetNotes(notes.trim() || null);
+          }}
           placeholder="Cues, machine settings, seat height…"
         />
       </div>
@@ -2549,7 +2651,7 @@ type NextTarget = {
   set: SetDraft;
   /** Display number among this exercise's working sets. */
   index: number;
-  /** Index into `block.sets`, which is also the index into `block.previous`. */
+  /** Index into `block.sets`; the previous set is aligned by `alignPrevious`. */
   position: number;
 };
 
@@ -2632,7 +2734,7 @@ function targetLabel(
   position: number,
   unit: "kg" | "lb",
 ): string | null {
-  const prev = block.previous[position] ?? null;
+  const prev = alignPrevious(block.previous, block.sets)[position] ?? null;
   const weightKg = set.weightKg ?? prev?.weightKg ?? null;
   const reps = set.reps ?? prev?.reps ?? null;
   const seconds = set.seconds ?? prev?.seconds ?? null;
@@ -2739,4 +2841,4 @@ function toBlock(e: FullWorkout["exercises"][number]): Block {
   };
 }
 
-export type { Block, ExerciseDraft };
+export type { Block };

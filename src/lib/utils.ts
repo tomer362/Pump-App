@@ -131,6 +131,21 @@ export function formatShortDate(date: Date): string {
   return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
 }
 
+/** `14 Apr 2025` — for a record's date, where the year is the point. */
+export function formatDate(date: Date): string {
+  return `${formatShortDate(date)} ${date.getFullYear()}`;
+}
+
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** `April 2025` — the history list's month headings. */
+export function formatMonthYear(date: Date): string {
+  return `${MONTHS_LONG[date.getMonth()]} ${date.getFullYear()}`;
+}
+
 /** Relative time for feed items: `now`, `12m`, `5h`, `3d`, then a date. */
 export function timeAgo(date: Date): string {
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);

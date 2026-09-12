@@ -28,13 +28,20 @@ export function RoutineStartCard({
   async function start(mult: number) {
     setLoading(true);
     setError(null);
-    const res = await startWorkoutFromRoutine(routine.id, mult);
-    if (res.ok && res.data) router.push(`/workout/${res.data.workoutId}`);
-    else {
+    try {
+      const res = await startWorkoutFromRoutine(routine.id, mult);
+      if (res.ok && res.data) {
+        router.push(`/workout/${res.data.workoutId}`);
+        return;
+      }
       setError(res.ok ? "Could not start" : res.error);
-      setLoading(false);
+    } catch {
+      setError("Couldn't start. Check your connection and try again.");
     }
+    setLoading(false);
   }
+
+  const percent = Math.round(multiplier * 100);
 
   return (
     <>
@@ -64,24 +71,38 @@ export function RoutineStartCard({
                 haptic.light();
                 setSheet(true);
               }}
-              aria-label="Adjust load"
+              aria-label={
+                percent === 100 ? "Adjust load" : `Load ${percent}% — adjust`
+              }
               disabled={disabled}
               className="press tap bg-surface-2 text-text-2 grid place-items-center rounded-[10px] px-2.5 disabled:opacity-40"
             >
-              <Percent className="size-4" strokeWidth={2.4} />
+              {/* A load chosen in the sheet and not confirmed there used to be
+                  held silently and then ignored by Start. It shows on the
+                  card now, and Start honours it. */}
+              {percent === 100 ? (
+                <Percent className="size-4" strokeWidth={2.4} />
+              ) : (
+                <span className="num text-[12px] font-bold">{percent}%</span>
+              )}
             </button>
             <Button
               variant="volt"
               size="sm"
               disabled={disabled}
               loading={loading}
-              onClick={() => start(1)}
+              onClick={() => start(multiplier)}
             >
               <Play className="size-3.5" fill="currentColor" />
               Start
             </Button>
           </div>
         </div>
+        {disabled && !error && (
+          <p className="text-text-3 mt-2 text-[12px]">
+            Finish your current workout first.
+          </p>
+        )}
         {error && <p className="text-danger mt-2 text-[12px]">{error}</p>}
       </div>
 

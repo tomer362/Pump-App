@@ -672,6 +672,35 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - **The `@–` placeholder on a completed set row is the affordance, not decoration.** The subscript used to appear only once a rating existed, so the gesture that sets one was advertised by nothing but its own result and the feature read as absent. A completed set therefore always shows one of `@8` or `@–`, and an *un*completed set shows `→8` when a routine prescribed one — so the gesture is advertised before the set too, which is when the prescription is worth reading. There is no one-tap version of this control: nine half-points at the 44 px minimum is 396 px of chips, so it is a sheet — and effort comes first in that sheet, above set type, because set type is decided once and usually inherited from the routine. Same arithmetic is why the builder prescribes through a sheet rather than a strip of chips on the row.
 - **The load multiplier scales weights and nothing else — least of all the prescribed effort.** RPE maps to a percentage of 1RM differently at every rep count, so any arithmetic on it in `LoadPicker` would be invented. The copy has to say so: "sets and reps stay as written" quietly implied the prescription still held at 80%, when a set written `@8` lifted that light feeling easier *is* the deload.
 - Server actions return `ActionResult<T>` (`{ok:true,data} | {ok:false,error}`) — never throw for expected failures.
+- **A bare id off the wire goes through `isUuid` (`lib/uuid.ts`) before it
+  reaches `eq()`.** Postgres raises `invalid input syntax for type uuid` on
+  anything else, and a thrown action is a 500, not the refusal every caller
+  is written against. The workout guards, the routine, coop, gym and
+  exercise-search actions all check first; so do the id-taking pages.
+- **A failed background write says so.** `components/ui/toast.tsx` is the one
+  feedback channel (mounted once in the root layout); `watchAction(promise,
+  onFail)` routes a fire-and-forget action through it and is where the
+  optimistic state gets rolled back. Neutral surface, never volt: a toast
+  reports state, it is not state that matters.
+- **Anything that clears itself after a delay is `useTransient`** — a
+  "Copied" tick, a row flash, a superset cue. A hand-rolled
+  `setTimeout(setX)` has no cleanup on unmount and no reset on the next
+  flash, and both bit before.
+- **Numeric cells sanitise through `sanitizeDecimalInput`** (`lib/set-input.ts`):
+  a comma is the decimal separator on most European keypads and stripping it
+  turned `22,5` into `225`. The same module owns `workingSetNumber` (warm-ups
+  take no number) and `alignPrevious` (last session's sets matched warm-up to
+  warm-up and working set to working set, never by row index).
+- **A day label computed from the device's day is `<DayLabel>`**, like
+  `<TimeAgo>`: the server renders in UTC and around midnight "Today" differs,
+  which discards the subtree. Fixed dates go through `formatDate` /
+  `formatMonthYear`, never `toLocaleDateString` — Node's ICU and the
+  browser's disagree on month names.
+- **Join codes come from `lib/join-code.ts`** — CSPRNG, and
+  `withFreshJoinCode` retries the insert on a unique violation.
+- **Keyset cursors carry the id.** The feed and history page on
+  `(timestamp, id)`; on the timestamp alone two rows sharing one (every
+  backdated quick log is stamped noon UTC) lost the second forever.
 - Query modules import `server-only`; anything a client component needs goes through a thin `"use server"` wrapper (`actions/exercise-search.ts`, `actions/people-search.ts`).
 - **Built-in exercises are identified by `exercise.slug`, not by name.** The uuid is per-database, so the seed upserts on slug and `exercise_alternative` pairs are authored against slugs and resolved to uuids at seed time. `slug` is null for custom exercises and is never settable through an action. Renaming a built-in is safe; changing its slug orphans every deployed row, which is why `seed-data/legacy-slugs.ts` is frozen. `tests/seed-data.test.ts` gates all of it without a database.
 - **A custom exercise is archived, never deleted.** `DELETE` cascades through `workout_exercise` to every set logged against it, rewriting finished sessions and dropping the records computed from them — so the "delete" control sets `exercise.archived_at`. Archived rows drop out of `searchExercises` (and therefore every picker) but still resolve by id, because history links to them. `lib/actions/exercise.ts` owns create/update/archive/restore and scopes every statement with `owner_id = me.id`, which is also what makes the built-in library read-only by construction.

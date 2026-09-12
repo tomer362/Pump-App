@@ -20,6 +20,7 @@ import {
 } from "@/lib/utils";
 import type { SetType } from "@/lib/db/schema";
 import { rpeSubscript } from "@/lib/rpe";
+import { sanitizeDecimalInput } from "@/lib/set-input";
 import { EASE_OUT_QUART } from "@/lib/motion";
 import { useRemaining } from "./rest-timer";
 
@@ -38,7 +39,6 @@ export type SetDraft = {
   /** Rest after this set, overriding the exercise's. Null inherits. */
   restSeconds: number | null;
   completed: boolean;
-  isPr?: boolean;
 };
 
 /**
@@ -281,7 +281,9 @@ export function SetRow({
               onOpenTypeMenu();
             }}
             className={cn(
-              "press h-9 rounded-lg leading-none",
+              // 44px tall for the thumb, on a row that stays 36px: the extra
+              // height is negative margin, not row height, on the app's densest screen.
+              "press -my-1 h-11 rounded-lg leading-none",
               set.setType === "normal"
                 ? set.completed
                   ? "text-black/70"
@@ -330,7 +332,7 @@ export function SetRow({
             }}
             disabled={!previous}
             className={cn(
-              "num h-9 truncate text-center text-[13px] font-medium",
+              "num -my-1 h-11 truncate text-center text-[13px] font-medium",
               set.completed ? "text-black/50" : "text-text-3",
               previous && "press active:text-volt",
             )}
@@ -358,7 +360,9 @@ export function SetRow({
             aria-label={set.completed ? "Mark set incomplete" : "Complete set"}
             aria-pressed={set.completed}
             className={cn(
-              "press relative grid h-9 w-11 place-items-center rounded-[10px] transition-colors",
+              // The most-tapped control in the app: 44×44 of hit area, drawn as
+              // the same 36px tile so the table's rhythm is untouched.
+              "press relative -my-1 grid h-11 w-11 place-items-center rounded-[10px] transition-colors",
               set.completed
                 ? "bg-volt text-black"
                 : "bg-surface-2 text-text-3 hover:text-text-1",
@@ -645,6 +649,7 @@ type Previous = {
   reps: number | null;
   seconds: number | null;
   distanceM?: number | null;
+  setType?: string;
 } | null;
 
 /** The last session's value for this set, in whatever the exercise measures. */
@@ -703,13 +708,14 @@ function ValueCell({
     // what gets written on blur — including the lb→kg conversion.
     const submit = (raw: string, local: boolean) => {
       const n = raw === "" ? null : Number(raw);
-      if (n != null && !Number.isFinite(n)) return;
+      if (n != null && !Number.isFinite(n)) return false;
       onPatch(
         { weightKg: n == null ? null : unit === "kg" ? n : lbToKg(n) },
         // Typing a value carries it down the empty sets below it —
         // clearing one never does. See `patchSet` for the exact run.
         { fill: n != null, local },
       );
+      return true;
     };
     return (
       <NumberCell
@@ -738,8 +744,9 @@ function ValueCell({
 
   const submit = (raw: string, local: boolean) => {
     const n = raw === "" ? null : Math.round(Number(raw));
-    if (n != null && !Number.isFinite(n)) return;
+    if (n != null && !Number.isFinite(n)) return false;
     onPatch({ [field]: n } as Partial<SetDraft>, { fill: n != null, local });
+    return true;
   };
 
   return (
@@ -776,7 +783,8 @@ function NumberCell({
   completed: boolean;
   integer?: boolean;
   onDraft?: (raw: string) => void;
-  onCommit: (raw: string) => void;
+  /** Returns false when the value could not be written — the cell resets. */
+  onCommit: (raw: string) => boolean | void;
 }) {
   const [local, setLocal] = useState(value);
   const focused = useRef(false);
@@ -826,13 +834,17 @@ function NumberCell({
         requestAnimationFrame(() => e.target.select());
       }}
       onChange={(e) => {
-        const raw = e.target.value.replace(/[^0-9.]/g, "");
+        // Comma is the decimal separator on most European keypads; stripping
+        // it turned "22,5" into 225. See `sanitizeDecimalInput`.
+        const raw = sanitizeDecimalInput(e.target.value, integer);
         setLocal(raw);
         onDraft?.(raw);
       }}
       onBlur={() => {
         focused.current = false;
-        onCommit(local);
+        // A refused commit (a lone ".") used to leave the cell showing a value
+        // the set didn't hold, because `value` never changed to re-seed it.
+        if (onCommit(local) === false) setLocal(valueRef.current);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();

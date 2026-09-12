@@ -37,6 +37,17 @@ export const ROUTINE_FORMAT_VERSION = 1;
 export const MAX_IMPORT_BYTES = 262_144;
 
 /**
+ * Bytes, not UTF-16 code units: `.length` under-counts a non-ASCII document
+ * by up to 3×, and the constant's name is a promise.
+ */
+export function exceedsImportBytes(raw: string) {
+  // `.length` is a cheap lower bound on the byte count, so anything over it
+  // is refused before the encode.
+  if (raw.length > MAX_IMPORT_BYTES) return true;
+  return new TextEncoder().encode(raw).length > MAX_IMPORT_BYTES;
+}
+
+/**
  * One exercise, in a single shape for both kinds, with `slug` nullable.
  *
  * A discriminated union of builtin-by-slug vs custom-by-definition would read
@@ -190,7 +201,7 @@ export function stripCodeFence(raw: string): {
  * the wrong thing to show a person who just picked the wrong file in Files.
  */
 export function parseRoutineExport(raw: string): ParseResult {
-  if (raw.length > MAX_IMPORT_BYTES) {
+  if (exceedsImportBytes(raw)) {
     return { ok: false, error: "That file is too large to be a routine" };
   }
 

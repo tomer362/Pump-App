@@ -76,11 +76,17 @@ export function NotificationList({ items }: { items: NotificationItem[] }) {
           <Link
             key={n.id}
             href={href}
-            className={cn(
-              "press flex items-center gap-3 px-4 py-3",
-              n.readAt == null && "bg-volt-fade",
-            )}
+            className="press relative flex items-center gap-3 px-4 py-3"
           >
+            {/* A dot, not a tinted row: an inbox opened after a week was a
+                screen of volt blocks, which is the decoration the accent rule
+                forbids. The tab bar marks unread with the same dot. */}
+            {n.readAt == null && (
+              <span
+                aria-label="Unread"
+                className="bg-volt absolute top-1/2 left-1.5 size-1.5 -translate-y-1/2 rounded-full"
+              />
+            )}
             {n.actor ? (
               <Avatar src={n.actor.image} name={n.actor.name} size="md" />
             ) : (

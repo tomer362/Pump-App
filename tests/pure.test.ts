@@ -8,6 +8,14 @@ import {
   lbToKg,
 } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
+import { isUuid } from "@/lib/uuid";
+import {
+  alignPrevious,
+  sanitizeDecimalInput,
+  workingSetNumber,
+} from "@/lib/set-input";
+import { makeJoinCode } from "@/lib/join-code";
+import { exceedsImportBytes, MAX_IMPORT_BYTES } from "@/lib/routine-transfer";
 import { isBlobUrl } from "@/lib/blob";
 import { exerciseVideoLink, isYouTubeUrl } from "@/lib/exercise-video";
 import {
@@ -444,5 +452,104 @@ describe("rpe", () => {
     expect(rpeInput.safeParse(3).data).toBeNull();
     expect(rpeInput.safeParse(0).success).toBe(false);
     expect(rpeInput.safeParse(11).success).toBe(false);
+  });
+});
+
+describe("isUuid", () => {
+  it("accepts a v4 uuid in either case", () => {
+    expect(isUuid("3f2504e0-4f89-41d3-9a0c-0305e82c3301")).toBe(true);
+    expect(isUuid("3F2504E0-4F89-41D3-9A0C-0305E82C3301")).toBe(true);
+  });
+
+  it("refuses everything an action would otherwise hand to Postgres", () => {
+    expect(isUuid("")).toBe(false);
+    expect(isUuid("coop")).toBe(false);
+    expect(isUuid("3f2504e0-4f89-41d3-9a0c-0305e82c330")).toBe(false);
+    expect(isUuid("3f2504e0-4f89-41d3-9a0c-0305e82c3301 ")).toBe(false);
+    expect(isUuid(null)).toBe(false);
+    expect(isUuid(42)).toBe(false);
+    expect(isUuid({ toString: () => "3f2504e0-4f89-41d3-9a0c-0305e82c3301" })).toBe(false);
+  });
+});
+
+describe("makeJoinCode", () => {
+  it("is six characters from the unambiguous alphabet", () => {
+    for (let i = 0; i < 200; i++) {
+      expect(makeJoinCode()).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+    }
+  });
+
+  it("does not hand out the same code every time", () => {
+    const seen = new Set(Array.from({ length: 50 }, () => makeJoinCode()));
+    expect(seen.size).toBeGreaterThan(40);
+  });
+});
+
+describe("exceedsImportBytes", () => {
+  it("measures bytes, not UTF-16 code units", () => {
+    // Three bytes per character: a document that is under the cap by
+    // `.length` and over it by size.
+    const doc = "\u20ac".repeat(MAX_IMPORT_BYTES / 3 + 1);
+    expect(doc.length).toBeLessThan(MAX_IMPORT_BYTES);
+    expect(exceedsImportBytes(doc)).toBe(true);
+    expect(exceedsImportBytes("a".repeat(MAX_IMPORT_BYTES))).toBe(false);
+    expect(exceedsImportBytes("a".repeat(MAX_IMPORT_BYTES + 1))).toBe(true);
+  });
+});
+
+describe("sanitizeDecimalInput", () => {
+  it("treats a comma as the decimal point", () => {
+    expect(sanitizeDecimalInput("22,5")).toBe("22.5");
+    expect(sanitizeDecimalInput("22,5", true)).toBe("225".slice(0, 2) + "5");
+  });
+
+  it("keeps one dot and drops the rest", () => {
+    expect(sanitizeDecimalInput("1.2.3")).toBe("1.23");
+    expect(sanitizeDecimalInput("..5")).toBe(".5");
+    expect(sanitizeDecimalInput("100")).toBe("100");
+  });
+
+  it("strips everything that isn't a digit", () => {
+    expect(sanitizeDecimalInput("12kg")).toBe("12");
+    expect(sanitizeDecimalInput("-5")).toBe("5");
+    expect(sanitizeDecimalInput("")).toBe("");
+  });
+});
+
+describe("workingSetNumber", () => {
+  const sets = [
+    { setType: "warmup" },
+    { setType: "normal" },
+    { setType: "warmup" },
+    { setType: "drop" },
+    { setType: "normal" },
+  ];
+  it("does not spend a number on a warm-up", () => {
+    expect(sets.map((_, i) => workingSetNumber(sets, i))).toEqual([0, 1, 1, 2, 3]);
+  });
+});
+
+describe("alignPrevious", () => {
+  const prev = [
+    { setType: "warmup", w: 40 },
+    { setType: "normal", w: 100 },
+    { setType: "normal", w: 100 },
+  ];
+  it("matches warm-ups to warm-ups and working sets to working sets", () => {
+    const sets = [
+      { setType: "warmup" },
+      { setType: "warmup" },
+      { setType: "normal" },
+      { setType: "normal" },
+      { setType: "normal" },
+    ];
+    expect(alignPrevious(prev, sets).map((p) => p?.w ?? null)).toEqual([
+      40, null, 100, 100, null,
+    ]);
+  });
+
+  it("is not thrown off by a session with no warm-up", () => {
+    const sets = [{ setType: "normal" }, { setType: "normal" }];
+    expect(alignPrevious(prev, sets).map((p) => p?.w ?? null)).toEqual([100, 100]);
   });
 });

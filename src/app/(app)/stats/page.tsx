@@ -156,7 +156,7 @@ async function MusclePanel({ userId, unit }: { userId: string; unit: Unit }) {
   return (
     <div className="animate-rise-in">
       <SectionTitle>By muscle</SectionTitle>
-      <Card className="px-4 py-4">
+      <Card className="px-safe-4 py-4">
         <MuscleVolumePanel initial={muscles} unit={unit} />
       </Card>
     </div>
@@ -168,7 +168,7 @@ async function ConsistencyPanel({ userId }: { userId: string }) {
   return (
     <div className="animate-rise-in">
       <SectionTitle>Consistency</SectionTitle>
-      <Card className="px-4 py-4">
+      <Card className="px-safe-4 py-4">
         <ConsistencyHeatmap days={calendar} />
       </Card>
     </div>
@@ -180,7 +180,7 @@ async function TrendPanel({ userId, unit }: { userId: string; unit: Unit }) {
   return (
     <div className="animate-rise-in">
       <SectionTitle>Last 12 weeks</SectionTitle>
-      <Card className="px-4 py-4">
+      <Card className="px-safe-4 py-4">
         <WeeklyTrendChart data={trend} unit={unit} />
       </Card>
     </div>

@@ -21,7 +21,13 @@ import {
  * these; what lives here is the SQL they agree on.
  */
 
-export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type PgTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/**
+ * A transaction handle — or the database itself, for a read-only dry run.
+ * `resolveExercisesForUser` with `dryRun` writes nothing, and opening a
+ * transaction just to satisfy the type held a lock per import preview.
+ */
+export type Tx = PgTx | typeof db;
 
 export type RoutineChildInput = {
   exerciseId: string;

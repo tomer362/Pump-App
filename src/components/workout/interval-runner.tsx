@@ -39,6 +39,13 @@ export function IntervalRunner({
 
   const endsAt = useRef<number | null>(null);
   const spokenAt = useRef<number | null>(null);
+  // Read through a ref: the parent passes a fresh arrow on every render, and
+  // listing it as a dep tore down and rebuilt the 200 ms interval (and the
+  // visibility listener) every time the workout screen re-rendered.
+  const onRoundCompleteRef = useRef(onRoundComplete);
+  useEffect(() => {
+    onRoundCompleteRef.current = onRoundComplete;
+  });
 
   const say = useCallback(
     (text: string) => {
@@ -91,7 +98,7 @@ export function IntervalRunner({
       if (left === 0) {
         if (phase === "work") {
           // Record the work phase that just completed. `round` is 1-based.
-          onRoundComplete(round - 1, work);
+          onRoundCompleteRef.current(round - 1, work);
           if (round >= rounds) {
             setPhase("done");
             setRunning(false);
@@ -116,7 +123,7 @@ export function IntervalRunner({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [running, phase, round, rounds, rest, work, beginPhase, say, onRoundComplete]);
+  }, [running, phase, round, rounds, rest, work, beginPhase, say]);
 
   function start() {
     // Speaking on the tap satisfies iOS's gesture requirement for audio.
@@ -154,7 +161,12 @@ export function IntervalRunner({
       animate={{ opacity: 1 }}
       className={cn(
         "fixed inset-0 z-50 flex flex-col pt-safe pb-safe",
-        phase === "work" ? "bg-volt text-black" : "bg-bg text-text-1",
+        // A tint, not a fill: the whole screen going solid volt was the
+        // loudest thing in the app, and the rest bar was moved off exactly
+        // that for the same reason — a countdown running is the tinted state
+        // everywhere else, and three volt states on one screen have to read as
+        // one.
+        phase === "work" ? "bg-volt-tint text-text-1" : "bg-bg text-text-1",
       )}
       style={{ transition: "background-color 300ms ease" }}
     >
@@ -162,7 +174,7 @@ export function IntervalRunner({
         <IconButton
           label="Toggle voice cues"
           onClick={() => setSpeech((v) => !v)}
-          className={phase === "work" ? "text-black/70" : "text-text-2"}
+          className="text-text-2"
         >
           {speech ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
         </IconButton>
@@ -172,7 +184,7 @@ export function IntervalRunner({
         <IconButton
           label="Close"
           onClick={onClose}
-          className={phase === "work" ? "text-black/70" : "text-text-2"}
+          className="text-text-2"
         >
           <X className="size-5" />
         </IconButton>
@@ -243,12 +255,7 @@ export function IntervalRunner({
           </>
         ) : (
           <>
-            <Button
-              variant={phase === "work" ? "solid" : "solid"}
-              size="lg"
-              className={phase === "work" ? "bg-black/15 text-black" : ""}
-              onClick={reset}
-            >
+            <Button variant="solid" size="lg" onClick={reset}>
               <RotateCcw className="size-5" />
             </Button>
             <Button

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Reorder, useDragControls } from "motion/react";
 import {
@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Textarea, Segmented } from "@/components/ui/primitives";
+import {
+  FieldLabel,
+  Input,
+  Segmented,
+  Textarea,
+} from "@/components/ui/primitives";
 import {
   columnLabel,
   setColumns,
@@ -30,6 +35,9 @@ import { folderRail } from "@/lib/folder-color";
 import type { FolderListItem, FullRoutine } from "@/lib/queries/routine";
 import { cn, haptic, kgToLb, labelize, lbToKg } from "@/lib/utils";
 import { prescribedToken, rpeRangeLabel, uniformRpe } from "@/lib/rpe";
+import { sanitizeDecimalInput, workingSetNumber } from "@/lib/set-input";
+import { useMotionPreset } from "@/hooks/use-motion-preset";
+import { REDUCED } from "@/lib/motion";
 import type { SetType } from "@/lib/db/schema";
 
 // Behind a gesture, so they stay out of the initial payload.
@@ -112,6 +120,14 @@ export function RoutineBuilder({
     existing?.folderId ?? null,
   );
   const [isPublic, setIsPublic] = useState(existing?.isPublic ?? true);
+  /**
+   * Leaving with a draft used to discard it silently — the chevron, and
+   * nothing asked. Compared against a snapshot of what the page opened with,
+   * so an untouched routine still leaves on one tap. A save sets `saved` so
+   * the navigation it triggers is never mistaken for abandoning the draft.
+   */
+  const saved = useRef(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [items, setItems] = useState<DraftExercise[]>(() =>
     (existing?.exercises ?? []).map((e) => ({
       key: nextKey(),
@@ -202,6 +218,12 @@ export function RoutineBuilder({
     [defaultRestSeconds],
   );
 
+  const snapshot = () =>
+    JSON.stringify({ name, notes, folderId, isPublic, items });
+  const opened = useRef<string | null>(null);
+  if (opened.current === null) opened.current = snapshot();
+  const isDirty = () => !saved.current && snapshot() !== opened.current;
+
   // Same signal the workout screen gives: the picker marks what the draft
   // already contains, without stopping you programming a lift twice.
   const alreadyIn = useMemo(() => {
@@ -226,20 +248,33 @@ export function RoutineBuilder({
     if (!picked) return;
     haptic.light();
     setItems((prev) =>
-      prev.map((it) =>
-        it.key !== key
-          ? it
-          : {
-              ...it,
-              exerciseId: picked.id,
-              name: picked.name,
-              primaryMuscle: picked.primaryMuscle,
-              equipment: picked.equipment,
-              trackingType: picked.trackingType,
-              // Cues and machine settings described the old movement.
-              notes: null,
-            },
-      ),
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        // Across a change of tracking type the numbers mean something else —
+        // a positive load on an assisted machine is the opposite of help, and
+        // a weight on a reps-only lift is invisible. Same refusal the workout
+        // screen's swap applies; only the set count survives.
+        const sameKind = picked.trackingType === it.trackingType;
+        return {
+          ...it,
+          exerciseId: picked.id,
+          name: picked.name,
+          primaryMuscle: picked.primaryMuscle,
+          equipment: picked.equipment,
+          trackingType: picked.trackingType,
+          // Cues and machine settings described the old movement.
+          notes: null,
+          sets: sameKind
+            ? it.sets
+            : it.sets.map((s) => ({
+                ...s,
+                targetWeightKg: null,
+                targetReps: null,
+                targetSeconds: null,
+                targetDistanceM: null,
+              })),
+        };
+      }),
     );
   }, []);
 
@@ -291,18 +326,26 @@ export function RoutineBuilder({
       })),
     };
 
-    const res = existing
-      ? await updateRoutine(existing.id, payload)
-      : await createRoutine(payload);
-
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    let routineId: string;
+    if (existing) {
+      const res = await updateRoutine(existing.id, payload);
+      setSaving(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      routineId = existing.id;
+    } else {
+      const res = await createRoutine(payload);
+      setSaving(false);
+      if (!res.ok || !res.data) {
+        setError(res.ok ? "Couldn't save" : res.error);
+        return;
+      }
+      routineId = res.data.routineId;
     }
-    router.push(
-      existing ? `/routines/${existing.id}` : `/routines/${(res.data as { routineId: string }).routineId}`,
-    );
+    saved.current = true;
+    router.push(`/routines/${routineId}`);
     router.refresh();
   }
 
@@ -324,12 +367,18 @@ export function RoutineBuilder({
       : "";
 
   return (
-    <div className="min-h-screen-d pb-32">
+    // `min-h-full`, not `min-h-screen-d`: this sits inside the `(app)` shell,
+    // which is already viewport-tall and adds the tab-bar spacer below — so a
+    // second viewport here made every routine scroll into 200px of nothing.
+    <div className="min-h-full pb-8">
       <header className="bg-bg hairline-b sticky top-0 z-30 pt-safe inset-safe-x">
         <div className="flex h-12 items-center gap-1 px-2">
           <IconButton
             label="Back"
-            onClick={() => router.back()}
+            onClick={() => {
+              if (isDirty()) setConfirmLeave(true);
+              else router.back();
+            }}
             className="text-text-2"
           >
             <ChevronLeft className="size-6" strokeWidth={2.4} />
@@ -506,7 +555,7 @@ export function RoutineBuilder({
       >
         {rpeFor && rpeSet && (
           <div className="px-4 pb-5">
-            <Label>Target effort (RPE)</Label>
+            <FieldLabel>Target effort (RPE)</FieldLabel>
             <RpePicker
               value={rpeSet.targetRpe}
               idPrefix="routine-set-target"
@@ -540,6 +589,35 @@ export function RoutineBuilder({
       >
         {infoItem && <ExerciseAboutSheetBody exerciseId={infoItem.exerciseId} />}
       </Sheet>
+      <Sheet
+        open={confirmLeave}
+        onClose={() => setConfirmLeave(false)}
+        title="Discard changes?"
+      >
+        <div className="px-4 pb-5">
+          <p className="text-text-2 text-[14px] leading-relaxed">
+            {existing
+              ? "Your edits to this routine haven't been saved."
+              : "This routine hasn't been saved."}
+          </p>
+          <div className="mt-5 space-y-2">
+            <Button
+              block
+              variant="danger"
+              onClick={() => {
+                saved.current = true;
+                setConfirmLeave(false);
+                router.back();
+              }}
+            >
+              Discard
+            </Button>
+            <Button block variant="ghost" onClick={() => setConfirmLeave(false)}>
+              Keep editing
+            </Button>
+          </div>
+        </div>
+      </Sheet>
     </div>
   );
 }
@@ -565,6 +643,7 @@ function ExerciseCard({
   onAddSet: () => void;
   onRemoveSet: (setKey: string) => void;
 }) {
+  const motion = useMotionPreset();
   const controls = useDragControls();
   const columns = setColumns(item.trackingType);
   // Effort gets a track of its own between the targets and the bin. It can't be
@@ -577,6 +656,9 @@ function ExerciseCard({
       value={item}
       dragListener={false}
       dragControls={controls}
+      // The CSS reduced-motion block can't reach a JS-driven layout
+      // animation, so the list has to opt in itself.
+      transition={motion.enabled ? undefined : REDUCED}
       className="bg-bg mb-2"
     >
       <div className="flex items-center gap-1 px-3 pt-3 pb-1">
@@ -669,12 +751,14 @@ function ExerciseCard({
                 })
               }
               className={cn(
-                "num h-9 rounded-lg text-[14px] font-bold",
+                // 44px of hit area on a row that keeps its height — same
+                // trick as the workout screen's set controls.
+                "num -my-1 h-11 rounded-lg text-[14px] font-bold",
                 s.setType === "normal" ? "text-text-2" : "text-volt",
               )}
             >
               {s.setType === "normal"
-                ? i + 1
+                ? workingSetNumber(item.sets, i)
                 : s.setType === "warmup"
                   ? "W"
                   : s.setType === "drop"
@@ -741,11 +825,11 @@ function ExerciseCard({
               }}
               aria-label={
                 s.targetRpe != null
-                  ? `Target effort ${s.targetRpe} for set ${i + 1}. Change it.`
-                  : `Set a target effort for set ${i + 1}`
+                  ? `Target effort ${s.targetRpe} for set ${workingSetNumber(item.sets, i)}. Change it.`
+                  : `Set a target effort for set ${workingSetNumber(item.sets, i)}`
               }
               className={cn(
-                "press num h-9 rounded-lg text-[13px] font-semibold",
+                "press num -my-1 h-11 rounded-lg text-[13px] font-semibold",
                 s.targetRpe != null ? "text-text-2" : "text-text-3",
               )}
             >
@@ -756,7 +840,7 @@ function ExerciseCard({
               onClick={() => onRemoveSet(s.key)}
               aria-label="Remove set"
               disabled={item.sets.length === 1}
-              className="press text-text-3 hover:text-danger grid h-9 place-items-center rounded-lg disabled:opacity-30"
+              className="press text-text-3 hover:text-danger -my-1 grid h-11 place-items-center rounded-lg disabled:opacity-30"
             >
               <Trash2 className="size-4" />
             </button>
@@ -778,20 +862,31 @@ function ExerciseCard({
 function TargetInput({
   value,
   placeholder,
+  integer,
   onCommit,
 }: {
   value: string;
   placeholder: string;
+  /** Reps, seconds, metres: a whole-number keypad and no decimal point. */
+  integer?: boolean;
   onCommit: (raw: string) => void;
 }) {
   const [local, setLocal] = useState(value);
   return (
     <input
       value={local}
-      inputMode="decimal"
+      inputMode={integer ? "numeric" : "decimal"}
+      enterKeyHint="done"
       placeholder={placeholder}
       onFocus={(e) => requestAnimationFrame(() => e.target.select())}
-      onChange={(e) => setLocal(e.target.value.replace(/[^0-9.]/g, ""))}
+      onChange={(e) => {
+        const raw = sanitizeDecimalInput(e.target.value, integer);
+        setLocal(raw);
+        // The draft is local state, so committing per keystroke costs
+        // nothing — and it means Save never races the blur of the cell
+        // being typed into.
+        onCommit(raw);
+      }}
       onBlur={() => onCommit(local)}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
@@ -831,7 +926,7 @@ function ExerciseSettings({
   return (
     <div className="space-y-6 px-4 pb-5">
       <div>
-        <Label>Rest between sets</Label>
+        <FieldLabel>Rest between sets</FieldLabel>
         {/* The shared picker, so a routine and the workout started from it can't
             disagree about the durations or about what "no rest" means. The old
             row here was hardcoded to six values, so a routine resting 45s — one
@@ -850,7 +945,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Superset group</Label>
+        <FieldLabel>Superset group</FieldLabel>
         <p className="text-text-3 mb-2 text-[12px]">
           Exercises sharing a letter are performed back to back.
         </p>
@@ -860,7 +955,7 @@ function ExerciseSettings({
               key={g ?? "none"}
               onClick={() => onPatch({ supersetGroup: g })}
               className={cn(
-                "press rounded-field h-10 flex-1 border text-[13px] font-semibold",
+                "press rounded-field h-11 flex-1 border text-[13px] font-semibold",
                 item.supersetGroup === g
                   ? "border-volt bg-volt-fade text-volt"
                   : "border-hairline bg-surface-2 text-text-2",
@@ -873,7 +968,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Target effort — all sets</Label>
+        <FieldLabel>Target effort — all sets</FieldLabel>
         {/* The shared picker, not a local copy of the scale: this hand-rolled
             its own chips and omitted 6.5, so a routine could prescribe an
             effort the workout screen offered and not the other way round.
@@ -903,7 +998,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Interval mode</Label>
+        <FieldLabel>Interval mode</FieldLabel>
         <p className="text-text-3 mb-2 text-[12px]">
           Runs a work/rest countdown with spoken cues instead of manual set
           logging.
@@ -925,7 +1020,7 @@ function ExerciseSettings({
         {intervalOn && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div>
-              <Label>Work (secs)</Label>
+              <FieldLabel>Work (secs)</FieldLabel>
               <TargetInput
                 value={String(item.intervalWorkSeconds ?? 30)}
                 placeholder="30"
@@ -935,7 +1030,7 @@ function ExerciseSettings({
               />
             </div>
             <div>
-              <Label>Rest (secs)</Label>
+              <FieldLabel>Rest (secs)</FieldLabel>
               <TargetInput
                 value={String(item.intervalRestSeconds ?? 30)}
                 placeholder="30"
@@ -949,7 +1044,7 @@ function ExerciseSettings({
       </div>
 
       <div>
-        <Label>Note</Label>
+        <FieldLabel>Note</FieldLabel>
         <Textarea
           rows={3}
           value={notes}
@@ -1128,10 +1223,3 @@ function FolderChip({
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-text-3 mb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
-      {children}
-    </p>
-  );
-}

@@ -1,5 +1,6 @@
 import "server-only";
-import { and, desc, eq, gt, ilike, ne, or, sql, lt } from "drizzle-orm";
+import { escapeLike } from "@/lib/exercise-search-terms";
+import { and, desc, eq, gt, ilike, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   follow,
@@ -77,19 +78,33 @@ const feedSelection = (viewerId: string) => ({
 
 type FeedRow = Awaited<ReturnType<typeof runFeedQuery>>[number];
 
+/**
+ * Keyset cursor: the boundary row's timestamp *and* id. On the timestamp
+ * alone, two posts sharing one (backdated quick logs are all stamped noon
+ * UTC) meant the second was skipped on every page boundary, forever.
+ */
+export type FeedCursor = { at: Date; id: string };
+
 async function runFeedQuery(
   viewerId: string,
   where: ReturnType<typeof and>,
   limit: number,
-  before?: Date,
+  before?: FeedCursor,
 ) {
   return db
     .select(feedSelection(viewerId))
     .from(post)
     .innerJoin(user, eq(user.id, post.userId))
     .innerJoin(workout, eq(workout.id, post.workoutId))
-    .where(and(where, before ? lt(post.createdAt, before) : undefined))
-    .orderBy(desc(post.createdAt))
+    .where(
+      and(
+        where,
+        before
+          ? sql`(${post.createdAt}, ${post.id}) < (${before.at}, ${before.id}::uuid)`
+          : undefined,
+      ),
+    )
+    .orderBy(desc(post.createdAt), desc(post.id))
     .limit(limit);
 }
 
@@ -124,7 +139,7 @@ function toFeedItem(r: FeedRow): FeedItem {
 /** Home feed: you plus everyone you follow. */
 export async function getFollowingFeed(
   viewerId: string,
-  { limit = 20, before }: { limit?: number; before?: Date } = {},
+  { limit = 20, before }: { limit?: number; before?: FeedCursor } = {},
 ): Promise<FeedItem[]> {
   const rows = await runFeedQuery(
     viewerId,
@@ -178,6 +193,22 @@ export async function getUserFeed(
 ): Promise<FeedItem[]> {
   const rows = await runFeedQuery(viewerId, eq(post.userId, authorId), limit);
   return rows.map(toFeedItem);
+}
+
+/**
+ * Whether a workout was published to the feed. `/history/[id]` is reachable
+ * from every post card, so a shared session has to open for a viewer — but
+ * one the lifter kept private ("Keep private" on the finish sheet) has no
+ * post, and `getFullWorkout` takes no viewer. This is the gate the page
+ * applies for anyone but the owner.
+ */
+export async function isWorkoutShared(workoutId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: post.id })
+    .from(post)
+    .where(eq(post.workoutId, workoutId))
+    .limit(1);
+  return Boolean(row);
 }
 
 /** Capped: an unbounded thread lets one spammer make the page un-renderable. */
@@ -260,13 +291,15 @@ function toPerson(r: {
   outgoing: string | null;
   incoming: string | null;
 }): PersonCard {
+  // Incoming first: if they have asked you, the one thing to offer is Accept,
+  // whatever you may have sent them.
   const friendStatus: PersonCard["friendStatus"] =
     r.outgoing === "accepted" || r.incoming === "accepted"
       ? "friends"
-      : r.outgoing === "pending"
-        ? "pending_out"
-        : r.incoming === "pending"
-          ? "pending_in"
+      : r.incoming === "pending"
+        ? "pending_in"
+        : r.outgoing === "pending"
+          ? "pending_out"
           : "none";
   return {
     id: r.id,
@@ -294,7 +327,10 @@ export async function searchPeople(
         ne(user.id, viewerId),
         sql`${user.onboardedAt} IS NOT NULL`,
         q
-          ? or(ilike(user.name, `%${q}%`), ilike(user.username, `%${q}%`))
+          ? or(
+              ilike(user.name, `%${escapeLike(q)}%`),
+              ilike(user.username, `%${escapeLike(q)}%`),
+            )
           : undefined,
       ),
     )
@@ -346,7 +382,10 @@ export async function getPendingFriendRequests(
         eq(friendRequest.addresseeId, userId),
         eq(friendRequest.status, "pending"),
       ),
-    );
+    )
+    // The one list whose length somebody *else* controls; same cap and same
+    // reason as `getSentFriendRequests`.
+    .limit(100);
   return rows.map(toPerson);
 }
 

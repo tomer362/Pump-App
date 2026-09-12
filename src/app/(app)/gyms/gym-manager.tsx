@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTransient } from "@/hooks/use-transient";
+import { watchAction } from "@/components/ui/toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -40,13 +42,16 @@ export function GymManager({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const [leaving, startLeaving] = useTransition();
   const [mode, setMode] = useState<"create" | "join" | null>(null);
+  /** The gym whose "leave" is waiting on a confirmation. */
+  const [confirmLeave, setConfirmLeave] = useState<Gym | null>(null);
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied, flashCopied] = useTransient<string | null>(null, 2000);
 
   async function submitCreate() {
     setBusy(true);
@@ -77,8 +82,7 @@ export function GymManager({
     haptic.light();
     try {
       await navigator.clipboard.writeText(joinCode);
-      setCopied(joinCode);
-      window.setTimeout(() => setCopied(null), 2000);
+      flashCopied(joinCode);
     } catch {
       /* clipboard unavailable */
     }
@@ -154,15 +158,16 @@ export function GymManager({
                   </button>
                 )}
 
+                {/* Destructive and unlabelled, so it asks — it used to leave on
+                    the tap, with no pending state and no way back short of
+                    the join code. */}
                 <button
-                  onClick={() =>
-                    startTransition(async () => {
-                      await leaveGym(g.id);
-                      router.refresh();
-                    })
-                  }
+                  onClick={() => {
+                    haptic.light();
+                    setConfirmLeave(g);
+                  }}
                   aria-label={`Leave ${g.name}`}
-                  className="press text-text-3 ml-auto p-1.5"
+                  className="press text-text-3 tap ml-auto grid place-items-center"
                 >
                   <LogOut className="size-4" />
                 </button>
@@ -176,6 +181,7 @@ export function GymManager({
         open={mode === "create"}
         onClose={() => setMode(null)}
         title="Add your gym"
+        initialFocus="input"
         footer={
           <Button
             block
@@ -194,7 +200,6 @@ export function GymManager({
             onChange={(e) => setName(e.target.value)}
             placeholder="Gym name"
             maxLength={80}
-            autoFocus
           />
           <Input
             value={city}
@@ -214,6 +219,7 @@ export function GymManager({
         open={mode === "join"}
         onClose={() => setMode(null)}
         title="Join a gym"
+        initialFocus="input"
         footer={
           <Button
             block
@@ -236,13 +242,49 @@ export function GymManager({
             autoCorrect="off"
             spellCheck={false}
             className="num text-center text-[20px] font-bold tracking-[0.2em]"
-            autoFocus
           />
           <p className="text-text-3 text-[12px] leading-relaxed">
             Ask someone who trains there for the code.
           </p>
           {error && <p className="text-danger text-[13px]">{error}</p>}
         </div>
+      </Sheet>
+
+      <Sheet
+        open={confirmLeave != null}
+        onClose={() => setConfirmLeave(null)}
+        title={confirmLeave ? `Leave ${confirmLeave.name}?` : undefined}
+      >
+        {confirmLeave && (
+          <div className="px-4 pb-5">
+            <p className="text-text-2 text-[14px] leading-relaxed">
+              You&apos;ll stop seeing check-ins here, and it stops being your
+              home gym. You can rejoin with the code.
+            </p>
+            <div className="mt-5 space-y-2">
+              <Button
+                block
+                variant="danger"
+                loading={leaving}
+                onClick={() => {
+                  const gym = confirmLeave;
+                  startLeaving(async () => {
+                    const res = await watchAction(leaveGym(gym.id));
+                    if (!res.ok) return;
+                    setConfirmLeave(null);
+                    router.refresh();
+                  });
+                }}
+              >
+                <LogOut className="size-4" />
+                Leave gym
+              </Button>
+              <Button block variant="ghost" onClick={() => setConfirmLeave(null)}>
+                Stay
+              </Button>
+            </div>
+          </div>
+        )}
       </Sheet>
     </>
   );
