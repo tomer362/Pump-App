@@ -80,7 +80,16 @@ export type WeeklyPoint = {
   sets: number;
 };
 
-/** Volume and frequency by ISO week — the trend chart on Stats. */
+/**
+ * Volume and frequency by ISO week — the trend chart on Stats.
+ *
+ * Weeks start on Monday, and the boundary is drawn on the stored clock:
+ * `started_at` carries no zone (it is the UTC instant, see `lib/day.ts`), so
+ * a Sunday-night session west of Greenwich can land in the following bar. The
+ * heatmap draws its day boundary the same way, so the two agree with each
+ * other; only a per-lifter offset would move both, and nothing here stores
+ * one. Stated so the next reader doesn't take it for an accident.
+ */
 export async function getWeeklyTrend(
   userId: string,
   weeks = 12,

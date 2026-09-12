@@ -19,7 +19,7 @@ import {
 import { getCurrentUser } from "@/lib/session";
 import { grantAchievements } from "./achievements";
 import { notifyFriends } from "@/lib/push-fanout";
-import { withFreshJoinCode } from "@/lib/join-code";
+import { isUniqueViolation, withFreshJoinCode } from "@/lib/join-code";
 import { isUuid } from "@/lib/uuid";
 import { notify, notifyPostAuthor } from "./notify";
 import { rateLimit } from "./rate-limit";
@@ -129,15 +129,24 @@ export async function sendFriendRequest(
   // let one person re-ask — and re-notify — thirty times an hour for as long
   // as they liked; the answer "no" has to be able to stick. Nothing is
   // reported back, because "they declined you" is theirs to tell, not ours.
-  const written = await db
-    .insert(friendRequest)
-    .values({ requesterId: me.id, addresseeId: targetId, status: "pending" })
-    .onConflictDoUpdate({
-      target: [friendRequest.requesterId, friendRequest.addresseeId],
-      set: { status: "pending", respondedAt: null },
-      setWhere: sql`${friendRequest.status} <> 'declined'`,
-    })
-    .returning({ status: friendRequest.status });
+  let written: { status: string }[];
+  try {
+    written = await db
+      .insert(friendRequest)
+      .values({ requesterId: me.id, addresseeId: targetId, status: "pending" })
+      .onConflictDoUpdate({
+        target: [friendRequest.requesterId, friendRequest.addresseeId],
+        set: { status: "pending", respondedAt: null },
+        setWhere: sql`${friendRequest.status} <> 'declined'`,
+      })
+      .returning({ status: friendRequest.status });
+  } catch (err) {
+    // `friend_pair_sym_idx`: they asked us in the same instant and their row
+    // landed first. That is the "already asked us" branch above, one race
+    // later — so answer it the same way.
+    if (!isUniqueViolation(err)) throw err;
+    return acceptFriendRequest(targetId);
+  }
 
   // Following is implied by friending — you want their workouts in your feed.
   await db

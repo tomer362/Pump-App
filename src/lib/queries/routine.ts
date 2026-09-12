@@ -144,6 +144,7 @@ export async function getFolders(userId: string): Promise<FolderListItem[]> {
     WHERE w."user_id" = ${userId}
       AND w."ended_at" IS NOT NULL
       AND r."folder_id" = ${folderId}
+      AND r."user_id" = ${userId}
     ORDER BY w."ended_at" DESC
     LIMIT 1
   )`;
@@ -156,7 +157,7 @@ export async function getFolders(userId: string): Promise<FolderListItem[]> {
    */
   const nextInCycle = (column: "id" | "name") => sql`(
     SELECT n.${sql.raw(`"${column}"`)} FROM "routine" n
-    WHERE n."folder_id" = ${folderId}
+    WHERE n."folder_id" = ${folderId} AND n."user_id" = ${userId}
     ORDER BY (n."position" > COALESCE(${lastPosition}, -1)) DESC, n."position"
     LIMIT 1
   )`;
@@ -169,7 +170,8 @@ export async function getFolders(userId: string): Promise<FolderListItem[]> {
       position: routineFolder.position,
       rotation: routineFolder.rotation,
       routineCount: sql<number>`(
-        SELECT COUNT(*)::int FROM "routine" r WHERE r."folder_id" = ${folderId}
+        SELECT COUNT(*)::int FROM "routine" r
+        WHERE r."folder_id" = ${folderId} AND r."user_id" = ${userId}
       )`,
       nextRoutineId: sql<string | null>`${nextInCycle("id")}`,
       nextRoutineName: sql<string | null>`${nextInCycle("name")}`,

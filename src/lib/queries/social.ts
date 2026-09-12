@@ -1,6 +1,6 @@
 import "server-only";
 import { escapeLike } from "@/lib/exercise-search-terms";
-import { and, desc, eq, gt, ilike, ne, or, sql, lt } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   follow,
@@ -78,19 +78,33 @@ const feedSelection = (viewerId: string) => ({
 
 type FeedRow = Awaited<ReturnType<typeof runFeedQuery>>[number];
 
+/**
+ * Keyset cursor: the boundary row's timestamp *and* id. On the timestamp
+ * alone, two posts sharing one (backdated quick logs are all stamped noon
+ * UTC) meant the second was skipped on every page boundary, forever.
+ */
+export type FeedCursor = { at: Date; id: string };
+
 async function runFeedQuery(
   viewerId: string,
   where: ReturnType<typeof and>,
   limit: number,
-  before?: Date,
+  before?: FeedCursor,
 ) {
   return db
     .select(feedSelection(viewerId))
     .from(post)
     .innerJoin(user, eq(user.id, post.userId))
     .innerJoin(workout, eq(workout.id, post.workoutId))
-    .where(and(where, before ? lt(post.createdAt, before) : undefined))
-    .orderBy(desc(post.createdAt))
+    .where(
+      and(
+        where,
+        before
+          ? sql`(${post.createdAt}, ${post.id}) < (${before.at}, ${before.id}::uuid)`
+          : undefined,
+      ),
+    )
+    .orderBy(desc(post.createdAt), desc(post.id))
     .limit(limit);
 }
 
@@ -125,7 +139,7 @@ function toFeedItem(r: FeedRow): FeedItem {
 /** Home feed: you plus everyone you follow. */
 export async function getFollowingFeed(
   viewerId: string,
-  { limit = 20, before }: { limit?: number; before?: Date } = {},
+  { limit = 20, before }: { limit?: number; before?: FeedCursor } = {},
 ): Promise<FeedItem[]> {
   const rows = await runFeedQuery(
     viewerId,
@@ -277,13 +291,15 @@ function toPerson(r: {
   outgoing: string | null;
   incoming: string | null;
 }): PersonCard {
+  // Incoming first: if they have asked you, the one thing to offer is Accept,
+  // whatever you may have sent them.
   const friendStatus: PersonCard["friendStatus"] =
     r.outgoing === "accepted" || r.incoming === "accepted"
       ? "friends"
-      : r.outgoing === "pending"
-        ? "pending_out"
-        : r.incoming === "pending"
-          ? "pending_in"
+      : r.incoming === "pending"
+        ? "pending_in"
+        : r.outgoing === "pending"
+          ? "pending_out"
           : "none";
   return {
     id: r.id,

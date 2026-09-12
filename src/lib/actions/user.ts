@@ -110,7 +110,8 @@ export async function updateProfile(input: {
     .set({ ...parsed.data, updatedAt: new Date() })
     .where(eq(user.id, me.id));
 
-  revalidatePath("/profile");
+  // The unit and default rest reach every screen, not just the profile.
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 

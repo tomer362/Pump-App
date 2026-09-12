@@ -28,7 +28,8 @@ export function FeedList({
     name: "feed",
     idOf: (item) => item.postId,
     revive: reviveFeedItem,
-    fetchMore: (last) => loadMoreFeed(new Date(last.createdAt).toISOString()),
+    fetchMore: (last) =>
+      loadMoreFeed(new Date(last.createdAt).toISOString(), last.postId),
   });
 
   return (

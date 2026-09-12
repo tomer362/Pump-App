@@ -19,6 +19,8 @@ export type UnlockedAchievement = {
 
 type Context = {
   finishedWorkoutAt?: Date;
+  /** Caller's UTC offset in minutes (JS sign: UTC−5 is +300). Default 0. */
+  tzOffsetMinutes?: number;
   workoutVolumeKg?: number;
   durationSeconds?: number;
   newPrCount?: number;
@@ -82,7 +84,14 @@ async function grantAchievementsUnguarded(
   if (ctx.isCoop) earned.add("social_coop");
 
   if (ctx.finishedWorkoutAt) {
-    const h = ctx.finishedWorkoutAt.getHours();
+    // The lifter's clock, not the function's: a Vercel function runs in UTC,
+    // which awarded "night owl" to a 9 p.m. session in Tel Aviv and never
+    // "early bird" to a 6 a.m. one in New York. `getTimezoneOffset()` is
+    // minutes *behind* UTC, so local time is UTC minus the offset.
+    const local = new Date(
+      ctx.finishedWorkoutAt.getTime() - (ctx.tzOffsetMinutes ?? 0) * 60_000,
+    );
+    const h = local.getUTCHours();
     if (h < 7) earned.add("early_bird");
     if (h >= 22) earned.add("night_owl");
   }
@@ -185,7 +194,9 @@ async function hitAllMuscleGroupsThisWeek(userId: string): Promise<boolean> {
     JOIN exercise e ON e.id = we.exercise_id
     WHERE w.user_id = ${userId}
       AND w.ended_at IS NOT NULL
-      AND w.started_at >= NOW() - INTERVAL '7 days'
+      -- The calendar week the trend chart draws, not a rolling 168 hours:
+      -- "this week" on the badge has to mean the same thing as on /stats.
+      AND w.started_at >= DATE_TRUNC('week', NOW())
       AND ws.completed_at IS NOT NULL
   `);
   const hit = new Set(res.rows.map((r) => r.primary_muscle));

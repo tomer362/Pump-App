@@ -222,16 +222,18 @@ export async function reorderFolders(
     );
   if (mine.length !== ids.length) return { ok: false, error: "Folder not found" };
 
-  await db.transaction(async (tx) => {
-    for (const [position, id] of ids.entries()) {
-      await tx
-        .update(routineFolder)
-        .set({ position })
-        .where(
-          and(eq(routineFolder.id, id), eq(routineFolder.userId, me.id)),
-        );
-    }
-  });
+  // One statement for the whole order — the batch allows 100 ids, which was
+  // 100 round trips inside a transaction for one drag.
+  await db.execute(sql`
+    UPDATE ${routineFolder}
+    SET position = v.position
+    FROM (VALUES ${sql.join(
+      ids.map((id, i) => sql`(${id}::uuid, ${i}::int)`),
+      sql`, `,
+    )}) AS v(id, position)
+    WHERE ${routineFolder.id} = v.id
+      AND ${routineFolder.userId} = ${me.id}
+  `);
 
   revalidatePath("/routines");
   return { ok: true };
@@ -320,14 +322,16 @@ export async function reorderRoutinesInFolder(
     );
   if (mine.length !== ids.length) return { ok: false, error: "Routine not found" };
 
-  await db.transaction(async (tx) => {
-    for (const [position, id] of ids.entries()) {
-      await tx
-        .update(routine)
-        .set({ position })
-        .where(and(eq(routine.id, id), eq(routine.userId, me.id)));
-    }
-  });
+  await db.execute(sql`
+    UPDATE ${routine}
+    SET position = v.position
+    FROM (VALUES ${sql.join(
+      ids.map((id, i) => sql`(${id}::uuid, ${i}::int)`),
+      sql`, `,
+    )}) AS v(id, position)
+    WHERE ${routine.id} = v.id
+      AND ${routine.userId} = ${me.id}
+  `);
 
   revalidatePath("/routines");
   return { ok: true };

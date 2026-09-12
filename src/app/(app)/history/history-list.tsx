@@ -45,7 +45,7 @@ export function HistoryList({
     idOf: (w) => w.id,
     revive: reviveWorkout,
     fetchMore: (last) =>
-      loadMoreHistory(new Date(last.startedAt).toISOString()),
+      loadMoreHistory(new Date(last.startedAt).toISOString(), last.id),
   });
 
   // Group by calendar month so a long history stays scannable. Done here

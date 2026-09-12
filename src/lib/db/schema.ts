@@ -622,6 +622,13 @@ export const friendRequest = pgTable(
   },
   (t) => [
     uniqueIndex("friend_pair_idx").on(t.requesterId, t.addresseeId),
+    // One row per *unordered* pair. The ordered index above allowed A→B and
+    // B→A to both exist when two people asked each other at the same moment,
+    // and each then saw "Requested" with nobody offered Accept.
+    uniqueIndex("friend_pair_sym_idx").on(
+      sql`LEAST(${t.requesterId}, ${t.addresseeId})`,
+      sql`GREATEST(${t.requesterId}, ${t.addresseeId})`,
+    ),
     index("friend_addressee_idx").on(t.addresseeId, t.status),
   ],
 );

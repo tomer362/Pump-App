@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   exercise,
@@ -281,9 +281,12 @@ export async function getPreviousSets(
 }
 
 /** Finished workouts, newest first — the History tab and profile. */
+/** Same shape as the feed's: the timestamp alone ties and skips rows. */
+export type HistoryCursor = { at: Date; id: string };
+
 export async function getWorkoutHistory(
   userId: string,
-  { limit = 20, before }: { limit?: number; before?: Date } = {},
+  { limit = 20, before }: { limit?: number; before?: HistoryCursor } = {},
 ) {
   return db
     .select({
@@ -302,10 +305,12 @@ export async function getWorkoutHistory(
       and(
         eq(workout.userId, userId),
         isNotNull(workout.endedAt),
-        before ? lt(workout.startedAt, before) : undefined,
+        before
+          ? sql`(${workout.startedAt}, ${workout.id}) < (${before.at}, ${before.id}::uuid)`
+          : undefined,
       ),
     )
-    .orderBy(desc(workout.startedAt))
+    .orderBy(desc(workout.startedAt), desc(workout.id))
     .limit(limit);
 }
 

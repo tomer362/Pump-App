@@ -1,6 +1,7 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/session";
+import { isUuid } from "@/lib/uuid";
 import { getFollowingFeed, type FeedItem } from "@/lib/queries/social";
 import { getWorkoutHistory } from "@/lib/queries/workout";
 import {
@@ -25,19 +26,29 @@ import {
  * rows push onto the front, so an offset would duplicate or skip rows the
  * moment anyone posts mid-scroll.
  */
-export async function loadMoreFeed(before: string): Promise<FeedItem[]> {
+/** Both halves of the keyset, validated together; either bad means no page. */
+function timeCursor(before: string, beforeId: string) {
+  const at = new Date(before);
+  if (Number.isNaN(at.getTime()) || !isUuid(beforeId)) return null;
+  return { at, id: beforeId };
+}
+
+export async function loadMoreFeed(
+  before: string,
+  beforeId: string,
+): Promise<FeedItem[]> {
   const me = await getCurrentUser();
   if (!me) return [];
-  const cursor = new Date(before);
-  if (Number.isNaN(cursor.getTime())) return [];
+  const cursor = timeCursor(before, beforeId);
+  if (!cursor) return [];
   return getFollowingFeed(me.id, { limit: FEED_PAGE_SIZE, before: cursor });
 }
 
-export async function loadMoreHistory(before: string) {
+export async function loadMoreHistory(before: string, beforeId: string) {
   const me = await getCurrentUser();
   if (!me) return [];
-  const cursor = new Date(before);
-  if (Number.isNaN(cursor.getTime())) return [];
+  const cursor = timeCursor(before, beforeId);
+  if (!cursor) return [];
   return getWorkoutHistory(me.id, { limit: HISTORY_PAGE_SIZE, before: cursor });
 }
 

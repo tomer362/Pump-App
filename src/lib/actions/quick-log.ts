@@ -434,7 +434,22 @@ export async function undoQuickLogSet(setId: string): Promise<ActionResult> {
 
   await db.transaction(async (tx) => {
     await tx.delete(workoutSet).where(eq(workoutSet.id, row.setId));
-    await rollUpWorkout(tx, row.workoutId);
+    // A quick-log session exists only to hold its sets. Left behind empty it
+    // is still a finished workout — on the history list, the heatmap and the
+    // streak — claiming 0 kg of training on a day nothing was logged.
+    const [remaining] = await tx
+      .select({ n: sql<number>`COUNT(*)::int` })
+      .from(workoutSet)
+      .innerJoin(
+        workoutExercise,
+        eq(workoutExercise.id, workoutSet.workoutExerciseId),
+      )
+      .where(eq(workoutExercise.workoutId, row.workoutId));
+    if ((remaining?.n ?? 0) === 0) {
+      await tx.delete(workout).where(eq(workout.id, row.workoutId));
+    } else {
+      await rollUpWorkout(tx, row.workoutId);
+    }
     await recalculatePersonalRecords(tx, me.id, [row.exerciseId]);
   });
 

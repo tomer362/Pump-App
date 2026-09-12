@@ -341,14 +341,14 @@ describe("quickLogSet with a date", () => {
     expect(pr.value).toBeCloseTo(250, 5);
     expect(pr.achievedAt.toISOString().slice(0, 10)).toBe(day);
 
-    // Undo rolls the backdated session back like any other.
+    // Undo takes the backdated session with it — it held nothing else, and a
+    // finished workout with no sets would still mark that day as trained.
     expect((await undoQuickLogSet(res.data.setId)).ok).toBe(true);
     const [w] = await db
       .select()
       .from(workout)
       .where(eq(workout.id, res.data.workoutId));
-    const totals = sumSetTotals(await setsIn(res.data.workoutId));
-    expect(w.totalVolumeKg).toBeCloseTo(totals.totalVolumeKg, 4);
+    expect(w).toBeUndefined();
   });
 
   it("refuses a day in the future", async () => {
@@ -384,5 +384,47 @@ describe("quickLogSet with a date", () => {
       tzOffsetMinutes,
     });
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("undoing the only set of a session", () => {
+  let loneUserId = "";
+  let loneExerciseId = "";
+
+  beforeAll(async () => {
+    loneUserId = await makeUser();
+    loneExerciseId = await makeExercise();
+  });
+
+  afterAll(async () => {
+    actingUserId = userId;
+    await cleanup([loneUserId], [loneExerciseId]);
+  });
+
+  it("deletes the session rather than leaving a finished 0 kg workout", async () => {
+    actingUserId = loneUserId;
+    const res = await quickLogSet({
+      exerciseId: loneExerciseId,
+      weightKg: 60,
+      reps: 8,
+    });
+    if (!res.ok || !res.data) throw new Error("expected a logged set");
+
+    const before = await db
+      .select({ id: workout.id })
+      .from(workout)
+      .where(eq(workout.userId, loneUserId));
+    expect(before).toHaveLength(1);
+
+    const undone = await undoQuickLogSet(res.data.setId);
+    expect(undone.ok).toBe(true);
+
+    // An empty finished workout would still count on the history list, the
+    // heatmap and the streak as a day you trained.
+    const after = await db
+      .select({ id: workout.id })
+      .from(workout)
+      .where(eq(workout.userId, loneUserId));
+    expect(after).toHaveLength(0);
   });
 });
