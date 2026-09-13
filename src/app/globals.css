@@ -111,6 +111,24 @@ html {
   /* Both html and body: iOS picks the scrolling element itself, and setting
      this on only one of them still lets the document rubber-band. */
   overscroll-behavior-y: none;
+  /* The clip that actually clips.
+     Overflow propagates *from* the root: the viewport takes its overflow from
+     `html`, and falls back to `body` only while `html` is `visible` — in which
+     case `body`'s own used value becomes `visible`. So until this line, the
+     `overflow-hidden` in `app/layout.tsx` was styling the viewport while
+     `body` itself clipped nothing, and anything taller than its `100dvh`
+     handed the viewport a scroll range for a script — or iOS, revealing a
+     focused field — to drag it into. A document dragged off zero takes the
+     workout header, and with it the only Finish button in the app, above the
+     top of the screen; the set list carries on scrolling normally inside
+     `#app-scroll`, so nothing looks broken, and no gesture scrolls a clipped
+     document back. With `hidden` here the range is structurally zero rather
+     than merely un-gestureable.
+     No `height`: `html` is auto and already shrink-wraps `body`'s `100dvh`.
+     `height: 100%` would resolve against the initial containing block — the
+     *large* viewport on iOS — reintroducing the very vh/dvh mismatch
+     `h-screen-d` exists to avoid. */
+  overflow: hidden;
 }
 
 body {

@@ -36,6 +36,7 @@ import {
   lbToKg,
 } from "@/lib/utils";
 import { ratedToken } from "@/lib/rpe";
+import { nearestOffset } from "@/lib/scroll-memory";
 
 /** Matches MAX_BACKDATE_DAYS in `lib/actions/quick-log.ts`. */
 const MAX_BACKDATE_DAYS = 365;
@@ -183,12 +184,32 @@ export function QuickLogSheet({
         },
         ...prev,
       ]);
-      requestAnimationFrame(() =>
-        loggedRef.current?.scrollIntoView({
-          block: "nearest",
+      // Never `scrollIntoView`: it scrolls every scrollable ancestor, and the
+      // document is one of them. `overflow: hidden` on the body stops a finger,
+      // not the API — and a document nudged off zero takes every `sticky` and
+      // `fixed` control in the app above the top of the screen, with no gesture
+      // left that can bring them back.
+      requestAnimationFrame(() => {
+        const el = loggedRef.current;
+        const scroller = el?.closest<HTMLElement>("[data-sheet-body]");
+        if (!el || !scroller) return;
+        const rect = el.getBoundingClientRect();
+        scroller.scrollTo({
+          top: nearestOffset({
+            scrollTop: scroller.scrollTop,
+            elTop:
+              scroller.scrollTop +
+              rect.top -
+              scroller.getBoundingClientRect().top,
+            elHeight: rect.height,
+            viewport: scroller.clientHeight,
+            topInset: 0,
+            bottomInset: 0,
+            maxScroll: scroller.scrollHeight - scroller.clientHeight,
+          }),
           behavior: enabled ? "smooth" : "auto",
-        }),
-      );
+        });
+      });
       // The charts, the totals and the history list are all server-rendered.
       router.refresh();
     });

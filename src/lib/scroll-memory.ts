@@ -7,8 +7,14 @@
  * permanently at zero — so nothing was ever restored, and every back landed at
  * the top of the list you had just been reading.
  *
- * This module is the memory; `components/ui/scroll-restoration.tsx` is the one
- * thing that drives it. Everything above `rememberScroll` is pure so
+ * That invariant is now enforced rather than assumed —
+ * `components/ui/document-scroll-guard.tsx` puts the document back to zero if
+ * anything moves it — because when it slipped, every `sticky` and `fixed`
+ * element in the app went above the top of the screen and stayed there.
+ *
+ * This module is the memory, plus the arithmetic for where to point the one
+ * scroller; `components/ui/scroll-restoration.tsx` is the one thing that drives
+ * the memory half. Everything above the `impure` divider is pure so
  * `tests/scroll-memory.test.ts` can hold it without a DOM.
  * -------------------------------------------------------------------------- */
 
@@ -169,6 +175,79 @@ export function lookup(
     if (byEntry) return byEntry;
   }
   return store.byRoute[keys.routeKey] ?? null;
+}
+
+/* ------------------------------ where to point ----------------------------- */
+
+/**
+ * The geometry of "put this row on screen", in the one scroller's own
+ * coordinates. All content-space pixels: `elTop` is the row's distance from the
+ * top of the scroller's content, not from the top of the screen.
+ *
+ * This lives beside the memory because it enforces the same rule the header
+ * above states: the document never scrolls. `Element.scrollIntoView()` is the
+ * obvious way to write both callers and is banned in `src/` for it — that API
+ * scrolls *every* scrollable ancestor, and the document is one of them.
+ * `overflow: hidden` stops a finger, not the API. A document left off zero puts
+ * the workout header — and with it the only Finish button in the app — above
+ * the top of the screen, while the set list underneath carries on scrolling
+ * normally, so nothing the lifter can do brings it back. Only a reload does.
+ */
+export type ScrollBand = {
+  /** Where the scroller is now. */
+  scrollTop: number;
+  /** The row's top, in content space. */
+  elTop: number;
+  /** The row's height. */
+  elHeight: number;
+  /** The scroller's visible height (`clientHeight`). */
+  viewport: number;
+  /** Sticky chrome across the top of it. */
+  topInset: number;
+  /** Docked chrome across the bottom. */
+  bottomInset: number;
+  /** `scrollHeight - clientHeight`. */
+  maxScroll: number;
+};
+
+const clampScroll = (top: number, maxScroll: number) =>
+  Math.max(0, Math.min(top, Math.max(0, maxScroll)));
+
+/**
+ * Centre a row in the band the lifter can actually see — between the sticky
+ * header and the docked chrome, not in the raw viewport. Centring on the
+ * viewport would land a row halfway under the rest bar on the one screen where
+ * the thing you are aiming at is a 44px checkmark.
+ *
+ * A row taller than the band is aligned to its top rather than centred, which
+ * is the half you need: the set number and the inputs.
+ */
+export function centreOffset(band: ScrollBand): number {
+  const visible = band.viewport - band.topInset - band.bottomInset;
+  const slack = Math.max(0, (visible - band.elHeight) / 2);
+  return clampScroll(band.elTop - band.topInset - slack, band.maxScroll);
+}
+
+/**
+ * Move only as far as it takes to bring a row inside the band — and not at all
+ * if it is already there. What `scrollIntoView({ block: "nearest" })` means,
+ * for the quick-log list, where scrolling a row that was already on screen
+ * would yank the sheet under a thumb on every logged set.
+ */
+export function nearestOffset(band: ScrollBand): number {
+  const bandTop = band.scrollTop + band.topInset;
+  const bandBottom = band.scrollTop + band.viewport - band.bottomInset;
+  if (band.elTop >= bandTop && band.elTop + band.elHeight <= bandBottom) {
+    return band.scrollTop;
+  }
+  // Too tall to fit reads as "above": show the start of it.
+  if (band.elTop < bandTop || band.elHeight > bandBottom - bandTop) {
+    return clampScroll(band.elTop - band.topInset, band.maxScroll);
+  }
+  return clampScroll(
+    band.elTop + band.elHeight - band.viewport + band.bottomInset,
+    band.maxScroll,
+  );
 }
 
 /* --------------------------------- impure --------------------------------- */
@@ -375,3 +454,4 @@ export function peekLatch(): Latch | null {
 export function getScroller(): HTMLElement | null {
   return document.getElementById(SCROLLER_ID);
 }
+

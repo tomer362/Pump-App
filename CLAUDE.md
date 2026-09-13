@@ -181,10 +181,33 @@ hidden`; content scrolls in the one container inside it, with
 `overscroll-y-contain`. Before that, `min-h-screen-d` on `body` *and* on the
 `(app)` shell *and* the tab-bar spacer stacked, so every page — however short —
 scrolled into a blank void that iOS then lagged repainting the fixed tab bar
-over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
-`position: fixed` still resolves against the viewport because the scroller sets
-no transform or filter — so docked chrome needs no change. Route shells use
+over. `position: fixed` still resolves against the viewport because the scroller
+sets no transform or filter — so docked chrome needs no change. Route shells use
 `min-h-full`, never a second `min-h-screen-d`.
+
+**`overflow: hidden` is a request, not a guarantee — so the invariant is now
+enforced rather than assumed.** It refuses a finger and nothing else. `scrollIntoView` scrolls
+*every* scrollable ancestor and the last one is always the viewport;
+`element.focus()` does the same without `preventScroll`; and iOS pans a clipped
+page to reveal a focused field, restoring it on blur only if it believes nothing
+else has scrolled since. A document left off zero puts the workout header — and
+with it the **only** Finish button in the app — above the top of the screen,
+while the set list carries on scrolling normally inside `#app-scroll`, so
+nothing looks broken enough to explain itself and no gesture scrolls a clipped
+document back: the session cannot be finished until a reload. Three things hold
+the line now. `html` carries `overflow: hidden` too, because overflow propagates
+*from* the root and falls back to `body` only while `html` is `visible` — in
+which case `body`'s own used value becomes `visible` and it clips nothing, which
+is how the viewport had a scroll range to be dragged into at all. `centreOffset`
+and `nearestOffset` in `lib/scroll-memory.ts` are how anything in `src/` brings a
+row into view — they move the scroller they are handed and can reach nothing
+else, and **`scrollIntoView` has no callers**. And
+`components/ui/document-scroll-guard.tsx` is the one place that writes the
+document's offset, writing only ever `0`: it stands down while the keyboard is
+genuinely up (fighting iOS there shoves the field being typed in back under the
+keyboard) and while the page is pinch-zoomed — that pan is somebody's deliberate
+accessibility gesture, and `visualViewport.offsetTop` is read-only anyway, so a
+header lost to a pinch is a different fault this guard does not claim.
 
 **Which is why coming back to a list used to land you at the top.** Both the
 browser's scroll restoration and Next's act on the *document* scroller, which
@@ -441,7 +464,8 @@ was the part off the edge. A `useLayoutEffect` pins the scroller to
 until the store supplies a client-side date, and layout rather than passive so
 the jump lands before paint. Over-assigning is clamped, so a card wide enough
 to fit the whole grid is a no-op — and never `scrollIntoView`, which would
-scroll the document's one root scroller and move the page itself.
+scroll the document's one root scroller and move the page itself — the general
+rule above, of which this was the first instance.
 
 **The opt-in sequence lives once, in `lib/notify-client.ts`.** `enableNotifications`
 is permission → register `/sw.js` → `serviceWorker.ready` → un-mute → *then*, only

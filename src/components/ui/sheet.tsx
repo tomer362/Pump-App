@@ -157,11 +157,16 @@ export function Sheet({
       // keyboard, which swallows the bottom half of the sheet before the user
       // has said they want to type. Move focus to the panel instead — it is
       // `tabIndex={-1}`, so `aria-modal` and the Tab trap still hold.
+      // `preventScroll`: `focus()` otherwise scrolls every ancestor to reveal
+      // the target, the document included. This panel is `fixed` and already
+      // wholly on screen, so the only thing that scroll could do is move the
+      // page out from under it. Same reason nothing here calls
+      // `scrollIntoView`.
       if (
         initialFocus !== "input" &&
         window.matchMedia?.("(pointer: coarse)").matches
       ) {
-        panelRef.current?.focus?.();
+        panelRef.current?.focus?.({ preventScroll: true });
         return;
       }
       const items = focusables();
@@ -173,7 +178,7 @@ export function Sheet({
         ) ??
         items[0] ??
         panelRef.current;
-      preferred?.focus?.();
+      preferred?.focus?.({ preventScroll: true });
     });
 
     const onKey = (e: KeyboardEvent) => {
@@ -200,10 +205,10 @@ export function Sheet({
         (active === first || !panelRef.current?.contains(active))
       ) {
         e.preventDefault();
-        last.focus();
+        last.focus({ preventScroll: true });
       } else if (!e.shiftKey && active === last) {
         e.preventDefault();
-        first.focus();
+        first.focus({ preventScroll: true });
       }
     };
 
@@ -221,7 +226,7 @@ export function Sheet({
         active === null ||
         (panel?.contains(active) ?? false);
       if (focusWasOurs && restoreFocusTo.current?.isConnected) {
-        restoreFocusTo.current.focus?.();
+        restoreFocusTo.current.focus?.({ preventScroll: true });
       }
     };
   }, [open, id, initialFocus]);
@@ -300,7 +305,13 @@ export function Sheet({
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {/* Named so a child can scroll itself into view *here*.
+                `scrollIntoView` would do it by walking up to the document —
+                see the arithmetic in `lib/scroll-memory.ts`. */}
+            <div
+              data-sheet-body
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            >
               {children}
             </div>
 

@@ -131,7 +131,7 @@ export function CommentThread({
                 onDelete={() => remove(c.id)}
                 onReply={() => {
                   setReplyTo(c);
-                  inputRef.current?.focus();
+                  inputRef.current?.focus({ preventScroll: true });
                 }}
               />
               {repliesOf(c.id).map((r) => (
@@ -143,7 +143,7 @@ export function CommentThread({
                   canDelete={canDelete(r)}
                   onReply={() => {
                     setReplyTo(r);
-                    inputRef.current?.focus();
+                    inputRef.current?.focus({ preventScroll: true });
                   }}
                 />
               ))}
