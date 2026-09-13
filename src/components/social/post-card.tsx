@@ -70,21 +70,26 @@ export function PostCard({
   return (
     <article className="border-hairline bg-surface-1 rounded-card border">
       <header className="flex items-center gap-3 px-4 pt-3.5 pb-2.5">
-        <Link href={`/u/${item.author.username ?? item.author.id}`}>
+        {/* One link, not two. The avatar and the name were separate anchors to
+            the same profile — a 40px square and a 23px line of text, read out
+            twice by a screen reader and each too small to aim at. Together
+            they are the whole identity block, which is the thing you mean when
+            you tap a byline; `hit-slop` takes the 40px of avatar up to 44. */}
+        <Link
+          href={`/u/${item.author.username ?? item.author.id}`}
+          className="press hit-slop flex min-w-0 flex-1 items-center gap-3"
+        >
           <Avatar src={item.author.image} name={item.author.name} size="md" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold">
+              {item.author.name}
+            </span>
+            <span className="text-text-3 block truncate text-[12px]">
+              <TimeAgo date={item.createdAt} />
+              {item.author.username && ` · @${item.author.username}`}
+            </span>
+          </span>
         </Link>
-        <div className="min-w-0 flex-1">
-          <Link
-            href={`/u/${item.author.username ?? item.author.id}`}
-            className="block truncate text-[15px] font-semibold"
-          >
-            {item.author.name}
-          </Link>
-          <p className="text-text-3 truncate text-[12px]">
-            <TimeAgo date={item.createdAt} />
-            {item.author.username && ` · @${item.author.username}`}
-          </p>
-        </div>
         {item.workout.prCount > 0 && (
           <Badge tone="pr">
             <Trophy className="size-3" strokeWidth={2.6} />
@@ -93,7 +98,7 @@ export function PostCard({
         )}
       </header>
 
-      <Link href={`/history/${item.workout.id}`} className="block px-4">
+      <Link href={`/history/${item.workout.id}`} className="press block px-4">
         <h3 className="text-[17px] leading-tight font-semibold">
           {item.workout.name}
         </h3>
@@ -136,7 +141,12 @@ export function PostCard({
         )}
       </Link>
 
-      <footer className="mt-3 flex items-center gap-1 px-2 pb-1.5">
+      {/* `gap-2`, not `gap-1`: 4px between Like and Comment is inside a thumb's
+          own error, and the two mistakes are not symmetrical — a stray Like
+          sends somebody a notification you cannot take back, where a stray
+          comment tap just opens a sheet. 8px is the spacing both platforms'
+          guidance asks for between adjacent targets. */}
+      <footer className="mt-3 flex items-center gap-2 px-2 pb-1.5">
         <button
           onClick={onLike}
           aria-pressed={liked}
@@ -173,6 +183,7 @@ export function PostCard({
 
         <Link
           href={`/post/${item.postId}`}
+          aria-label={`Comments (${item.commentCount})`}
           className="press tap text-text-3 flex items-center gap-1.5 px-2.5 py-2"
         >
           <MessageCircle className="size-[19px]" strokeWidth={2.2} />

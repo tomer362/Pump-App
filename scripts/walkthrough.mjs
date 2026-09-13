@@ -126,6 +126,112 @@ try {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(300);
 
+  /* ---------------------------------------------------------------------- *
+   * The header has to still be there.
+   *
+   * It is `sticky top-0` inside `#app-scroll`, which pins it to the *viewport*
+   * — so it is on screen only for as long as the document itself stays at
+   * zero, and it carries the only Finish button in the app. `overflow: hidden`
+   * does not guarantee that on its own: `scrollIntoView` used to walk up to
+   * the viewport from the jump pill, `focus()` does the same without
+   * `preventScroll`, and iOS pans a clipped page to reveal a focused field.
+   * Once the document is off zero the set list carries on scrolling normally
+   * underneath, so nothing looks broken — the workout simply cannot be
+   * finished until a reload.
+   * ---------------------------------------------------------------------- */
+  log("→ Header survives scrolling, jumping and the keyboard");
+
+  const headerIsHome = async (what) => {
+    const state = await page.evaluate(() => {
+      const doc = document.scrollingElement;
+      const header = document.querySelector("header");
+      const finish = [...document.querySelectorAll("button")].find(
+        (b) => b.textContent.trim() === "Finish",
+      );
+      const h = header?.getBoundingClientRect();
+      const f = finish?.getBoundingClientRect();
+      return {
+        docTop: doc.scrollTop,
+        docLeft: doc.scrollLeft,
+        // Structurally zero since `html { overflow: hidden }`, rather than
+        // merely un-gestureable.
+        docRange: doc.scrollHeight - doc.clientHeight,
+        // `pt-safe` is padding *inside* the sticky box, so the border-box top
+        // is 0 on a notched phone and on a desktop alike.
+        headerTop: h ? Math.round(h.top) : null,
+        headerHeight: h ? Math.round(h.height) : null,
+        finishBottom: f ? Math.round(f.bottom) : null,
+        viewportH: window.innerHeight,
+      };
+    });
+    if (state.docTop !== 0 || state.docLeft !== 0)
+      errors.push(`document scrolled to ${state.docTop},${state.docLeft} after ${what}`);
+    if (state.docRange !== 0)
+      errors.push(`document has a ${state.docRange}px scroll range after ${what}`);
+    if (state.headerTop !== 0)
+      errors.push(`header top is ${state.headerTop}px, not 0, after ${what}`);
+    if (!state.headerHeight)
+      errors.push(`no workout header at all after ${what}`);
+    if (!state.finishBottom || state.finishBottom > state.viewportH)
+      errors.push(`Finish is off screen after ${what}`);
+  };
+
+  // 1. The bottom of a long workout — where the report came from.
+  await page.evaluate(() => {
+    const el = document.getElementById("app-scroll");
+    el.scrollTop = el.scrollHeight;
+  });
+  await page.waitForTimeout(400);
+  await shot(page, "workout-bottom");
+  await headerIsHome("scrolling to the bottom");
+
+  // 2. The jump pill — the call that used to be `scrollIntoView`, and which by
+  //    design is only reachable once you have gone down the page.
+  const jump = page.getByRole("button", { name: /Jump to the next set/i });
+  if (await jump.count()) {
+    await jump.first().click();
+    await page.waitForTimeout(700);
+    await shot(page, "workout-after-jump");
+    await headerIsHome("tapping the jump pill");
+  } else {
+    errors.push("no jump pill at the bottom of a workout with sets still owed");
+  }
+
+  // 3. A weight field, focused and blurred. Chromium has no software keyboard,
+  //    so this cannot reproduce iOS's pan — what it proves is that nothing in
+  //    our own focus/blur path moves the document. Step 4 is what exercises
+  //    the healing.
+  const lastWeight = weightInputs.last();
+  await lastWeight.click();
+  await page.waitForTimeout(300);
+  await headerIsHome("focusing a kg input");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(400);
+  await headerIsHome("blurring a kg input");
+
+  // 4. Inject the fault the guard exists for: give the document a range and
+  //    scroll it, the way iOS does for a focused field. `DocumentScrollGuard`
+  //    has to put it back without a reload — that is the whole difference
+  //    between a bad frame and a workout that cannot be finished.
+  await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.id = "pin-probe";
+    probe.style.cssText =
+      "position:absolute;top:0;left:0;width:1px;height:200vh";
+    document.body.appendChild(probe);
+    document.documentElement.style.overflow = "visible";
+    document.scrollingElement.scrollTop = 300;
+  });
+  await page.waitForTimeout(500);
+  const healed = await page.evaluate(() => document.scrollingElement.scrollTop);
+  if (healed !== 0)
+    errors.push(`the scroll guard left the document at ${healed}, not 0`);
+  await page.evaluate(() => {
+    document.getElementById("pin-probe")?.remove();
+    document.documentElement.style.overflow = "";
+  });
+  await shot(page, "workout-header-pinned");
+
   const checks = page.getByRole("button", { name: /^Complete set$/ });
   const total = await checks.count();
   log(`  ${total} sets pending`);

@@ -154,7 +154,46 @@ HTML overlay and could label no axis at all.
 - Inputs ≥16 px font-size — anything smaller triggers iOS zoom-on-focus.
 - `inputmode="decimal"|"numeric"` on every numeric field; select-all on focus.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
-- Tap targets ≥44 px (`tap` utility).
+- Tap targets ≥44 px (`tap` utility) — **and where the ink has to stay small,
+  `hit-slop`**, which centres an invisible 44 px pseudo-element over the
+  control instead of inflating its box. A 13 px "All" link, a 28 px glyph and
+  a 32 px segmented chip cannot be grown without rearranging the layout around
+  them, and they were the app's commonest miss: a thumb that lands beside a
+  control reads as the app ignoring you, not as your own aim. Use it only where
+  there is slack around the control — the overlay sits above whatever it covers
+  inside the same stacking context, so two of them closer together than their
+  own slop start eating each other's taps.
+- **`scripts/ux-audit.mjs` is what keeps that true.** It walks every route at
+  an iPhone viewport, twice per route — on arrival and at the foot of the list
+  — and measures what a thumb actually meets: the real hit box of every
+  interactive element (`hit-slop` included), anything under the 44 px minimum
+  or the 24 px WCAG 2.2 floor, controls whose centre is covered by something
+  else, undersized targets crowded closer than 8 px, controls with no `press`
+  feedback, and controls with no accessible name. It reports and never fixes.
+  Two rules in it are the ones worth keeping honest: docked chrome over a row
+  is only a fault **at the end of the scroll** (otherwise it is a scroll
+  position, and a list still auto-loading has no end to be stuck at), and
+  spacing is only a fault **where a target is already undersized** — two 44 px
+  rows sharing a hairline is what a list is.
+- **A group of options is one control, not many.** A segmented control, a chip
+  row of filters: mark it `role="tablist"`/`"radiogroup"`/`"group"` with a
+  label. It is what a screen reader needs to say what "Lats" filters, and it is
+  the difference between a mis-tap that picks the neighbouring option and one
+  that costs you the screen.
+- **Everything that takes a tap answers it.** `-webkit-tap-highlight-color` is
+  cleared globally, so a control with neither `press` nor an `active:` variant
+  gives *nothing* between the finger landing and the screen changing — which on
+  a slow action is indistinguishable from a tap that missed. `press` on the
+  interactive element or on the wrapper just inside it both work: `:active`
+  matches the ancestor chain of whatever the finger actually landed on.
+- **Nothing docked reserves its own space, so something in flow has to.**
+  `ActiveWorkoutPill` is `fixed` above the tab bar while a session is live, and
+  for a long time nothing accounted for it: the last `--pill-row` of every list
+  in the `(app)` group sat under it *at the end of the scroll*, with no
+  scrolling left to free it — the feed's like and comment buttons, the foot of
+  `/profile`, the last record on `/stats`. `TabBarSpacer` takes `withPill` and
+  lives inside `AppChrome`, the only component that knows whether the pill is
+  up. `QuickLogDock` ships its own spacer for the same reason.
 - Timers derive from an absolute end timestamp, never an incrementing counter — mobile browsers throttle background timers and a counter drifts.
 - **A hold and a drag both need `user-select: none`, and once a selection exists only `removeAllRanges()` clears it.** `useLongPress` spreads the property itself rather than trusting each consumer to remember `select-none`, and clears any range when it fires: Android Chrome starts its own selection at about the same ~500 ms, and on iOS a hold that began on a nested node can raise the handles before the style resolves. The draggable lists carry it too — a drag started on a grip travels across every row below it, which is how a selection gets painted — and `input, textarea` opt back in globally in `globals.css`, or WebKit inherits the block into the weight you just typed.
 - **A long-press gesture needs `-webkit-touch-callout: none`, not just `select-none`.** A hold on an `<a>` raises Safari's link preview card, which is neither a `contextmenu` event nor a text selection — so neither `preventDefault()` nor `select-none` reaches it, and the reorder sheet opened behind Apple's card. `useLongPress` spreads the inline style itself (with `-webkit-user-drag: none`, or a drifting hold drags the URL); the property inherits, so the press target covers the links nested inside it.
@@ -181,10 +220,33 @@ hidden`; content scrolls in the one container inside it, with
 `overscroll-y-contain`. Before that, `min-h-screen-d` on `body` *and* on the
 `(app)` shell *and* the tab-bar spacer stacked, so every page — however short —
 scrolled into a blank void that iOS then lagged repainting the fixed tab bar
-over. Nothing in `src/` reads `window.scrollY` or calls `window.scrollTo`, and
-`position: fixed` still resolves against the viewport because the scroller sets
-no transform or filter — so docked chrome needs no change. Route shells use
+over. `position: fixed` still resolves against the viewport because the scroller
+sets no transform or filter — so docked chrome needs no change. Route shells use
 `min-h-full`, never a second `min-h-screen-d`.
+
+**`overflow: hidden` is a request, not a guarantee — so the invariant is now
+enforced rather than assumed.** It refuses a finger and nothing else. `scrollIntoView` scrolls
+*every* scrollable ancestor and the last one is always the viewport;
+`element.focus()` does the same without `preventScroll`; and iOS pans a clipped
+page to reveal a focused field, restoring it on blur only if it believes nothing
+else has scrolled since. A document left off zero puts the workout header — and
+with it the **only** Finish button in the app — above the top of the screen,
+while the set list carries on scrolling normally inside `#app-scroll`, so
+nothing looks broken enough to explain itself and no gesture scrolls a clipped
+document back: the session cannot be finished until a reload. Three things hold
+the line now. `html` carries `overflow: hidden` too, because overflow propagates
+*from* the root and falls back to `body` only while `html` is `visible` — in
+which case `body`'s own used value becomes `visible` and it clips nothing, which
+is how the viewport had a scroll range to be dragged into at all. `centreOffset`
+and `nearestOffset` in `lib/scroll-memory.ts` are how anything in `src/` brings a
+row into view — they move the scroller they are handed and can reach nothing
+else, and **`scrollIntoView` has no callers**. And
+`components/ui/document-scroll-guard.tsx` is the one place that writes the
+document's offset, writing only ever `0`: it stands down while the keyboard is
+genuinely up (fighting iOS there shoves the field being typed in back under the
+keyboard) and while the page is pinch-zoomed — that pan is somebody's deliberate
+accessibility gesture, and `visualViewport.offsetTop` is read-only anyway, so a
+header lost to a pinch is a different fault this guard does not claim.
 
 **Which is why coming back to a list used to land you at the top.** Both the
 browser's scroll restoration and Next's act on the *document* scroller, which
@@ -441,7 +503,8 @@ was the part off the edge. A `useLayoutEffect` pins the scroller to
 until the store supplies a client-side date, and layout rather than passive so
 the jump lands before paint. Over-assigning is clamped, so a card wide enough
 to fit the whole grid is a no-op — and never `scrollIntoView`, which would
-scroll the document's one root scroller and move the page itself.
+scroll the document's one root scroller and move the page itself — the general
+rule above, of which this was the first instance.
 
 **The opt-in sequence lives once, in `lib/notify-client.ts`.** `enableNotifications`
 is permission → register `/sw.js` → `serviceWorker.ready` → un-mute → *then*, only
@@ -808,6 +871,7 @@ pnpm check:queries    # run every read query against the DB, catch SQL errors
 node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, screenshots to /tmp/pump-shots
 node scripts/smoke.mjs         # every route + two-user social/co-op flow + mid-workout paths
 node scripts/check-authz.mjs   # sign in as B, call actions against A's ids, assert refusal
+node scripts/ux-audit.mjs      # touch-target/ergonomics audit of every route at an iPhone viewport
 node scripts/generate-icons.mjs # regenerate PWA PNGs from public/icon.svg
 node scripts/generate-sounds.mjs # regenerate public/sounds (rest chime + keep-alive loop)
 ```

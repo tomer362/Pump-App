@@ -49,6 +49,7 @@ import { showToast, watchAction } from "@/components/ui/toast";
 import { alignPrevious } from "@/lib/set-input";
 import { isAssistedTracking } from "@/lib/tracking";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
+import { centreOffset, getScroller } from "@/lib/scroll-memory";
 import { FinishSheet } from "./finish-sheet";
 import { CoopStrip } from "./coop-strip";
 import type { CoopSnapshot } from "@/lib/actions/coop";
@@ -101,6 +102,15 @@ const LIST_TRANSITION = {
   duration: DUR.base,
   ease: EASE_OUT_QUART,
 } as const;
+
+/**
+ * Roughly the rest bar: how much of the bottom of the screen the docked chrome
+ * owns. One constant because two things read it and they must not drift — the
+ * line below which `useScrollWatch` calls a row gone, and the band `jumpToSet`
+ * centres a row inside. A jump that landed a row under the bar would be
+ * pointing at a checkmark you still can't tap.
+ */
+const BOTTOM_CHROME = 88;
 
 type Block = {
   id: string;
@@ -939,8 +949,7 @@ export function WorkoutScreen({
 
   const { activeBlockId, targetAway } = useScrollWatch({
     headerRef,
-    // Roughly the rest bar: below that line a row is behind the chrome.
-    bottomInset: 88,
+    bottomInset: BOTTOM_CHROME,
     targetSetId: nextTarget?.set.id ?? null,
   });
 
@@ -950,21 +959,41 @@ export function WorkoutScreen({
    * Scroll a row back into the middle of the screen and tint it for a beat.
    * Landing somewhere with no confirmation of *what* you landed on is the part
    * that makes a jump feel like a glitch.
+   *
+   * Arithmetic on the one scroller rather than `el.scrollIntoView()`, which
+   * scrolls *every* scrollable ancestor — the document included, because
+   * `overflow: hidden` stops a finger and not the API. This was the jump pill
+   * taking the header, and the only Finish button, off the top of the screen
+   * for the rest of the session: the pill only appears once the next set has
+   * scrolled away, so it was reachable exactly when you had gone down the page.
    */
   const jumpToSet = useCallback(
     (setId: string) => {
       const el = document.querySelector<HTMLElement>(
         `[data-set-id="${CSS.escape(setId)}"]`,
       );
-      if (!el) return;
+      const scroller = getScroller();
+      if (!el || !scroller) return;
       haptic.light();
-      el.scrollIntoView({
+      const rect = el.getBoundingClientRect();
+      scroller.scrollTo({
+        top: centreOffset({
+          scrollTop: scroller.scrollTop,
+          elTop:
+            scroller.scrollTop +
+            rect.top -
+            scroller.getBoundingClientRect().top,
+          elHeight: rect.height,
+          viewport: scroller.clientHeight,
+          topInset: headerH,
+          bottomInset: BOTTOM_CHROME,
+          maxScroll: scroller.scrollHeight - scroller.clientHeight,
+        }),
         behavior: reduce ? "auto" : "smooth",
-        block: "center",
       });
       flashSet(setId);
     },
-    [reduce, flashSet],
+    [reduce, flashSet, headerH],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -1340,6 +1369,11 @@ export function WorkoutScreen({
             >
               <button
                 onClick={() => jumpToSet(nextTarget.set.id)}
+                // The label the pill's own contents can't give it: an arrow
+                // glyph and two spans of exercise-and-target read as a string
+                // of numbers to a screen reader, with nothing saying the
+                // control moves you there.
+                aria-label="Jump to the next set"
                 className="press tap bg-surface-2 border-hairline text-text-1 pointer-events-auto flex max-w-full items-center gap-2 rounded-full border py-2.5 pr-4 pl-3.5"
               >
                 {supersetCue && !targetAway ? (

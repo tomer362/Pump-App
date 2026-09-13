@@ -100,6 +100,15 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --tab-row: 52px;
   --bottom-dock: calc(var(--tab-row) + var(--safe-b));
+  /* `ActiveWorkoutPill`, which docks *above* the bar while a session is live
+     and so takes another strip of the screen off every page in the group.
+     Measured, like `--tab-row`: 59px of pill, rounded up. Nothing reserved
+     room for it, so the last row of every list — the feed's like and comment
+     buttons, the foot of /profile, the last record on /stats — sat under it
+     with no scrolling left to clear it. `scripts/ux-audit.mjs` is what keeps
+     this number honest: it scrolls each route to its end and fails anything
+     still covered by docked chrome there. */
+  --pill-row: 60px;
 }
 
 html {
@@ -111,6 +120,24 @@ html {
   /* Both html and body: iOS picks the scrolling element itself, and setting
      this on only one of them still lets the document rubber-band. */
   overscroll-behavior-y: none;
+  /* The clip that actually clips.
+     Overflow propagates *from* the root: the viewport takes its overflow from
+     `html`, and falls back to `body` only while `html` is `visible` — in which
+     case `body`'s own used value becomes `visible`. So until this line, the
+     `overflow-hidden` in `app/layout.tsx` was styling the viewport while
+     `body` itself clipped nothing, and anything taller than its `100dvh`
+     handed the viewport a scroll range for a script — or iOS, revealing a
+     focused field — to drag it into. A document dragged off zero takes the
+     workout header, and with it the only Finish button in the app, above the
+     top of the screen; the set list carries on scrolling normally inside
+     `#app-scroll`, so nothing looks broken, and no gesture scrolls a clipped
+     document back. With `hidden` here the range is structurally zero rather
+     than merely un-gestureable.
+     No `height`: `html` is auto and already shrink-wraps `body`'s `100dvh`.
+     `height: 100%` would resolve against the initial containing block — the
+     *large* viewport on iOS — reintroducing the very vh/dvh mismatch
+     `h-screen-d` exists to avoid. */
+  overflow: hidden;
 }
 
 body {
@@ -297,6 +324,29 @@ input[type="number"]::-webkit-inner-spin-button {
 @utility tap {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* The same 44px, for a control whose *ink* has to stay small.
+   `tap` grows the box, which is right for a button and wrong for a 13px
+   "New" link or a 28px glyph — there the 44px is about the finger, not the
+   drawing, and inflating the box would push the layout around it apart. This
+   centres an invisible pseudo-element over the control instead: it is a child,
+   so a tap anywhere on it is a tap on the control, and nothing moves.
+   Use it only where there is slack around the control. The overlay sits above
+   whatever it covers inside the same stacking context, so two of these closer
+   together than their own slop would start eating each other's taps — which is
+   the fault it exists to fix, not one worth trading for. */
+@utility hit-slop {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
 }
 
 /* Hairline rules that stay 1 physical pixel on retina. */

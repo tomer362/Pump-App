@@ -39,11 +39,22 @@ export default async function AppLayout({
       <InstallNudge />
       <NotifyNudge vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
       <div className="mx-auto w-full max-w-lg flex-1">{children}</div>
-      <TabBarSpacer />
       {/* The tab bar is fixed-position chrome, so rendering it first without
           the unread dot and swapping it in place is invisible — while the page
           itself no longer waits on either query. */}
-      <Suspense fallback={<TabBar />}>
+      {/* The spacer moved in with the chrome, because only the chrome knows
+          whether the pill is up — and the spacer has to be as tall as whatever
+          is docked, or the foot of the list is unreachable. It stays after the
+          content in this column either way, so growing it adds scroll at the
+          bottom and shifts nothing above. */}
+      <Suspense
+        fallback={
+          <>
+            <TabBarSpacer />
+            <TabBar />
+          </>
+        }
+      >
         <AppChrome userId={me.id} />
       </Suspense>
     </div>
@@ -58,6 +69,7 @@ async function AppChrome({ userId }: { userId: string }) {
 
   return (
     <>
+      <TabBarSpacer withPill={active != null} />
       {/* Docked above the tab bar so an in-progress workout is never lost by
           navigating away — the single biggest complaint about web trackers. */}
       {active ? (

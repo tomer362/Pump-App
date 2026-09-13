@@ -86,7 +86,10 @@ export function GymPresenceBar({
                   await watchAction(checkOut(), () => setActive(true));
                 });
               }}
-              className="press text-text-3 flex items-center gap-1 text-[12px] font-semibold"
+              // 18px tall, and the only way to say you have left the gym —
+              // `hit-slop` makes the target 44 without turning a quiet text
+              // button into a chunk of chrome in the presence strip.
+              className="press hit-slop text-text-3 flex items-center gap-1 text-[12px] font-semibold"
             >
               <X className="size-3.5" strokeWidth={2.6} />
               End

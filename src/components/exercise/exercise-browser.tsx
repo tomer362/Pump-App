@@ -139,7 +139,16 @@ export function ExerciseBrowser({
         options={SCOPES}
       />
 
-      <div className="scrollbar-none -mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1">
+      {/* A group, not eighteen unrelated buttons. Without it a screen reader
+          reads out "Lats, button" with nothing saying what it filters, and the
+          6px between chips reads as two targets rather than two options of
+          one — which is the difference between a mis-tap that costs a tap and
+          one that costs you the screen. */}
+      <div
+        role="group"
+        aria-label="Filter by muscle"
+        className="scrollbar-none -mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1"
+      >
         {MUSCLE_FILTERS.map((m) => (
           <Chip
             key={m}

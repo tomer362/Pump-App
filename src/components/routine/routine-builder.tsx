@@ -1125,7 +1125,11 @@ function FolderPicker({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5">
+      {/* `gap-2`, and the create chip no longer dresses as a folder. It sat
+          6px from the last folder wearing the same unselected grey, so a thumb
+          aiming at "Legs" opened a name field instead — the two chips look
+          alike and do entirely different things. */}
+      <div className="flex flex-wrap gap-2">
         <FolderChip
           label="Unfiled"
           active={value === null}
@@ -1144,6 +1148,7 @@ function FolderPicker({
           <FolderChip
             label="+ New folder"
             active={false}
+            creating
             onClick={() => setCreating(true)}
           />
         )}
@@ -1190,11 +1195,14 @@ function FolderChip({
   label,
   color,
   active,
+  creating,
   onClick,
 }: {
   label: string;
   color?: FolderListItem["color"];
   active: boolean;
+  /** The one chip in the row that makes a folder rather than choosing one. */
+  creating?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -1204,12 +1212,14 @@ function FolderChip({
         haptic.light();
         onClick();
       }}
-      aria-pressed={active}
+      aria-pressed={creating ? undefined : active}
       className={cn(
         "press tap inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium",
-        active
-          ? "bg-surface-3 text-text-1"
-          : "bg-surface-2 text-text-3 hover:text-text-2",
+        creating
+          ? "border-hairline-strong text-text-3 hover:text-text-2 border border-dashed"
+          : active
+            ? "bg-surface-3 text-text-1"
+            : "bg-surface-2 text-text-3 hover:text-text-2",
       )}
     >
       {color && (

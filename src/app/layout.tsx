@@ -3,6 +3,7 @@ import { Archivo } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
 import { ScrollRestoration } from "@/components/ui/scroll-restoration";
+import { DocumentScrollGuard } from "@/components/ui/document-scroll-guard";
 import { Toaster } from "@/components/ui/toast";
 
 const archivo = Archivo({
@@ -93,6 +94,12 @@ export default function RootLayout({
           {children}
         </div>
         <ScrollRestoration />
+        {/* The document is supposed to sit permanently at zero. This is what
+            makes that true on a phone, where the keyboard pans a clipped page
+            and does not always pan it back — and where the cost of it staying
+            panned is the workout header, and the only Finish button in the
+            app, above the top of the screen until a reload. */}
+        <DocumentScrollGuard />
         <ServiceWorkerRegistrar />
         {/* The one place a failed background write can say so. */}
         <Toaster />

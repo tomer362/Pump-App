@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Dumbbell, Plus, Users } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
-import { EmptyState, SectionTitle } from "@/components/ui/primitives";
+import { EmptyState, SectionTitle, SectionAction} from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/session";
 import { getRoutines } from "@/lib/queries/routine";
@@ -27,13 +27,10 @@ export default async function StartPage() {
       <div className="px-safe-4 pb-4">
         <SectionTitle
           action={
-            <Link
-              href="/routines/new"
-              className="text-volt flex items-center gap-1 text-[13px] font-semibold"
-            >
+            <SectionAction href="/routines/new">
               <Plus className="size-3.5" strokeWidth={2.8} />
               New
-            </Link>
+            </SectionAction>
           }
         >
           Your routines
