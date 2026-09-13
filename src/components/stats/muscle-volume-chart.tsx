@@ -55,7 +55,7 @@ export function MuscleVolumeChart({
         <button
           onClick={() => setShowTable((v) => !v)}
           aria-label={showTable ? "Show chart" : "Show table"}
-          className="press text-text-3 hover:text-text-1 ml-2 shrink-0 p-1.5"
+          className="press hit-slop text-text-3 hover:text-text-1 ml-2 shrink-0 p-1.5"
         >
           {showTable ? (
             <BarChart3 className="size-4" />
@@ -95,7 +95,13 @@ export function MuscleVolumeChart({
                 <li key={d.muscle}>
                   <button
                     onClick={() => setActive(isActive ? null : d.muscle)}
-                    className="flex w-full items-center py-[3px] text-left"
+                    // 32px rows, not 44. A 20px bar with 44px of row would
+                    // make a sixteen-muscle chart 700px tall and turn the one
+                    // screen you read at a glance into a scroll — and WCAG 2.2
+                    // allows the smaller target where an equivalent control
+                    // exists, which the table view beside it is. `py-[3px]`
+                    // was 26px, which is the minimum and nothing more.
+                    className="press flex w-full items-center py-1.5 text-left"
                     style={{ gap: GAP }}
                     aria-label={`${labelize(d.muscle)}: ${d.sets} sets`}
                   >

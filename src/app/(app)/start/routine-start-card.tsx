@@ -47,7 +47,7 @@ export function RoutineStartCard({
     <>
       <div className="border-hairline bg-surface-1 rounded-card border px-4 py-3.5">
         <div className="flex items-start gap-3">
-          <Link href={`/routines/${routine.id}`} className="min-w-0 flex-1">
+          <Link href={`/routines/${routine.id}`} className="press min-w-0 flex-1">
             <p className="truncate text-[16px] font-semibold">{routine.name}</p>
             <p className="text-text-3 num mt-0.5 text-[12px]">
               {routine.exerciseCount} exercise

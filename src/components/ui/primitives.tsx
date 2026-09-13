@@ -7,6 +7,7 @@
 
 import * as React from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { cn, initialsOf } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
@@ -159,7 +160,14 @@ export function Segmented<T extends string>({
             aria-selected={active}
             onClick={() => onChange(o.value)}
             className={cn(
-              "press h-8 flex-1 rounded-lg text-[13px] font-medium transition-colors",
+              // 36px of ink, 44px of target. A segmented control is the
+              // filter on five screens and it was 32px tall — under the
+              // minimum on both platforms, and small enough that a thumb
+              // aiming at it lands beside it often enough to read as the app
+              // ignoring you. `hit-slop` buys the height back without making
+              // the control look like a row of buttons; the chips are already
+              // far wider than 44px, so nothing grows sideways.
+              "press hit-slop h-9 flex-1 rounded-lg text-[13px] font-medium transition-colors",
               active
                 ? "bg-surface-3 text-text-1 shadow-sm"
                 : "text-text-3 hover:text-text-2",
@@ -342,6 +350,34 @@ export function EmptyState({
 }
 
 /** Screen-level section heading. */
+/**
+ * The small volt link that rides a section heading — "All", "New", "More".
+ *
+ * Four screens had hand-rolled the same three classes, and every one of them
+ * came out around 50×20: below the 24px WCAG 2.2 minimum, never mind the 44px
+ * both platforms ask for. They are also the only way to reach /records,
+ * /history, /discover and the routine builder from those screens, so a missed
+ * tap is a dead end, not a nuisance. `hit-slop` gives them the 44 without
+ * turning a heading row into a row of buttons; the heading's own `items-baseline`
+ * keeps the text sitting where it always did.
+ */
+export function SectionAction({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="press hit-slop text-volt flex shrink-0 items-center gap-1 text-[13px] font-semibold"
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function SectionTitle({
   children,
   action,

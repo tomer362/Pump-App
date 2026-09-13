@@ -41,25 +41,34 @@ export function PersonRow({
 
   return (
     <div className="relative flex items-center gap-3 px-4 py-3">
-      <Link href={`/u/${person.username ?? person.id}`}>
-        <Avatar src={person.image} name={person.name} size="md" />
-      </Link>
-
+      {/* One link over the avatar and the name, not two to the same profile.
+          Separately they were a 40px square and a 41px block, each a little
+          under the minimum and each announced on its own to a screen reader;
+          together they are the row's identity, which is what a tap here
+          means. */}
       <Link
         href={`/u/${person.username ?? person.id}`}
-        className="min-w-0 flex-1"
+        className="press hit-slop flex min-w-0 flex-1 items-center gap-3"
       >
-        <p className="truncate text-[15px] font-medium">{person.name}</p>
-        <p className="text-text-3 truncate text-[12px]">
-          {person.username ? `@${person.username}` : ""}
-          {person.workoutCount > 0 &&
-            `${person.username ? " · " : ""}${person.workoutCount} workout${
-              person.workoutCount === 1 ? "" : "s"
-            }`}
-        </p>
+        <Avatar src={person.image} name={person.name} size="md" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium">
+            {person.name}
+          </span>
+          <span className="text-text-3 block truncate text-[12px]">
+            {person.username ? `@${person.username}` : ""}
+            {person.workoutCount > 0 &&
+              `${person.username ? " · " : ""}${person.workoutCount} workout${
+                person.workoutCount === 1 ? "" : "s"
+              }`}
+          </span>
+        </span>
       </Link>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      {/* `gap-2`: these are two different destructive-ish actions — stop
+          being friends, stop following — and 6px apart a thumb picks whichever
+          it likes. */}
+      <div className="flex shrink-0 items-center gap-2">
         {status === "friends" ? (
           // Two taps to unfriend, with no modal: the second tap confirms and
           // the state reverts on its own if it was a mis-tap.
@@ -80,7 +89,7 @@ export function PersonRow({
               });
             }}
             className={cn(
-              "press flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
+              "press hit-slop flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
               confirming ? "bg-danger-fade text-danger" : "text-volt",
             )}
           >
@@ -115,7 +124,7 @@ export function PersonRow({
               });
             }}
             className={cn(
-              "press flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
+              "press hit-slop flex items-center gap-1 rounded-full px-2 py-1.5 text-[12px] font-semibold",
               confirming ? "bg-danger-fade text-danger" : "text-text-3",
             )}
           >
@@ -194,7 +203,7 @@ export function PersonRow({
               });
             }}
             className={cn(
-              "press rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
+              "press hit-slop rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
               following
                 ? "text-text-3"
                 : "bg-surface-2 text-text-1",

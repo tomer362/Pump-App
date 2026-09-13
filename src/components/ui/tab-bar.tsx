@@ -129,6 +129,24 @@ function TabContent({
  * padding — so the spacer was 52px while the bar was 52px + the inset, and
  * every page in the app hid the bottom of its last row behind the bar.
  */
-export function TabBarSpacer() {
-  return <div aria-hidden className="h-dock" />;
+/**
+ * The strip of page that docked chrome is sitting on, given back as scroll.
+ *
+ * `withPill` is not decoration: `ActiveWorkoutPill` is `fixed` above the bar
+ * while a workout is live, and a `fixed` element reserves no space, so without
+ * this the last 60px of every list in the group was behind it *at the end of
+ * the scroll* — nowhere left to scroll to, and the control simply unreachable.
+ * On /feed that was the like and comment buttons of the newest post.
+ */
+export function TabBarSpacer({ withPill = false }: { withPill?: boolean }) {
+  return (
+    <div
+      aria-hidden
+      style={{
+        height: withPill
+          ? "calc(var(--bottom-dock) + var(--pill-row))"
+          : "var(--bottom-dock)",
+      }}
+    />
+  );
 }

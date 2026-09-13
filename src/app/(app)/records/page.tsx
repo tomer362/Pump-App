@@ -39,13 +39,16 @@ export default async function RecordsPage() {
         />
       ) : (
         <div className="space-y-4 px-4">
-          {[...byExercise.entries()].map(([name, list]) => (
-            <div key={name}>
+          {[...byExercise.entries()].map(([exerciseId, list]) => (
+            <div key={exerciseId}>
+              {/* The heading is the exercise's *name*. The map is keyed by id
+                  on purpose (see above), and this rendered that key — so every
+                  block on the page was titled with a raw uuid. */}
               <Link
-                href={`/exercises/${list[0].exerciseId}`}
-                className="mb-1.5 block truncate text-[15px] font-semibold"
+                href={`/exercises/${exerciseId}`}
+                className="press hit-slop mb-1.5 block truncate py-1 text-[15px] font-semibold"
               >
-                {name}
+                {list[0].exerciseName}
               </Link>
               <Card className="divide-hairline divide-y overflow-hidden">
                 {list.map((r) => (

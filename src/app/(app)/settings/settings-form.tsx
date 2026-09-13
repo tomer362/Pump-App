@@ -103,8 +103,9 @@ export function SettingsForm({
       )}
 
       <div>
-        <FieldLabel>Display name</FieldLabel>
+        <FieldLabel htmlFor="settings-name">Display name</FieldLabel>
         <Input
+          id="settings-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={60}
@@ -112,8 +113,9 @@ export function SettingsForm({
       </div>
 
       <div>
-        <FieldLabel>Bio</FieldLabel>
+        <FieldLabel htmlFor="settings-bio">Bio</FieldLabel>
         <Textarea
+          id="settings-bio"
           rows={2}
           value={bio}
           onChange={(e) => setBio(e.target.value)}

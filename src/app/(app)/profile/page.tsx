@@ -8,7 +8,7 @@ import {
   Bell,
 } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
-import { Avatar, Card, SectionTitle } from "@/components/ui/primitives";
+import { Avatar, Card, SectionTitle, SectionAction} from "@/components/ui/primitives";
 import { AchievementGrid } from "@/components/profile/achievement-grid";
 import { SignOutButton } from "@/components/profile/sign-out-button";
 import { requireUser } from "@/lib/session";
@@ -70,10 +70,13 @@ export default async function ProfilePage() {
             label={me.unit}
             value={formatVolume(stats.totalVolumeKg, me.unit)}
           />
-          <Link href="/friends" className="press">
+          {/* Two of these four tiles are links and two are not, which is
+              already a thing you can only learn by tapping — so the two that
+              are had better answer. `hit-slop` takes them from 40px to 44. */}
+          <Link href="/friends" className="press hit-slop">
             <Stat label="Followers" value={counts.followers} />
           </Link>
-          <Link href="/friends" className="press">
+          <Link href="/friends" className="press hit-slop">
             <Stat label="Following" value={counts.following} />
           </Link>
         </div>
@@ -128,12 +131,7 @@ export default async function ProfilePage() {
           <div>
             <SectionTitle
               action={
-                <Link
-                  href="/history"
-                  className="text-volt text-[13px] font-semibold"
-                >
-                  All
-                </Link>
+                <SectionAction href="/history">All</SectionAction>
               }
             >
               Recent workouts

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Compass, Dumbbell, UserPlus } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
-import { EmptyState, SectionTitle } from "@/components/ui/primitives";
+import { EmptyState, SectionTitle, SectionAction} from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { PostCard } from "@/components/social/post-card";
 import { FeedList } from "@/components/social/feed-list";
@@ -89,13 +89,10 @@ export default async function FeedPage() {
         <div className="mt-8 px-4">
           <SectionTitle
             action={
-              <Link
-                href="/discover"
-                className="text-volt flex items-center gap-1 text-[13px] font-semibold"
-              >
+              <SectionAction href="/discover">
                 <Compass className="size-3.5" />
                 More
-              </Link>
+              </SectionAction>
             }
           >
             Discover

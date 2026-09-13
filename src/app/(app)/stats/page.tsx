@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Calendar, ChevronRight, Flame, Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
-import { Card, SectionTitle } from "@/components/ui/primitives";
+import { Card, SectionTitle, SectionAction} from "@/components/ui/primitives";
 import {
   Skeleton,
   SkeletonChartCard,
@@ -249,9 +249,7 @@ async function RecordsPanels({ userId, unit }: { userId: string; unit: Unit }) {
 
 function AllRecordsLink() {
   return (
-    <Link href="/records" className="text-volt text-[13px] font-semibold">
-      All
-    </Link>
+    <SectionAction href="/records">All</SectionAction>
   );
 }
 

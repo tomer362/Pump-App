@@ -100,6 +100,15 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --tab-row: 52px;
   --bottom-dock: calc(var(--tab-row) + var(--safe-b));
+  /* `ActiveWorkoutPill`, which docks *above* the bar while a session is live
+     and so takes another strip of the screen off every page in the group.
+     Measured, like `--tab-row`: 59px of pill, rounded up. Nothing reserved
+     room for it, so the last row of every list — the feed's like and comment
+     buttons, the foot of /profile, the last record on /stats — sat under it
+     with no scrolling left to clear it. `scripts/ux-audit.mjs` is what keeps
+     this number honest: it scrolls each route to its end and fails anything
+     still covered by docked chrome there. */
+  --pill-row: 60px;
 }
 
 html {
@@ -315,6 +324,29 @@ input[type="number"]::-webkit-inner-spin-button {
 @utility tap {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* The same 44px, for a control whose *ink* has to stay small.
+   `tap` grows the box, which is right for a button and wrong for a 13px
+   "New" link or a 28px glyph — there the 44px is about the finger, not the
+   drawing, and inflating the box would push the layout around it apart. This
+   centres an invisible pseudo-element over the control instead: it is a child,
+   so a tap anywhere on it is a tap on the control, and nothing moves.
+   Use it only where there is slack around the control. The overlay sits above
+   whatever it covers inside the same stacking context, so two of these closer
+   together than their own slop would start eating each other's taps — which is
+   the fault it exists to fix, not one worth trading for. */
+@utility hit-slop {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
 }
 
 /* Hairline rules that stay 1 physical pixel on retina. */
