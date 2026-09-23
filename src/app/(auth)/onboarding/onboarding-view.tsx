@@ -10,6 +10,7 @@ import { Wordmark } from "@/components/wordmark";
 import { checkUsernameAvailable, completeOnboarding } from "@/lib/actions/user";
 import { cn } from "@/lib/utils";
 import { REST_PRESETS, restLabel } from "@/lib/rest";
+import { guessUnit, type Unit } from "@/lib/unit";
 import {
   DEFAULT_WEEK_START,
   WEEK_START_OPTIONS,
@@ -17,7 +18,7 @@ import {
   type WeekStart,
 } from "@/lib/week";
 
-/** The locale doesn't change under a mounted page; the store only splits the
+/** The locale doesn't change under a mounted page; the stores only split the
  *  server render from the client one. */
 const subscribeNever = () => () => {};
 import { ENTER, REDUCED } from "@/lib/motion";
@@ -47,7 +48,11 @@ export function OnboardingView({
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(defaultName);
   const [username, setUsername] = useState(suggestedUsername);
-  const [unit, setUnit] = useState<"kg" | "lb">("kg");
+  // Seeded from the locale like the week start below, and for the same
+  // reason read through a store rather than a `useState` initialiser.
+  const guessedUnit = useSyncExternalStore(subscribeNever, guessUnit, () => "kg" as const);
+  const [pickedUnit, setUnit] = useState<Unit | null>(null);
+  const unit = pickedUnit ?? guessedUnit;
   const [rest, setRest] = useState(120);
   // Seeded from the browser's locale, so most people just confirm it — but
   // asked, because a locale is a guess and the answer moves every weekly

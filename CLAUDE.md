@@ -692,7 +692,8 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   doesn't consult the hook ignores the setting entirely.
 - **The week starts on the lifter's day, not Postgres'.** `user.week_start` is a
   `getDay()` number (Monday 1, Sunday 0, Saturday 6 — `lib/week.ts`), asked on
-  onboarding (seeded from the browser locale's `weekInfo`) and editable in
+  onboarding (seeded from the browser locale's `weekInfo`, as the weight unit
+  is from its region — `lib/unit.ts`) and editable in
   Settings. `DATE_TRUNC('week', …)` only ever cuts on Monday, so every weekly
   boundary shifts forward by `weekTruncShiftDays`, truncates, and shifts back —
   the `/stats` trend, the consistency heatmap's columns and the "Full Coverage"

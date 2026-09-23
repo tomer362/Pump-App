@@ -6,6 +6,7 @@ import {
   weekTruncShiftDays,
   type WeekStart,
 } from "@/lib/week";
+import { unitForLocale } from "@/lib/unit";
 import { cleanup, makeExercise, makeFinishedWorkout, makeUser } from "./helpers";
 
 describe("week-start arithmetic", () => {
@@ -75,5 +76,19 @@ describe("getWeeklyTrend — the week a Sunday session lands in", () => {
     expect(trend).toHaveLength(1);
     expect(dayKey(trend[0].weekStart)).toBe(minusDays(back));
     expect(trend[0].workouts).toBe(1);
+  });
+});
+
+describe("unitForLocale — the onboarding default", () => {
+  it.each([
+    ["en-US", "lb"],
+    ["en", "lb"], // a bare `en` maximises to the US
+    ["es-US", "lb"],
+    ["en-GB", "kg"],
+    ["he-IL", "kg"],
+    ["de", "kg"],
+    ["not a locale", "kg"],
+  ])("%s → %s", (tag, unit) => {
+    expect(unitForLocale(tag)).toBe(unit);
   });
 });
