@@ -102,26 +102,68 @@ const exerciseEntrySchema = z
   })
   .strict();
 
+/**
+ * One routine's contents. Named because two documents carry it — a single
+ * routine, and an update carrying several — and they must never drift apart.
+ */
+const routineBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    notes: z.string().trim().max(1000).nullable(),
+    exercises: z.array(exerciseEntrySchema).min(1).max(50),
+  })
+  .strict();
+
 export const routineDocumentSchema = z
   .object({
     format: z.literal(ROUTINE_FORMAT),
     formatVersion: z.number().int().min(1),
     exportedAt: z.string().datetime(),
-    routine: z
-      .object({
-        name: z.string().trim().min(1).max(80),
-        notes: z.string().trim().max(1000).nullable(),
-        exercises: z.array(exerciseEntrySchema).min(1).max(50),
-      })
-      .strict(),
+    routine: routineBodySchema,
   })
   .strict();
 
 export type RoutineDocument = z.infer<typeof routineDocumentSchema>;
+export type RoutineBody = z.infer<typeof routineBodySchema>;
 export type ExerciseRef = z.infer<typeof exerciseRefSchema>;
 
+/**
+ * An update to routines you already have — what `routine-update-prompt.ts`
+ * asks a model for.
+ *
+ * Still no ids. A routine is found by its **exact name** among the importer's
+ * own routines (case and surrounding space aside): the prompt hands the model
+ * the names verbatim and tells it to copy them, and a name that matches none
+ * of yours becomes a new routine. Matching on a name the importer can see is
+ * also what keeps this safe — it can only ever reach rows `userId = me`
+ * already selects, whatever the document says.
+ *
+ * Every routine is carried in full rather than as patch operations. A model
+ * copying a routine with one change is reliable; a model computing "insert
+ * after position 3" is not. Pump works the diff out itself (`routine-diff.ts`).
+ */
+export const ROUTINE_UPDATE_FORMAT = "pump.routine-update";
+export const ROUTINE_UPDATE_FORMAT_VERSION = 1;
+export const MAX_UPDATE_ROUTINES = 14;
+
+export const routineUpdateDocumentSchema = z
+  .object({
+    format: z.literal(ROUTINE_UPDATE_FORMAT),
+    formatVersion: z.number().int().min(1),
+    exportedAt: z.string().datetime(),
+    routines: z.array(routineBodySchema).min(1).max(MAX_UPDATE_ROUTINES),
+  })
+  .strict();
+
+export type RoutineUpdateDocument = z.infer<typeof routineUpdateDocumentSchema>;
+
+/** The key a routine name is matched on: case and outer space don't count. */
+export function routineNameKey(name: string) {
+  return name.trim().toLowerCase();
+}
+
 export function buildRoutineExport(
-  r: FullRoutine,
+  r: Pick<FullRoutine, "name" | "notes" | "exercises">,
   exportedAt: Date,
 ): RoutineDocument {
   return {
@@ -196,18 +238,19 @@ export function stripCodeFence(raw: string): {
   };
 }
 
+type Unwrapped = { ok: true; json: unknown } | { ok: false; error: string };
+
 /**
- * Every rejection here is a sentence someone can act on. A zod issue dump is
- * the wrong thing to show a person who just picked the wrong file in Files.
+ * Size cap, then JSON — and only if that fails, the one fenced block a chat
+ * reply wraps it in. Shared by both document kinds so a pasted update is read
+ * exactly as leniently as a pasted routine.
  */
-export function parseRoutineExport(raw: string): ParseResult {
+function unwrapJson(raw: string): Unwrapped {
   if (exceedsImportBytes(raw)) {
     return { ok: false, error: "That file is too large to be a routine" };
   }
-
-  let json: unknown;
   try {
-    json = JSON.parse(raw);
+    return { ok: true, json: JSON.parse(raw) };
   } catch {
     // Only now consider fences. Trying JSON first means a real export file is
     // never reinterpreted — a routine whose notes happen to contain ``` parses
@@ -223,44 +266,122 @@ export function parseRoutineExport(raw: string): ParseResult {
       return { ok: false, error: "That file isn't valid JSON" };
     }
     try {
-      json = JSON.parse(fenced.json);
+      return { ok: true, json: JSON.parse(fenced.json) };
     } catch {
       return { ok: false, error: "That file isn't valid JSON" };
     }
   }
+}
 
+function formatOf(json: unknown): unknown {
+  return typeof json === "object" && json !== null
+    ? (json as { format?: unknown }).format
+    : undefined;
+}
+
+function tooNew(json: unknown, current: number) {
+  const version = (json as { formatVersion?: unknown }).formatVersion;
+  return typeof version === "number" && version > current;
+}
+
+function malformed(error: z.ZodError, what: string) {
+  const path = error.issues[0]?.path.join(".");
+  return path ? `That ${what} is malformed (${path})` : `That ${what} is malformed`;
+}
+
+function validateRoutine(json: unknown): ParseResult {
+  if (tooNew(json, ROUTINE_FORMAT_VERSION)) {
+    return { ok: false, error: "That file was made by a newer version of Pump" };
+  }
+  const parsed = routineDocumentSchema.safeParse(json);
+  if (!parsed.success) {
+    return { ok: false, error: malformed(parsed.error, "routine file") };
+  }
+  return { ok: true, doc: parsed.data };
+}
+
+export type UpdateParseResult =
+  | { ok: true; doc: RoutineUpdateDocument }
+  | { ok: false; error: string };
+
+function validateUpdate(json: unknown): UpdateParseResult {
+  if (tooNew(json, ROUTINE_UPDATE_FORMAT_VERSION)) {
+    return { ok: false, error: "That update was made by a newer version of Pump" };
+  }
+  const parsed = routineUpdateDocumentSchema.safeParse(json);
+  if (!parsed.success) {
+    return { ok: false, error: malformed(parsed.error, "update") };
+  }
+  // Two entries with one name would both match the same routine, and which
+  // one won would depend on the order the writes happened to run in.
+  const seen = new Set<string>();
+  for (const r of parsed.data.routines) {
+    const key = routineNameKey(r.name);
+    if (seen.has(key)) {
+      return {
+        ok: false,
+        error: `That update has two routines named "${r.name.trim()}"`,
+      };
+    }
+    seen.add(key);
+  }
+  return { ok: true, doc: parsed.data };
+}
+
+/**
+ * Every rejection here is a sentence someone can act on. A zod issue dump is
+ * the wrong thing to show a person who just picked the wrong file in Files.
+ */
+export function parseRoutineExport(raw: string): ParseResult {
+  const unwrapped = unwrapJson(raw);
+  if (!unwrapped.ok) return unwrapped;
   // Check the discriminator before the schema so the common mistake — picking
   // some other .json off the phone — gets told what happened rather than
   // being handed a complaint about a missing key.
-  if (
-    typeof json !== "object" ||
-    json === null ||
-    (json as { format?: unknown }).format !== ROUTINE_FORMAT
-  ) {
+  const format = formatOf(unwrapped.json);
+  if (format === ROUTINE_UPDATE_FORMAT) {
+    return {
+      ok: false,
+      error: "That's an update to your routines — paste it on the Import sheet",
+    };
+  }
+  if (format !== ROUTINE_FORMAT) {
     return { ok: false, error: "That isn't a Pump routine file" };
   }
+  return validateRoutine(unwrapped.json);
+}
 
-  const version = (json as { formatVersion?: unknown }).formatVersion;
-  if (typeof version === "number" && version > ROUTINE_FORMAT_VERSION) {
-    return {
-      ok: false,
-      error: "That file was made by a newer version of Pump",
-    };
+export function parseRoutineUpdate(raw: string): UpdateParseResult {
+  const unwrapped = unwrapJson(raw);
+  if (!unwrapped.ok) return unwrapped;
+  if (formatOf(unwrapped.json) !== ROUTINE_UPDATE_FORMAT) {
+    return { ok: false, error: "That isn't a Pump routine update" };
   }
+  return validateUpdate(unwrapped.json);
+}
 
-  const parsed = routineDocumentSchema.safeParse(json);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path.join(".");
-    return {
-      ok: false,
-      error: path
-        ? `That routine file is malformed (${path})`
-        : "That routine file is malformed",
-    };
+export type AnyParseResult =
+  | { ok: true; kind: "routine"; doc: RoutineDocument }
+  | { ok: true; kind: "update"; doc: RoutineUpdateDocument }
+  | { ok: false; error: string };
+
+/**
+ * Either document, decided by its `format`. The paste box takes both, so the
+ * person never has to know which of two prompts produced what they copied.
+ */
+export function parseAnyRoutineDocument(raw: string): AnyParseResult {
+  const unwrapped = unwrapJson(raw);
+  if (!unwrapped.ok) return unwrapped;
+  const format = formatOf(unwrapped.json);
+  if (format === ROUTINE_UPDATE_FORMAT) {
+    const res = validateUpdate(unwrapped.json);
+    return res.ok ? { ok: true, kind: "update", doc: res.doc } : res;
   }
-
-  return { ok: true, doc: parsed.data };
+  if (format === ROUTINE_FORMAT) {
+    const res = validateRoutine(unwrapped.json);
+    return res.ok ? { ok: true, kind: "routine", doc: res.doc } : res;
+  }
+  return { ok: false, error: "That isn't a Pump routine file" };
 }
 
 /** `pump-push-a-2026-08-02.json` */

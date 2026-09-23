@@ -143,6 +143,50 @@ export const PROMPT_EXAMPLE: RoutineDocument = {
 
 const list = (values: readonly string[]) => values.join(" | ");
 
+const SLUG_NULL_RULE = `- "slug" must be null on every exercise. Pump matches an exercise to its own library by name and creates the rest as custom exercises, so an invented slug only does harm.`;
+
+/**
+ * The mechanical rules every document obeys, shared with
+ * `routine-update-prompt.ts` so the two prompts can't disagree about the
+ * format. The envelope and the slug rule differ: this prompt has no library
+ * to copy slugs from, the update prompt does.
+ */
+export function documentRules({
+  format,
+  formatVersion,
+  slugRule,
+}: {
+  format: string;
+  formatVersion: number;
+  slugRule: string;
+}): string {
+  return `Rules
+- Output exactly the keys shown. Any key that isn't in the example makes the whole document invalid.
+- Every key is required. Where a value doesn't apply write null — never omit the key. "secondaryMuscles" is the only key that may be left out entirely; write [] when an exercise has none.
+- "format" and "formatVersion" must be exactly ${JSON.stringify(format)} and ${formatVersion}. "exportedAt" is any ISO-8601 UTC timestamp.
+${slugRule}
+- Weights are kilograms, in "targetWeightKg". There is no unit field — never write pounds.
+- Fill only the targets the exercise's "trackingType" uses and null the others:
+    weight_reps    targetWeightKg + targetReps
+    reps           targetReps
+    time           targetSeconds
+    distance_time  targetDistanceM + targetSeconds
+    weight_time    targetWeightKg + targetSeconds
+    assist_reps    targetWeightKg + targetReps
+- "assist_reps" is for machines that cancel part of your bodyweight (assisted pull-up and dip stations). Its "targetWeightKg" is the assistance the machine gives, so less is harder — Pump records it but never counts it as volume or turns it into a 1RM. Use "weight_reps" for anything you add load to.
+- "setType": "warmup" for warm-up sets (Pump excludes them from volume and records), "normal" for working sets, "drop" and "failure" where they apply.
+- "supersetGroup": exercises sharing a letter ("A", "B", …) are performed back to back as a superset; keep them next to each other in the list and give everything else null.
+- "restSeconds" is 0–1800 or null. "targetRpe" is a half point from 6 to 10 (6, 6.5, … 10) or null — Pump snaps anything else to the nearest half point and drops anything under 6.
+- "intervalWorkSeconds" and "intervalRestSeconds" are for timed interval work only; null everywhere else.
+- Limits: at most 50 exercises and at most 30 sets per exercise. Routine name at most 80 characters, routine notes 1000, exercise notes 500, instructions 1000.
+
+Allowed values — use these strings exactly, nothing else
+- primaryMuscle and each of secondaryMuscles (at most 6): ${list(MUSCLES)}
+- equipment: ${list(EQUIPMENT)}
+- trackingType: ${list(TRACKING_TYPES)}
+- setType: ${list(SET_TYPES)}`;
+}
+
 export function buildRoutinePrompt(): string {
   return `Take the training plan you have already given me in this conversation and convert it into routines for Pump, the gym tracker I log my workouts in. Do not design a new plan, do not change the one above, and do not ask me anything first — the plan in this chat is the input.
 
@@ -164,31 +208,11 @@ This is a complete valid document. Copy its shape exactly:
 
 ${serializeRoutineExport(PROMPT_EXAMPLE)}
 
-Rules
-- Output exactly the keys shown. Any key that isn't in the example makes the whole document invalid.
-- Every key is required. Where a value doesn't apply write null — never omit the key. "secondaryMuscles" is the only key that may be left out entirely; write [] when an exercise has none.
-- "format" and "formatVersion" must be exactly ${JSON.stringify(ROUTINE_FORMAT)} and ${ROUTINE_FORMAT_VERSION}. "exportedAt" is any ISO-8601 UTC timestamp.
-- "slug" must be null on every exercise. Pump matches an exercise to its own library by name and creates the rest as custom exercises, so an invented slug only does harm.
-- Weights are kilograms, in "targetWeightKg". There is no unit field — never write pounds.
-- Fill only the targets the exercise's "trackingType" uses and null the others:
-    weight_reps    targetWeightKg + targetReps
-    reps           targetReps
-    time           targetSeconds
-    distance_time  targetDistanceM + targetSeconds
-    weight_time    targetWeightKg + targetSeconds
-    assist_reps    targetWeightKg + targetReps
-- "assist_reps" is for machines that cancel part of your bodyweight (assisted pull-up and dip stations). Its "targetWeightKg" is the assistance the machine gives, so less is harder — Pump records it but never counts it as volume or turns it into a 1RM. Use "weight_reps" for anything you add load to.
-- "setType": "warmup" for warm-up sets (Pump excludes them from volume and records), "normal" for working sets, "drop" and "failure" where they apply.
-- "supersetGroup": exercises sharing a letter ("A", "B", …) are performed back to back as a superset; keep them next to each other in the list and give everything else null.
-- "restSeconds" is 0–1800 or null. "targetRpe" is a half point from 6 to 10 (6, 6.5, … 10) or null — Pump snaps anything else to the nearest half point and drops anything under 6.
-- "intervalWorkSeconds" and "intervalRestSeconds" are for timed interval work only; null everywhere else.
-- Limits: at most 50 exercises and at most 30 sets per exercise. Routine name at most 80 characters, routine notes 1000, exercise notes 500, instructions 1000.
-
-Allowed values — use these strings exactly, nothing else
-- primaryMuscle and each of secondaryMuscles (at most 6): ${list(MUSCLES)}
-- equipment: ${list(EQUIPMENT)}
-- trackingType: ${list(TRACKING_TYPES)}
-- setType: ${list(SET_TYPES)}
+${documentRules({
+  format: ROUTINE_FORMAT,
+  formatVersion: ROUTINE_FORMAT_VERSION,
+  slugRule: SLUG_NULL_RULE,
+})}
 
 Start with the day-name line for the first routine.`;
 }

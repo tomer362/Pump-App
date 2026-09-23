@@ -345,6 +345,123 @@ export async function getFullRoutine(
   };
 }
 
+export type RoutineContents = Pick<
+  FullRoutine,
+  "id" | "name" | "notes" | "exercises"
+>;
+
+/**
+ * Several of one user's routines in full, in three statements however many
+ * there are — what the AI update prompt and its preview read. Scoped by
+ * `userId` in the first statement, so an id belonging to anybody else simply
+ * doesn't come back. Returned in the order the ids were given.
+ */
+export async function getOwnRoutineContents(
+  userId: string,
+  routineIds: string[],
+): Promise<RoutineContents[]> {
+  if (!routineIds.length) return [];
+  const heads = await db
+    .select({ id: routine.id, name: routine.name, notes: routine.notes })
+    .from(routine)
+    .where(and(eq(routine.userId, userId), inArray(routine.id, routineIds)));
+  if (!heads.length) return [];
+
+  const res = await db
+    .select({
+      id: routineExercise.id,
+      routineId: routineExercise.routineId,
+      exerciseId: routineExercise.exerciseId,
+      position: routineExercise.position,
+      notes: routineExercise.notes,
+      restSeconds: routineExercise.restSeconds,
+      supersetGroup: routineExercise.supersetGroup,
+      intervalWorkSeconds: routineExercise.intervalWorkSeconds,
+      intervalRestSeconds: routineExercise.intervalRestSeconds,
+      name: exercise.name,
+      primaryMuscle: exercise.primaryMuscle,
+      equipment: exercise.equipment,
+      trackingType: exercise.trackingType,
+      slug: exercise.slug,
+      secondaryMuscles: exercise.secondaryMuscles,
+      instructions: exercise.instructions,
+    })
+    .from(routineExercise)
+    .innerJoin(exercise, eq(exercise.id, routineExercise.exerciseId))
+    .where(
+      inArray(
+        routineExercise.routineId,
+        heads.map((h) => h.id),
+      ),
+    )
+    .orderBy(asc(routineExercise.position));
+
+  const sets = res.length
+    ? await db
+        .select()
+        .from(routineSet)
+        .where(
+          inArray(
+            routineSet.routineExerciseId,
+            res.map((x) => x.id),
+          ),
+        )
+        .orderBy(asc(routineSet.position))
+    : [];
+
+  const byRe = new Map<string, FullRoutine["exercises"][number]["sets"]>();
+  for (const s of sets) {
+    const list = byRe.get(s.routineExerciseId) ?? [];
+    list.push({
+      id: s.id,
+      position: s.position,
+      setType: s.setType,
+      targetWeightKg: s.targetWeightKg,
+      targetReps: s.targetReps,
+      targetSeconds: s.targetSeconds,
+      targetDistanceM: s.targetDistanceM,
+      targetRpe: s.targetRpe,
+    });
+    byRe.set(s.routineExerciseId, list);
+  }
+
+  const byRoutine = new Map<string, FullRoutine["exercises"]>();
+  for (const { routineId, ...x } of res) {
+    const list = byRoutine.get(routineId) ?? [];
+    list.push({ ...x, sets: byRe.get(x.id) ?? [] });
+    byRoutine.set(routineId, list);
+  }
+
+  const byId = new Map(heads.map((h) => [h.id, h]));
+  return routineIds.flatMap((id) => {
+    const h = byId.get(id);
+    return h ? [{ ...h, exercises: byRoutine.get(id) ?? [] }] : [];
+  });
+}
+
+/**
+ * The built-in library plus this user's own live customs, as the update prompt
+ * lists it. Imported-and-never-adopted rows are left out on the same grounds
+ * search leaves them out: a model should not be steered towards a stranger's
+ * naming.
+ */
+export async function getPromptLibrary(userId: string) {
+  return db
+    .select({
+      slug: exercise.slug,
+      name: exercise.name,
+      trackingType: exercise.trackingType,
+    })
+    .from(exercise)
+    .where(
+      and(
+        sql`${exercise.archivedAt} IS NULL`,
+        sql`(${exercise.ownerId} IS NULL OR (${exercise.ownerId} = ${userId} AND ${exercise.importedAt} IS NULL))`,
+      ),
+    )
+    .orderBy(asc(exercise.name));
+}
+
 /** Public routines from people the user follows — the "programs" discovery list. */
 export async function getFollowedRoutines(userId: string, limit = 30) {
   return db
