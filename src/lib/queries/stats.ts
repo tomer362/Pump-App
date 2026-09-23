@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { streaks } from "@/lib/streaks";
 import { scoringLoadSql } from "@/lib/tracking";
+import { DEFAULT_WEEK_START, weekTruncShiftDays, type WeekStart } from "@/lib/week";
 
 export type MuscleVolume = {
   muscle: string;
@@ -81,19 +82,26 @@ export type WeeklyPoint = {
 };
 
 /**
- * Volume and frequency by ISO week — the trend chart on Stats.
+ * Volume and frequency by week — the trend chart on Stats.
  *
- * Weeks start on Monday, and the boundary is drawn on the stored clock:
- * `started_at` carries no zone (it is the UTC instant, see `lib/day.ts`), so
- * a Sunday-night session west of Greenwich can land in the following bar. The
- * heatmap draws its day boundary the same way, so the two agree with each
- * other; only a per-lifter offset would move both, and nothing here stores
- * one. Stated so the next reader doesn't take it for an accident.
+ * Weeks start on the lifter's chosen day (`user.week_start`, `lib/week.ts`).
+ * Postgres only truncates to Monday, so the timestamp is shifted forward by
+ * the gap, truncated, and shifted back: a Sunday start adds a day, so Sunday
+ * lands on Monday, truncates to itself, and comes back as Sunday.
+ *
+ * The boundary is drawn on the stored clock: `started_at` carries no zone (it
+ * is the UTC instant, see `lib/day.ts`), so a late-night session west of
+ * Greenwich can land in the following bar. The heatmap draws its day boundary
+ * the same way, so the two agree with each other; only a per-lifter offset
+ * would move both, and nothing here stores one. Stated so the next reader
+ * doesn't take it for an accident.
  */
 export async function getWeeklyTrend(
   userId: string,
   weeks = 12,
+  weekStart: WeekStart = DEFAULT_WEEK_START,
 ): Promise<WeeklyPoint[]> {
+  const shift = weekTruncShiftDays(weekStart);
   const res = await db.execute<{
     week_start: string;
     workouts: number;
@@ -101,14 +109,17 @@ export async function getWeeklyTrend(
     sets: number;
   }>(sql`
     SELECT
-      DATE_TRUNC('week', started_at)::date AS week_start,
+      (DATE_TRUNC('week', started_at + make_interval(days => ${shift}))
+        - make_interval(days => ${shift}))::date AS week_start,
       COUNT(*)::int                        AS workouts,
       COALESCE(SUM(total_volume_kg), 0)::real AS volume,
       COALESCE(SUM(total_sets), 0)::int    AS sets
     FROM workout
     WHERE user_id = ${userId}
       AND ended_at IS NOT NULL
-      AND started_at >= DATE_TRUNC('week', NOW()) - (${weeks - 1} || ' weeks')::interval
+      AND started_at >= DATE_TRUNC('week', NOW() + make_interval(days => ${shift}))
+        - make_interval(days => ${shift})
+        - make_interval(weeks => ${weeks - 1})
     GROUP BY week_start
     ORDER BY week_start
   `);

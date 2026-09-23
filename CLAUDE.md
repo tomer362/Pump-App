@@ -690,6 +690,15 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   zeroes CSS transitions and animations only — it cannot reach a JS-driven
   transform, which is what `motion` animates. A `motion.*` component that
   doesn't consult the hook ignores the setting entirely.
+- **The week starts on the lifter's day, not Postgres'.** `user.week_start` is a
+  `getDay()` number (Monday 1, Sunday 0, Saturday 6 — `lib/week.ts`), asked on
+  onboarding (seeded from the browser locale's `weekInfo`) and editable in
+  Settings. `DATE_TRUNC('week', …)` only ever cuts on Monday, so every weekly
+  boundary shifts forward by `weekTruncShiftDays`, truncates, and shifts back —
+  the `/stats` trend, the consistency heatmap's columns and the "Full Coverage"
+  achievement all read the same preference, so "this week" means one thing. The
+  workout screen's "N sets this week" is a rolling 7 days and deliberately
+  ignores it.
 - Estimated 1RM is **Epley** (`w × (1 + r/30)`), cached on `workout_set.estimated1rm` so PR detection is one comparison.
 - **A session with no load is not a session at 0 kg.** `estimate1RM` returns `0`, not null, for a non-positive input, so every write path guards on `weightKg > 0 && reps > 0` — `quickLogSet` did, `updateSet` and the bulk fill did not, and a stored `0` is indistinguishable downstream from a real estimate (`0016` nulls out the rows already written that way). At the read end the exercise chart's `valueOf` returns `null` rather than `?? 0` and the series *drops* sessions with no figure for the selected metric: coercing to zero printed "0 kg" against days nothing was logged at zero, put a fictional 0 on the low axis label and pinned the trend line to the floor. Volume and reps are untouched — those are COALESCEd counts where zero really is zero. The empty state distinguishes "nothing logged in this range" from "nothing in this range carried a load", which are different facts.
 - Warm-up sets are excluded from volume, records and muscle-volume counts.

@@ -17,6 +17,7 @@ import { PhotoInput } from "@/components/ui/photo-input";
 import { setAvatar, updateProfile } from "@/lib/actions/user";
 import { cn, haptic } from "@/lib/utils";
 import { REST_PRESETS, restLabel } from "@/lib/rest";
+import { WEEK_START_OPTIONS, type WeekStart } from "@/lib/week";
 
 
 /**
@@ -35,6 +36,7 @@ export function SettingsForm({
   bio: initialBio,
   unit: initialUnit,
   defaultRestSeconds,
+  weekStart: initialWeekStart,
   email,
   username,
   image: initialImage,
@@ -44,6 +46,7 @@ export function SettingsForm({
   bio: string | null;
   unit: "kg" | "lb";
   defaultRestSeconds: number;
+  weekStart: WeekStart;
   email: string;
   username: string | null;
   image: string | null;
@@ -56,6 +59,7 @@ export function SettingsForm({
   const [bio, setBio] = useState(initialBio ?? "");
   const [unit, setUnit] = useState(initialUnit);
   const [rest, setRest] = useState(defaultRestSeconds);
+  const [weekStart, setWeekStart] = useState(initialWeekStart);
   const [image, setImage] = useState(initialImage);
   const [saved, flashSaved] = useTransient(false, 2000);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +72,7 @@ export function SettingsForm({
         bio: bio.trim() || null,
         unit,
         defaultRestSeconds: rest,
+        weekStart,
       });
       if (res.ok) {
         haptic.success();
@@ -137,6 +142,19 @@ export function SettingsForm({
         <p className="text-text-3 mt-1.5 text-[12px]">
           Weights are stored in kilograms; this only changes how they&apos;re
           shown.
+        </p>
+      </div>
+
+      <div>
+        <FieldLabel>Week starts on</FieldLabel>
+        <Segmented
+          value={String(weekStart) as `${WeekStart}`}
+          onChange={(v) => setWeekStart(Number(v) as WeekStart)}
+          options={WEEK_START_OPTIONS}
+        />
+        <p className="text-text-3 mt-1.5 text-[12px]">
+          Where your weekly trend, consistency grid and &ldquo;this week&rdquo;
+          begin.
         </p>
       </div>
 

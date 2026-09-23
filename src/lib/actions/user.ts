@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/session";
 import { isBlobUrl } from "@/lib/blob";
+import { WEEK_START_DAYS, type WeekStart } from "@/lib/week";
 
 const usernameSchema = z
   .string()
@@ -40,11 +41,19 @@ export async function checkUsernameAvailable(
   return { ok: true, data: { available: !taken } };
 }
 
+const weekStartSchema = z
+  .number()
+  .int()
+  .refine((n): n is WeekStart => (WEEK_START_DAYS as readonly number[]).includes(n), {
+    message: "Pick Monday, Sunday or Saturday",
+  });
+
 const onboardingSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(60),
   username: usernameSchema,
   unit: z.enum(["kg", "lb"]),
   defaultRestSeconds: z.number().int().min(0).max(900),
+  weekStart: weekStartSchema,
 });
 
 export async function completeOnboarding(input: {
@@ -52,6 +61,7 @@ export async function completeOnboarding(input: {
   username: string;
   unit: "kg" | "lb";
   defaultRestSeconds: number;
+  weekStart: WeekStart;
 }): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
@@ -75,6 +85,7 @@ export async function completeOnboarding(input: {
       username: parsed.data.username,
       unit: parsed.data.unit,
       defaultRestSeconds: parsed.data.defaultRestSeconds,
+      weekStart: parsed.data.weekStart,
       onboardedAt: new Date(),
       updatedAt: new Date(),
     })
@@ -89,6 +100,7 @@ const profileSchema = z.object({
   bio: z.string().trim().max(160).nullable(),
   unit: z.enum(["kg", "lb"]),
   defaultRestSeconds: z.number().int().min(0).max(900),
+  weekStart: weekStartSchema,
 });
 
 export async function updateProfile(input: {
@@ -96,6 +108,7 @@ export async function updateProfile(input: {
   bio: string | null;
   unit: "kg" | "lb";
   defaultRestSeconds: number;
+  weekStart: WeekStart;
 }): Promise<ActionResult> {
   const me = await getCurrentUser();
   if (!me) return { ok: false, error: "Not signed in" };
@@ -110,7 +123,7 @@ export async function updateProfile(input: {
     .set({ ...parsed.data, updatedAt: new Date() })
     .where(eq(user.id, me.id));
 
-  // The unit and default rest reach every screen, not just the profile.
+  // The unit, default rest and week start reach every screen, not just the profile.
   revalidatePath("/", "layout");
   return { ok: true };
 }

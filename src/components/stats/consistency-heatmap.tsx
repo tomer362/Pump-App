@@ -4,6 +4,7 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import type { TrainingDay } from "@/lib/queries/stats";
 import { useScrollMemory } from "@/hooks/use-scroll-memory";
 import { cn, formatDayLabel } from "@/lib/utils";
+import { daysIntoWeek, type WeekStart } from "@/lib/week";
 
 const WEEKS = 26;
 const DAY_MS = 86_400_000;
@@ -35,7 +36,14 @@ function pinToThisWeek(el: HTMLElement) {
  * renders after hydration, because a server-rendered grid would key off a
  * different instant and React would discard the subtree.
  */
-export function ConsistencyHeatmap({ days }: { days: TrainingDay[] }) {
+export function ConsistencyHeatmap({
+  days,
+  weekStart,
+}: {
+  days: TrainingDay[];
+  /** Top row of every column — the lifter's first day of the week. */
+  weekStart: WeekStart;
+}) {
   const [active, setActive] = useState<string | null>(null);
   // The grid is anchored on "today", which the server and the client resolve
   // at different instants — and a text mismatch makes React discard the
@@ -59,8 +67,11 @@ export function ConsistencyHeatmap({ days }: { days: TrainingDay[] }) {
 
     const byDay = new Map(days.map((d) => [d.day, d]));
 
-    // Anchor on the coming Saturday so every column is a full week.
-    const end = new Date(today.getTime() + (6 - today.getDay()) * DAY_MS);
+    // Anchor on the last day of this week so every column is a full week that
+    // begins on the lifter's chosen day.
+    const end = new Date(
+      today.getTime() + (6 - daysIntoWeek(today.getDay(), weekStart)) * DAY_MS,
+    );
     const start = new Date(end.getTime() - (WEEKS * 7 - 1) * DAY_MS);
 
     const cols: { key: string; cells: (TrainingDay & { future: boolean })[] }[] =
@@ -91,7 +102,7 @@ export function ConsistencyHeatmap({ days }: { days: TrainingDay[] }) {
     }
 
     return { columns: cols, monthLabels: labels, total: count };
-  }, [days, today]);
+  }, [days, today, weekStart]);
 
   const activeDay = active
     ? columns.flatMap((c) => c.cells).find((c) => c.day === active)
