@@ -55,7 +55,9 @@ export function MyRoutines({
   return (
     <>
       <div className="mb-3 flex items-center justify-end gap-4">
-        <ImportRoutineButton className="press tap text-text-3 hover:text-text-1 flex items-center gap-1.5 py-2 text-[13px] font-semibold">
+        <ImportRoutineButton
+          routines={routines}
+          className="press tap text-text-3 hover:text-text-1 flex items-center gap-1.5 py-2 text-[13px] font-semibold">
           <Upload className="size-4" strokeWidth={2.2} />
           Import
         </ImportRoutineButton>

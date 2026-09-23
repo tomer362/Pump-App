@@ -31,7 +31,7 @@ Translated from the original Hebrew note; all of it is implemented.
 | 7 | Accounts | Google OAuth only (`lib/auth.ts`) |
 | 8 | Friends | `/friends`, mutual + explicit |
 | 9 | Follow people and their programs | `follow` table, `/routines` "programs you follow" |
-| 10 | Share a routine | `copyRoutine`, share sheet on `/routines/[id]`, JSON export/import (`lib/routine-transfer.ts`) |
+| 10 | Share a routine | `copyRoutine`, share sheet on `/routines/[id]`, JSON export/import (`lib/routine-transfer.ts`), AI update round trip (`lib/routine-update-prompt.ts`) |
 | 11 | "I'm at the gym" broadcast | `gym_presence` TTL row, feed presence strip |
 | 12 | Register your gym (gym = group) | `/gyms`, join codes |
 | 13 | Achievements | `lib/actions/achievements.ts`, profile grid |
@@ -827,6 +827,28 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   any routine it named — an import credits nobody), no `videoUrl`, no `slug` on
   a custom, no author identity. Weights are `targetWeightKg` and there is no
   `unit` field, which would only invite converting twice.
+- **An AI edit of routines you already have lands on those routines, never
+  beside them.** The first AI prompt only ever *created* routines, so changing a
+  week meant re-importing it — two "Upper A"s, plus a custom "Barbell Bench
+  Press" next to the built-in "Bench Press (Barbell)" because a model names
+  exercises from memory. "Update routines with AI" on the Import sheet puts the
+  chosen routines into the prompt as a `pump.routine-update` document (which is
+  also the example of the shape), with the whole library listed as
+  `slug · name · trackingType`, and says loudly that names are copied
+  character for character. The answer comes back through the same Paste box —
+  `parseAnyRoutineDocument` dispatches on `format`. Three rules make it safe:
+  a routine is matched by `routineNameKey` (case and outer space only) against
+  **your own** routines, so no document can reach anybody else's; two of yours
+  sharing a name is a refusal, not a guess; and each routine arrives **whole**
+  and Pump computes the diff (`lib/routine-diff.ts`, keyed on resolved exercise
+  ids), because a model copying a routine with one change is reliable and a
+  model writing patch operations is not. An update rewrites name, notes and
+  children only — folder, visibility, position and provenance stay the
+  lifter's — skips routines that come back unchanged, and creates a name it
+  can't match exactly as `importRoutine` would (unfiled, private). Separately,
+  `resolveExercisesForUser` now binds a slug-less exercise to a built-in by
+  exact case-insensitive name (after your own customs), which is what stops
+  both prompts minting twins of the library.
 - **`<a download>` is not the primary export path.** Blob-URL downloads are
   unreliable in an installed iOS PWA and can bounce the user out of the app, so
   `navigator.share({files})` leads, the anchor is the desktop/Android fallback,

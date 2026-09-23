@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { EQUIPMENT, MUSCLES, SET_TYPES, TRACKING_TYPES } from "@/lib/db/schema";
 import { buildRoutinePrompt, PROMPT_EXAMPLE } from "@/lib/routine-prompt";
+import { buildRoutineUpdatePrompt } from "@/lib/routine-update-prompt";
 import {
+  parseAnyRoutineDocument,
   parseRoutineExport,
+  parseRoutineUpdate,
+  ROUTINE_UPDATE_FORMAT,
   ROUTINE_FORMAT,
   ROUTINE_FORMAT_VERSION,
   serializeRoutineExport,
@@ -127,5 +131,85 @@ describe("pasting what a model replied", () => {
     const res = parseRoutineExport(withFence);
     expect(res.ok).toBe(true);
     expect(res.ok && res.doc.routine.notes).toContain("empty bar x 10");
+  });
+});
+
+/**
+ * The update prompt hands a model routines the lifter already has and asks for
+ * them back edited. Its whole value is that the answer lands on the same rows,
+ * so what these pin is the round trip and the exact-name instruction.
+ */
+describe("routine update prompt", () => {
+  const routines = [
+    PROMPT_EXAMPLE.routine,
+    { ...PROMPT_EXAMPLE.routine, name: "Lower B — Day 2" },
+  ];
+  const library = [
+    { slug: "barbell-bench-press", name: "Barbell Bench Press", trackingType: "weight_reps" },
+    { slug: null, name: "Dana's Cable Curl", trackingType: "weight_reps" },
+  ];
+  const prompt = buildRoutineUpdatePrompt({ routines, library });
+
+  it("carries the routines as a document the update parser accepts", () => {
+    const res = parseRoutineUpdate(prompt);
+    // The prompt has exactly one fenced-free JSON document embedded; pull it
+    // out the way a model copying it verbatim would.
+    const start = prompt.indexOf("{");
+    const end = prompt.indexOf("\n}\n") + 2;
+    const embedded = parseRoutineUpdate(prompt.slice(start, end));
+    expect(res.ok).toBe(false);
+    expect(embedded.ok).toBe(true);
+    expect(embedded.ok && embedded.doc.routines.map((r) => r.name)).toEqual(
+      routines.map((r) => r.name),
+    );
+  });
+
+  it("names every routine verbatim and insists the names are copied exactly", () => {
+    for (const r of routines) expect(prompt).toContain(JSON.stringify(r.name));
+    expect(prompt).toContain("character for character");
+    expect(prompt).toContain("creates a second routine");
+  });
+
+  it("lists the library with slugs, and tells the model to copy them", () => {
+    expect(prompt).toContain("barbell-bench-press · Barbell Bench Press · weight_reps");
+    expect(prompt).toContain("null · Dana's Cable Curl · weight_reps");
+    expect(prompt).not.toContain('"slug" must be null');
+    expect(prompt).toContain(ROUTINE_UPDATE_FORMAT);
+  });
+
+  it("lists every enum value, like the import prompt", () => {
+    for (const value of [...MUSCLES, ...EQUIPMENT, ...TRACKING_TYPES, ...SET_TYPES]) {
+      expect(prompt, `missing enum value ${value}`).toContain(value);
+    }
+  });
+});
+
+describe("telling the two documents apart", () => {
+  const update = JSON.stringify({
+    format: ROUTINE_UPDATE_FORMAT,
+    formatVersion: 1,
+    exportedAt: PROMPT_EXAMPLE.exportedAt,
+    routines: [PROMPT_EXAMPLE.routine],
+  });
+
+  it("dispatches on format, fenced or not", () => {
+    const a = parseAnyRoutineDocument(serializeRoutineExport(PROMPT_EXAMPLE));
+    expect(a.ok && a.kind).toBe("routine");
+    const b = parseAnyRoutineDocument(`Here you go:\n\n\`\`\`json\n${update}\n\`\`\`\n`);
+    expect(b.ok && b.kind).toBe("update");
+  });
+
+  it("tells a routine-file importer they are holding an update", () => {
+    const res = parseRoutineExport(update);
+    expect(res.ok === false && res.error).toMatch(/update/);
+  });
+
+  it("refuses an update naming one routine twice", () => {
+    const doubled = JSON.stringify({
+      ...JSON.parse(update),
+      routines: [PROMPT_EXAMPLE.routine, { ...PROMPT_EXAMPLE.routine, name: " upper a " }],
+    });
+    const res = parseRoutineUpdate(doubled);
+    expect(res.ok === false && res.error).toMatch(/two routines named/);
   });
 });

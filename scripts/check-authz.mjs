@@ -387,11 +387,18 @@ try {
   //        the strict schema is what stops it writing fields of its choosing.
   const transferActions = actionIdsFromManifest(
     "src/lib/actions/routine-transfer.ts",
-    ["exportRoutineFile", "previewRoutineImport", "importRoutine"],
+    [
+      "exportRoutineFile",
+      "previewRoutineImport",
+      "importRoutine",
+      "getRoutineUpdatePrompt",
+      "previewRoutineUpdate",
+      "applyRoutineUpdate",
+    ],
   );
   requireFixture(
-    transferActions.size === 3,
-    `expected 3 routine-transfer action ids in the dev manifest, found ${transferActions.size}`,
+    transferActions.size === 6,
+    `expected 6 routine-transfer action ids in the dev manifest, found ${transferActions.size}`,
   );
 
   for (const name of ["exportRoutineFile"]) {
@@ -407,6 +414,25 @@ try {
       ran &&
         /That routine is private|Routine not found/.test(res.body) &&
         // The refusal is worthless if the payload came back anyway.
+        !res.body.includes("Authz private"),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // The update prompt returns routines in full too, and unlike export it has
+  // no public case at all: only your own routines can go in it.
+  {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines`,
+      transferActions.get("getRoutineUpdatePrompt"),
+      [[routineId]],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "getRoutineUpdatePrompt refuses another user's routine",
+      ran &&
+        /Routine not found/.test(res.body) &&
         !res.body.includes("Authz private"),
       ran ? "" : "INCONCLUSIVE: action did not run",
     );
@@ -458,6 +484,29 @@ try {
     const ran = !/Failed to find Server Action/i.test(res.body);
     check(
       `${name} refuses a document carrying ownerId and videoUrl`,
+      ran && !/"ok"\s*:\s*true/.test(res.body),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
+  // The same smuggled exercise inside an update document. The routine body is
+  // one schema shared by both formats, so this must fail for the same reason.
+  const hostileUpdate = JSON.stringify({
+    format: "pump.routine-update",
+    formatVersion: 1,
+    exportedAt: new Date().toISOString(),
+    routines: [JSON.parse(hostileDoc).routine],
+  });
+  for (const name of ["previewRoutineUpdate", "applyRoutineUpdate"]) {
+    const res = await postAction(
+      b.page,
+      `${BASE}/routines`,
+      transferActions.get(name),
+      [hostileUpdate],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      `${name} refuses an update carrying ownerId and videoUrl`,
       ran && !/"ok"\s*:\s*true/.test(res.body),
       ran ? "" : "INCONCLUSIVE: action did not run",
     );

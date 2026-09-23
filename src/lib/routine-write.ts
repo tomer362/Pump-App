@@ -130,7 +130,7 @@ export type ResolvedExercise = {
  * the author deletes their account the cascade takes your logged sets with it.
  * A clone is yours, so every one of those surfaces just works.
  *
- * Resolution order, four bulk statements regardless of how many exercises
+ * Resolution order, at most five bulk statements regardless of how many exercises
  * arrive — never one round trip per exercise:
  *
  *   1. built-in by `slug`. On a hit the embedded definition is discarded.
@@ -142,6 +142,10 @@ export type ResolvedExercise = {
  *      keying on name+equipment instead would push a same-name entry into
  *      step 4, where it would collide with that very rule. An archived match
  *      is un-archived: you are using it again.
+ *   3b. a built-in by case-insensitive name. A model writing a plan names
+ *      "Barbell Bench Press" from memory with no slug, and without this step
+ *      every such import minted a custom twin of a built-in — a second row in
+ *      the picker, and a history split across the two.
  *   4. insert a clone.
  *
  * Returned in the same order as `refs`.
@@ -188,6 +192,35 @@ export async function resolveExercisesForUser(
     mine.flatMap((m) => (m.sourceExerciseId ? [[m.sourceExerciseId, m] as const] : [])),
   );
 
+  // 3b. A built-in named without its slug. Only asked about the names still
+  //    unresolved after steps 1–3 — a custom of your own by that name wins,
+  //    because it is the one you have been logging against.
+  const unresolvedNames = [
+    ...new Set(
+      refs
+        .filter((r) => {
+          if (r.slug && bySlug.has(r.slug)) return false;
+          if (r.sourceExerciseId && bySource.has(r.sourceExerciseId)) return false;
+          return !byName.has(r.name.toLowerCase());
+        })
+        .map((r) => r.name.toLowerCase()),
+    ),
+  ];
+  const builtinByName = new Map<string, string>();
+  if (unresolvedNames.length) {
+    const rows = await tx
+      .select({ id: exercise.id, name: exercise.name })
+      .from(exercise)
+      .where(
+        and(
+          isNull(exercise.ownerId),
+          isNull(exercise.archivedAt),
+          inArray(sql`lower(${exercise.name})`, unresolvedNames),
+        ),
+      );
+    for (const r of rows) builtinByName.set(r.name.toLowerCase(), r.id);
+  }
+
   const toRestore: string[] = [];
   const toInsert: { index: number; ref: ExerciseResolveRef }[] = [];
 
@@ -213,6 +246,12 @@ export async function resolveExercisesForUser(
         exerciseId: existing.id,
         resolution: existing.archivedAt ? "restored" : "existing",
       };
+      return;
+    }
+
+    const builtin = builtinByName.get(ref.name.toLowerCase());
+    if (builtin) {
+      out[i] = { exerciseId: builtin, resolution: "builtin" };
       return;
     }
 
