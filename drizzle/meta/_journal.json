@@ -127,6 +127,13 @@
       "when": 1789217816503,
       "tag": "0017_friend_pair_symmetric_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790155281136,
+      "tag": "0018_user_week_start",
+      "breakpoints": true
     }
   ]
 }

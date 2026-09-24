@@ -13,6 +13,7 @@ import { WeeklyTrendChart } from "@/components/stats/weekly-trend-chart";
 import { ConsistencyHeatmap } from "@/components/stats/consistency-heatmap";
 import { PrTimeline } from "@/components/stats/pr-timeline";
 import { requireUser } from "@/lib/session";
+import { toWeekStart, type WeekStart } from "@/lib/week";
 import {
   getLifetimeStats,
   getMuscleVolume,
@@ -49,11 +50,15 @@ export default async function StatsPage() {
         </Suspense>
 
         <Suspense fallback={<SkeletonChartCard height="7rem" />}>
-          <ConsistencyPanel userId={me.id} />
+          <ConsistencyPanel userId={me.id} weekStart={toWeekStart(me.weekStart)} />
         </Suspense>
 
         <Suspense fallback={<SkeletonChartCard height="26rem" />}>
-          <TrendPanel userId={me.id} unit={me.unit} />
+          <TrendPanel
+            userId={me.id}
+            unit={me.unit}
+            weekStart={toWeekStart(me.weekStart)}
+          />
         </Suspense>
 
         <Suspense fallback={null}>
@@ -163,25 +168,39 @@ async function MusclePanel({ userId, unit }: { userId: string; unit: Unit }) {
   );
 }
 
-async function ConsistencyPanel({ userId }: { userId: string }) {
+async function ConsistencyPanel({
+  userId,
+  weekStart,
+}: {
+  userId: string;
+  weekStart: WeekStart;
+}) {
   const calendar = await getTrainingCalendar(userId, 200);
   return (
     <div className="animate-rise-in">
       <SectionTitle>Consistency</SectionTitle>
       <Card className="px-safe-4 py-4">
-        <ConsistencyHeatmap days={calendar} />
+        <ConsistencyHeatmap days={calendar} weekStart={weekStart} />
       </Card>
     </div>
   );
 }
 
-async function TrendPanel({ userId, unit }: { userId: string; unit: Unit }) {
-  const trend = await getWeeklyTrend(userId, 12);
+async function TrendPanel({
+  userId,
+  unit,
+  weekStart,
+}: {
+  userId: string;
+  unit: Unit;
+  weekStart: WeekStart;
+}) {
+  const trend = await getWeeklyTrend(userId, 12, weekStart);
   return (
     <div className="animate-rise-in">
       <SectionTitle>Last 12 weeks</SectionTitle>
       <Card className="px-safe-4 py-4">
-        <WeeklyTrendChart data={trend} unit={unit} />
+        <WeeklyTrendChart data={trend} unit={unit} weekStart={weekStart} />
       </Card>
     </div>
   );

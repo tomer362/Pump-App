@@ -36,6 +36,10 @@ export const user = pgTable(
     // Stored weights are ALWAYS kilograms; this is a display preference only.
     unit: text("unit", { enum: ["kg", "lb"] }).default("kg").notNull(),
     defaultRestSeconds: integer("default_rest_seconds").default(120).notNull(),
+    // First day of the week as a `getDay()` number (0 = Sunday, 1 = Monday,
+    // 6 = Saturday) — see `lib/week.ts`. A display preference: it moves where
+    // the weekly trend, the heatmap and "this week" cut, nothing stored.
+    weekStart: integer("week_start").default(1).notNull(),
     homeGymId: uuid("home_gym_id"),
     onboardedAt: timestamp("onboarded_at"),
   },

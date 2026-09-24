@@ -207,6 +207,7 @@ const cases: [string, () => Promise<unknown>][] = [
   gymCase,
   ["stats.getMuscleVolume", () => statsQ.getMuscleVolume(uid, 7)],
   ["stats.getWeeklyTrend", () => statsQ.getWeeklyTrend(uid, 12)],
+  ["stats.getWeeklyTrend (Sunday)", () => statsQ.getWeeklyTrend(uid, 12, 0)],
   ["stats.getLifetimeStats", () => statsQ.getLifetimeStats(uid)],
   ["stats.getTrainingCalendar", () => statsQ.getTrainingCalendar(uid, 200)],
   ["stats.getRecentRecords", () => statsQ.getRecentRecords(uid, 6)],

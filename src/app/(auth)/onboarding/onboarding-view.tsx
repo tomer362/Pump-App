@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { AlertCircle, Check, Loader2 } from "lucide-react";
@@ -10,6 +10,17 @@ import { Wordmark } from "@/components/wordmark";
 import { checkUsernameAvailable, completeOnboarding } from "@/lib/actions/user";
 import { cn } from "@/lib/utils";
 import { REST_PRESETS, restLabel } from "@/lib/rest";
+import { guessUnit, type Unit } from "@/lib/unit";
+import {
+  DEFAULT_WEEK_START,
+  WEEK_START_OPTIONS,
+  guessWeekStart,
+  type WeekStart,
+} from "@/lib/week";
+
+/** The locale doesn't change under a mounted page; the stores only split the
+ *  server render from the client one. */
+const subscribeNever = () => () => {};
 import { ENTER, REDUCED } from "@/lib/motion";
 import { useMotionPreset } from "@/hooks/use-motion-preset";
 
@@ -37,8 +48,20 @@ export function OnboardingView({
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(defaultName);
   const [username, setUsername] = useState(suggestedUsername);
-  const [unit, setUnit] = useState<"kg" | "lb">("kg");
+  // Seeded from the locale like the week start below, and for the same
+  // reason read through a store rather than a `useState` initialiser.
+  const guessedUnit = useSyncExternalStore(subscribeNever, guessUnit, () => "kg" as const);
+  const [pickedUnit, setUnit] = useState<Unit | null>(null);
+  const unit = pickedUnit ?? guessedUnit;
   const [rest, setRest] = useState(120);
+  // Seeded from the browser's locale, so most people just confirm it — but
+  // asked, because a locale is a guess and the answer moves every weekly
+  // figure the app draws. The guess is read through a store with a Monday
+  // server snapshot rather than a `useState` initialiser: the server has no
+  // locale to read, and a mismatched `aria-selected` discards the subtree.
+  const guessed = useSyncExternalStore(subscribeNever, guessWeekStart, () => DEFAULT_WEEK_START);
+  const [picked, setWeekStart] = useState<WeekStart | null>(null);
+  const weekStart = picked ?? guessed;
   const [error, setError] = useState<string | null>(null);
 
   /**
@@ -92,6 +115,7 @@ export function OnboardingView({
         username,
         unit,
         defaultRestSeconds: rest,
+        weekStart,
       });
       if (res.ok) router.replace("/feed");
       else setError(res.error);
@@ -181,6 +205,17 @@ export function OnboardingView({
                 { value: "kg", label: "Kilograms" },
                 { value: "lb", label: "Pounds" },
               ]}
+            />
+          </Field>
+
+          <Field
+            label="Week starts on"
+            hint="Where your weekly trend, consistency grid and “this week” begin."
+          >
+            <Segmented
+              value={String(weekStart) as `${WeekStart}`}
+              onChange={(v) => setWeekStart(Number(v) as WeekStart)}
+              options={WEEK_START_OPTIONS}
             />
           </Field>
 

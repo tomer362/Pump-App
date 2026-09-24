@@ -192,11 +192,15 @@ async function hitAllMuscleGroupsThisWeek(userId: string): Promise<boolean> {
     JOIN workout_exercise we ON we.workout_id = w.id
     JOIN workout_set ws ON ws.workout_exercise_id = we.id
     JOIN exercise e ON e.id = we.exercise_id
+    JOIN "user" u ON u.id = w.user_id
     WHERE w.user_id = ${userId}
       AND w.ended_at IS NOT NULL
       -- The calendar week the trend chart draws, not a rolling 168 hours:
-      -- "this week" on the badge has to mean the same thing as on /stats.
-      AND w.started_at >= DATE_TRUNC('week', NOW())
+      -- "this week" on the badge has to mean the same thing as on /stats,
+      -- including the lifter's own first day (the shift is
+      -- \`weekTruncShiftDays\` in lib/week.ts, done in SQL to save a query).
+      AND w.started_at >= DATE_TRUNC('week', NOW() + make_interval(days => (8 - u.week_start) % 7))
+        - make_interval(days => (8 - u.week_start) % 7)
       AND ws.completed_at IS NOT NULL
   `);
   const hit = new Set(res.rows.map((r) => r.primary_muscle));
@@ -204,3 +208,4 @@ async function hitAllMuscleGroupsThisWeek(userId: string): Promise<boolean> {
   if (hit.has("lats")) hit.add("back");
   return MAJOR_GROUPS.every((g) => hit.has(g));
 }
+

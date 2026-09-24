@@ -2,6 +2,7 @@ import { NavBar } from "@/components/ui/nav-bar";
 import { SettingsForm } from "./settings-form";
 import { requireUser } from "@/lib/session";
 import { uploadsEnabled } from "@/lib/blob";
+import { toWeekStart } from "@/lib/week";
 
 export default async function SettingsPage() {
   const me = await requireUser();
@@ -13,6 +14,7 @@ export default async function SettingsPage() {
         bio={me.bio}
         unit={me.unit}
         defaultRestSeconds={me.defaultRestSeconds}
+        weekStart={toWeekStart(me.weekStart)}
         email={me.email}
         username={me.username}
         image={me.image}

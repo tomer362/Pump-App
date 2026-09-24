@@ -14,6 +14,7 @@ import {
   useElementWidth,
 } from "@/components/ui/chart";
 import { cn, formatShortDate, kgToLb } from "@/lib/utils";
+import { weekStartName, type WeekStart } from "@/lib/week";
 
 type Metric = "volume" | "sets" | "workouts";
 
@@ -46,9 +47,11 @@ const BAR_GAP = 4;
 export function WeeklyTrendChart({
   data,
   unit,
+  weekStart,
 }: {
   data: WeeklyPoint[];
   unit: "kg" | "lb";
+  weekStart: WeekStart;
 }) {
   const [metric, setMetric] = useState<Metric>("volume");
   const [active, setActive] = useState<number | null>(null);
@@ -106,7 +109,9 @@ export function WeeklyTrendChart({
 
   const footer = (
     <div className="mt-3 flex items-center justify-between gap-3">
-      <p className="text-text-3 text-[11px]">Weeks start on Monday.</p>
+      <p className="text-text-3 text-[11px]">
+        Weeks start on {weekStartName(weekStart)}.
+      </p>
       <TableToggle asTable={asTable} onChange={setAsTable} />
     </div>
   );
