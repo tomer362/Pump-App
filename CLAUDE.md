@@ -680,6 +680,23 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
 - **`finishWorkout` and quick-log both write the denormalised counters**, so
   "what scores" (ticked, not a warm-up) lives once in `lib/workout-totals.ts`
   and is asserted in `tests/workout-totals.test.ts`.
+- **A typed set value reaches the database without waiting for blur.** A cell
+  used to write only when it lost focus, so while the keyboard was up the number
+  lived in React state alone — and a screen torn down in that window (iOS
+  reloading the installed app's web process fires no `pagehide`) came back from
+  the database with the tick you had made and the reps you were correcting
+  gone. `patchSet` now writes a draft 700 ms after typing pauses
+  (`DRAFT_PERSIST_MS`), flushes it on `pagehide`/hidden, and parks it in
+  `sessionStorage` (`pump.ui.set-draft.<workoutId>`) until the server confirms
+  it, replaying it on the next load. The draft persists and nothing else: it
+  never ends the fill run, so "100" still carries down as 100, not 1. The blur
+  commit skips itself when the draft already sent exactly that.
+- **A running session opens on the set you owe, not on its first row.**
+  `/workout/[id]` is out of scroll restoration because "where I was" there
+  means the next set — so on mount, once anything is ticked, the screen centres
+  `nextTarget` (same arithmetic as the jump pill, re-asserted for a few frames,
+  abandoned on the first touch). Without it, any reload read as the app
+  jumping to the top.
 - **`/workout/[id]` deliberately has no `loading.tsx`.** A loading file makes
   Next stream a 200 shell before `notFound()` runs, and `check-authz` asserts
   that someone else's live workout answers 404 on the wire, not just in the

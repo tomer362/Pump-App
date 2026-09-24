@@ -47,6 +47,11 @@ import { RestTimerBar, useRestTimer } from "./rest-timer";
 import { useTransient } from "@/hooks/use-transient";
 import { showToast, watchAction } from "@/components/ui/toast";
 import { alignPrevious } from "@/lib/set-input";
+import {
+  readSession,
+  UI_STORAGE_PREFIX,
+  writeSession,
+} from "@/lib/session-memory";
 import { isAssistedTracking } from "@/lib/tracking";
 import { useScrollWatch } from "@/hooks/use-scroll-watch";
 import { centreOffset, getScroller } from "@/lib/scroll-memory";
@@ -313,6 +318,79 @@ export function WorkoutScreen({
     ids: string[];
   } | null>(null);
 
+  /**
+   * A typed value that is on screen but not yet in the database.
+   *
+   * A cell used to write only on blur, so for as long as the keyboard was up
+   * the number existed in React state and nowhere else. Anything that tore the
+   * screen down in that window — iOS reloading a standalone PWA's web process,
+   * which it does under memory pressure and fires no `pagehide` for — brought
+   * the page back from the database: the tick you had already made, the reps
+   * you were correcting gone, and the list back at the top. So a draft is also
+   * written once typing pauses, and flushed whenever the page is hidden.
+   */
+  const pendingDraft = useRef<{
+    timer: number;
+    /** `setId:field` — the cell this draft is typed into. */
+    target: string;
+    key: string;
+    write: () => void;
+  } | null>(null);
+  /** The last draft actually sent, so the blur commit can skip a repeat. */
+  const persistedDraft = useRef<string | null>(null);
+
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    if (!pending) return;
+    pendingDraft.current = null;
+    window.clearTimeout(pending.timer);
+    persistedDraft.current = pending.key;
+    pending.write();
+  }, []);
+
+  /**
+   * The draft is also parked in `sessionStorage` until the server confirms it,
+   * because the debounce leaves a window and a killed web process fires
+   * nothing — not `pagehide`, not a request that finishes. A reload that finds
+   * one here replays it, onto the screen and into the database.
+   */
+  const draftKey = `${UI_STORAGE_PREFIX}set-draft.${workout.id}`;
+  useEffect(() => {
+    // A frame late, like any other read of client-only storage: the first
+    // client render has to match the server HTML.
+    const frame = requestAnimationFrame(() => {
+      const saved = readSession(draftKey, reviveDraft);
+      if (!saved) return;
+      dirty.current = true;
+      setBlocks((prev) =>
+        prev.map((b) => ({
+          ...b,
+          sets: b.sets.map((s) =>
+            saved.ids.includes(s.id) ? { ...s, ...saved.values } : s,
+          ),
+        })),
+      );
+      const raw = JSON.stringify(saved);
+      void persistValues(saved.ids, saved.values).then((ok) => {
+        if (ok) forgetDraft(draftKey, raw);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draftKey]);
+
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flushDraft();
+    };
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", onHidden);
+      flushDraft();
+    };
+  }, [flushDraft]);
+
   const totals = useMemo(() => {
     let volume = 0;
     let sets = 0;
@@ -432,10 +510,6 @@ export function WorkoutScreen({
         ),
       );
 
-      // A keystroke only moves local state. Persisting per character would be
-      // a round-trip per digit on a phone, which the Neon budget rules out.
-      if (local) return;
-
       const values = {
         weightKg: patch.weightKg,
         reps: patch.reps,
@@ -445,14 +519,59 @@ export function WorkoutScreen({
         restSeconds: patch.restSeconds,
         setType: patch.setType,
       };
+      // Also the identity of this write: what is parked in storage, and what
+      // the blur compares against to skip repeating a draft already sent.
+      const key = JSON.stringify({ ids, values });
       // Fired directly, not inside startTransition: tapping the exercise name
       // unmounts this component to navigate, and React is free to abandon an
       // in-flight transition on unmount — which would silently drop the write.
       // One round-trip for the whole fill either way.
-      if (ids.length > 1) void watchAction(updateSets(ids, values));
-      else void watchAction(updateSet(setId, values));
+      const write = () => {
+        void persistValues(ids, values).then((ok) => {
+          if (ok) forgetDraft(draftKey, key);
+        });
+      };
+
+      // A keystroke only moves local state. Persisting per character would be
+      // a round-trip per digit on a phone, which the Neon budget rules out —
+      // so the draft is written once typing pauses, not on every digit. It
+      // persists and nothing more: the fill run above stays open, because the
+      // lifter is still in the middle of typing into this cell.
+      if (local) {
+        if (!field) return;
+        writeSession(draftKey, { ids, values });
+        const target = `${setId}:${field}`;
+        const pending = pendingDraft.current;
+        // Another cell's draft is never dropped for this one — it goes now.
+        if (pending && pending.target !== target) flushDraft();
+        else if (pending) window.clearTimeout(pending.timer);
+        pendingDraft.current = {
+          target,
+          key,
+          write,
+          timer: window.setTimeout(flushDraft, DRAFT_PERSIST_MS),
+        };
+        return;
+      }
+
+      // The commit supersedes a draft still waiting in the same cell — and if
+      // the draft already sent exactly this, the blur has nothing left to say.
+      // A draft in some other cell is not this commit's to drop.
+      const pending = pendingDraft.current;
+      if (pending && field && pending.target === `${setId}:${field}`) {
+        window.clearTimeout(pending.timer);
+        pendingDraft.current = null;
+      } else if (pending) {
+        flushDraft();
+      }
+      if (persistedDraft.current === key) {
+        persistedDraft.current = null;
+        return;
+      }
+      persistedDraft.current = null;
+      write();
     },
-    [blocks],
+    [blocks, flushDraft, draftKey],
   );
 
   const toggleComplete = useCallback(
@@ -969,32 +1088,73 @@ export function WorkoutScreen({
    */
   const jumpToSet = useCallback(
     (setId: string) => {
-      const el = document.querySelector<HTMLElement>(
-        `[data-set-id="${CSS.escape(setId)}"]`,
-      );
-      const scroller = getScroller();
-      if (!el || !scroller) return;
+      const target = setScrollTarget(setId, headerH);
+      if (!target) return;
       haptic.light();
-      const rect = el.getBoundingClientRect();
-      scroller.scrollTo({
-        top: centreOffset({
-          scrollTop: scroller.scrollTop,
-          elTop:
-            scroller.scrollTop +
-            rect.top -
-            scroller.getBoundingClientRect().top,
-          elHeight: rect.height,
-          viewport: scroller.clientHeight,
-          topInset: headerH,
-          bottomInset: BOTTOM_CHROME,
-          maxScroll: scroller.scrollHeight - scroller.clientHeight,
-        }),
+      target.scroller.scrollTo({
+        top: target.top,
         behavior: reduce ? "auto" : "smooth",
       });
       flashSet(setId);
     },
     [reduce, flashSet, headerH],
   );
+
+  /**
+   * Open a session already under way on the set you owe, not on its first row.
+   *
+   * `/workout/[id]` is kept out of scroll restoration because mid-workout
+   * "where I was" means the next set — but nothing then put you there, so any
+   * fresh load of a running session started at the top. That is most visible
+   * when iOS reloads the installed app behind your back: you were three
+   * exercises down, and the screen came back on the first one, which reads as
+   * the app glitching rather than as a reload. A session with nothing ticked
+   * yet starts at the top, where its next set is anyway.
+   *
+   * Re-asserted for a few frames, because Next scrolls the container on the
+   * commit that lands the route, and aborted the moment the lifter touches the
+   * screen — landing on top of a scroll somebody is performing is worse than
+   * not landing at all. No haptic and no flash: nothing was tapped.
+   */
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current) return;
+    landed.current = true;
+    const setId = nextTarget?.set.id;
+    if (!setId || totals.done === 0) return;
+
+    let frame = 0;
+    let done = false;
+    const startedAt = performance.now();
+    const stop = () => {
+      done = true;
+      if (frame) cancelAnimationFrame(frame);
+      for (const type of LAND_ABORT_EVENTS) {
+        window.removeEventListener(type, stop, { capture: true });
+      }
+    };
+    const step = () => {
+      frame = 0;
+      if (done) return;
+      const target = setScrollTarget(
+        setId,
+        headerRef.current?.getBoundingClientRect().height ?? 0,
+      );
+      if (target && Math.abs(target.scroller.scrollTop - target.top) > 1) {
+        target.scroller.scrollTop = target.top;
+      }
+      if (performance.now() - startedAt > LAND_DEADLINE_MS) return stop();
+      frame = requestAnimationFrame(step);
+    };
+    for (const type of LAND_ABORT_EVENTS) {
+      window.addEventListener(type, stop, { capture: true, passive: true });
+    }
+    step();
+    return stop;
+    // Mount only: this is where a load lands, not something to repeat as the
+    // next set moves on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------------------------------------------------------------------- */
   /* The session while the phone is in a pocket.                             */
@@ -2807,6 +2967,105 @@ function targetLabel(
   }
   return parts.length ? `${parts.join(" · ")}${effort}` : null;
 }
+
+type SavedDraft = {
+  ids: string[];
+  values: Partial<
+    Pick<SetDraft, "weightKg" | "reps" | "seconds" | "distanceM">
+  >;
+};
+
+/**
+ * Only the value columns a typed cell writes, and only numbers or null — this
+ * came out of storage, and it is about to be sent to the server and spread
+ * over the sets on screen.
+ */
+function reviveDraft(value: unknown): SavedDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const { ids, values } = value as { ids?: unknown; values?: unknown };
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    !ids.every((id) => typeof id === "string")
+  ) {
+    return null;
+  }
+  if (!values || typeof values !== "object") return null;
+  const out: SavedDraft["values"] = {};
+  for (const field of FILLABLE) {
+    const v = (values as Record<string, unknown>)[field];
+    if (v === null || (typeof v === "number" && Number.isFinite(v))) {
+      out[field] = v;
+    }
+  }
+  return Object.keys(out).length ? { ids, values: out } : null;
+}
+
+/**
+ * One write for a set and the fill run below it — `updateSets` when there is
+ * a run, the single-set path otherwise. Resolves to whether it landed.
+ */
+function persistValues(
+  ids: string[],
+  values: Parameters<typeof updateSet>[1],
+): Promise<boolean> {
+  return ids.length > 1
+    ? watchAction(updateSets(ids, values)).then((res) => res.ok)
+    : watchAction(updateSet(ids[0], values)).then((res) => res.ok);
+}
+
+/** Drop a parked draft once written — unless a newer one has replaced it. */
+function forgetDraft(key: string, raw: string) {
+  try {
+    if (window.sessionStorage.getItem(key) === raw) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* Storage refusing us means there was nothing parked to forget. */
+  }
+}
+
+/** How long the landing on the next set keeps re-asserting itself. */
+const LAND_DEADLINE_MS = 600;
+const LAND_ABORT_EVENTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+
+/**
+ * Where the one scroller has to be for a set row to sit in the middle of the
+ * band between the header and the bottom chrome. Arithmetic on the scroller
+ * rather than `el.scrollIntoView()`, which scrolls *every* scrollable ancestor
+ * — the document included.
+ */
+function setScrollTarget(
+  setId: string,
+  headerHeight: number,
+): { scroller: HTMLElement; top: number } | null {
+  const el = document.querySelector<HTMLElement>(
+    `[data-set-id="${CSS.escape(setId)}"]`,
+  );
+  const scroller = getScroller();
+  if (!el || !scroller) return null;
+  const rect = el.getBoundingClientRect();
+  return {
+    scroller,
+    top: centreOffset({
+      scrollTop: scroller.scrollTop,
+      elTop:
+        scroller.scrollTop + rect.top - scroller.getBoundingClientRect().top,
+      elHeight: rect.height,
+      viewport: scroller.clientHeight,
+      topInset: headerHeight,
+      bottomInset: BOTTOM_CHROME,
+      maxScroll: scroller.scrollHeight - scroller.clientHeight,
+    }),
+  };
+}
+
+/**
+ * How long typing has to pause before a draft is written. Long enough that a
+ * three-digit weight is one write, short enough that the value is in the
+ * database before anybody has put the phone down.
+ */
+const DRAFT_PERSIST_MS = 700;
 
 /** The value fields a typed cell can carry down the rows below it. */
 const FILLABLE = ["weightKg", "reps", "seconds", "distanceM"] as const;
