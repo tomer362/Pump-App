@@ -15,6 +15,7 @@ import {
 } from "@/lib/actions/workout";
 import { cn, haptic } from "@/lib/utils";
 import { endWorkoutActivity } from "@/lib/workout-activity";
+import { markWorkoutEnded } from "@/lib/ended-workouts";
 
 // The finish celebration pulls in the whole choreography and (lazily) the
 // confetti library, for a screen that appears once at the end of a session.
@@ -118,6 +119,9 @@ export function FinishSheet({
     // and the app-icon badge. Here rather than after the celebration, because
     // the celebration is dismissed by a tap that may never come.
     endWorkoutActivity();
+    // And the `(app)` layout's "workout running" pill, which may be served from
+    // a Router Cache entry rendered while this session was live.
+    markWorkoutEnded(workoutId);
     // Nor is a rest still running: the store is module-level and persisted, so
     // nothing else would ever clear it.
     onFinished();
@@ -273,9 +277,11 @@ export function FinishSheet({
           // `/workout/[id]` at this point — a route that now redirects to the
           // same place we are already going. A second navigation racing the
           // first, and a round trip against a scale-to-zero database. The
-          // navigation crosses out of the workout route into the `(app)` group,
-          // so that layout and its active-workout query are fetched fresh for
-          // it anyway.
+          // `(app)` layout is *not* guaranteed fresh on arrival — the Router
+          // Cache can serve it from while the session was live, which drew the
+          // "workout running" pill over the finished workout's history page —
+          // so `submit` latches `markWorkoutEnded` and the pill stands down and
+          // refreshes itself once it is on an `(app)` route.
           onDone={() => {
             startLeaving(() => {
               router.replace(`/history/${summary.workoutId}`);

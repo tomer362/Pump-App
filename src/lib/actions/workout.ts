@@ -758,6 +758,34 @@ const setPatchSchema = z.object({
 });
 
 /**
+ * Whether a set patch changes anything a finished workout's counters were
+ * computed from. `finishWorkout` writes `total_volume_kg`, `total_sets`,
+ * `total_reps`, `pr_count` and the personal records from the rows it has at
+ * that moment, so after it only the effort rating may move — `SetRpeRow` on
+ * `/history/[id]` is that edit, and RPE feeds none of those figures. A weight,
+ * a rep count or a tick landing later (a fire-and-forget write still in flight
+ * when Finish was tapped, a second tab) would leave every one of them
+ * describing rows that no longer exist.
+ */
+function changesScoredValues(p: Record<string, unknown>): boolean {
+  return Object.entries(p).some(([k, v]) => k !== "rpe" && v !== undefined);
+}
+
+/**
+ * The same rule as a predicate on the write itself, so a finish that commits
+ * between the guard's read and the UPDATE still wins. Qualified by hand: a
+ * drizzle column inside a correlated subquery renders unqualified.
+ */
+const setStillLive = sql`EXISTS (
+  SELECT 1 FROM workout_exercise we
+  JOIN workout w ON w.id = we.workout_id
+  WHERE we.id = ${sql.raw('"workout_set"."workout_exercise_id"')}
+    AND w.ended_at IS NULL
+)`;
+
+const FINISHED_ERROR = "That workout is already finished";
+
+/**
  * Single entry point for every set mutation. Returns the fresh row so the
  * client can reconcile without a refetch — important because this fires on
  * every checkmark tap mid-workout.
@@ -784,6 +812,7 @@ export async function updateSet(
     .select({
       set: workoutSet,
       workoutId: workout.id,
+      endedAt: workout.endedAt,
       exerciseId: workoutExercise.exerciseId,
       trackingType: exercise.trackingType,
     })
@@ -799,6 +828,8 @@ export async function updateSet(
   if (!row) return { ok: false, error: "Set not found" };
 
   const p = parsed.data;
+  const scored = changesScoredValues(p);
+  if (scored && row.endedAt) return { ok: false, error: FINISHED_ERROR };
   const weightKg = p.weightKg !== undefined ? p.weightKg : row.set.weightKg;
   const reps = p.reps !== undefined ? p.reps : row.set.reps;
 
@@ -827,7 +858,7 @@ export async function updateSet(
       ? estimate1RM(weightKg, reps)
       : null;
 
-  await db
+  const written = await db
     .update(workoutSet)
     .set({
       ...(p.weightKg !== undefined ? { weightKg: p.weightKg } : {}),
@@ -840,7 +871,14 @@ export async function updateSet(
       completedAt,
       estimated1rm: est,
     })
-    .where(eq(workoutSet.id, setId));
+    .where(
+      scored
+        ? and(eq(workoutSet.id, setId), setStillLive)
+        : eq(workoutSet.id, setId),
+    )
+    .returning({ id: workoutSet.id });
+  // The workout was finished between the guard and the write.
+  if (!written.length) return { ok: false, error: FINISHED_ERROR };
 
   // Live PR check so the badge can fire the moment the set is ticked. Warmups
   // never count. The authoritative record write still happens at finish.
@@ -922,6 +960,7 @@ export async function updateSets(
       reps: workoutSet.reps,
       trackingType: exercise.trackingType,
       workoutId: workout.id,
+      endedAt: workout.endedAt,
     })
     .from(workoutSet)
     .innerJoin(
@@ -932,6 +971,10 @@ export async function updateSets(
     .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
     .where(and(inArray(workoutSet.id, ids.data), eq(workout.userId, me.id)));
   if (!rows.length) return { ok: true, data: { updated: 0 } };
+  const scored = changesScoredValues(p);
+  if (scored && rows.some((r) => r.endedAt)) {
+    return { ok: false, error: FINISHED_ERROR };
+  }
 
   const columns = {
     ...(p.weightKg !== undefined ? { weightKg: p.weightKg } : {}),
@@ -973,7 +1016,7 @@ export async function updateSets(
         sql`, `,
       )
     : null;
-  await db.execute(sql`
+  const written = await db.execute<{ id: string }>(sql`
     UPDATE ${workoutSet}
     SET ${setClause ? sql`${setClause}, ` : sql``}estimated_1rm = v.est
     FROM (VALUES ${sql.join(
@@ -983,7 +1026,12 @@ export async function updateSets(
       sql`, `,
     )}) AS v(id, est)
     WHERE ${workoutSet.id} = v.id
+    ${scored ? sql`AND ${setStillLive}` : sql``}
+    RETURNING ${workoutSet.id}
   `);
+  if (scored && written.rows.length < rows.length) {
+    return { ok: false, error: FINISHED_ERROR };
+  }
 
   // A fill only ever targets untick sets, but a retyped set type or a corrected
   // load still changes what a co-op room shows for this lifter.
@@ -1111,233 +1159,284 @@ export async function finishWorkout(
   const guard = await ownedWorkout(workoutId);
   if ("error" in guard) return { ok: false, error: guard.error };
   const { me, workout: w } = guard;
-  if (w.endedAt) return { ok: false, error: "Workout already finished" };
-
-  const wes = await db
-    .select({
-      id: workoutExercise.id,
-      exerciseId: workoutExercise.exerciseId,
-      name: exercise.name,
-      trackingType: exercise.trackingType,
-    })
-    .from(workoutExercise)
-    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
-    .where(eq(workoutExercise.workoutId, workoutId));
-
-  const weIds = wes.map((r) => r.id);
-  const sets = weIds.length
-    ? await db
-        .select()
-        .from(workoutSet)
-        .where(inArray(workoutSet.workoutExerciseId, weIds))
-    : [];
+  // Idempotent: a finish whose response was lost (gym wifi) has already
+  // committed, and the retry must land on the celebration and the history
+  // page — not on an error with no way forward but a reload.
+  if (w.endedAt) return { ok: true, data: storedSummary(w) };
 
   const endedAt = new Date();
   const durationSeconds = Math.max(
     1,
     Math.round((endedAt.getTime() - w.startedAt.getTime()) / 1000),
   );
-
-  // Settle the unticked sets before anything is counted, so totals, records
-  // and the celebration all agree on what was actually performed.
-  const mode: UnfinishedSetsMode = opts.unfinishedSets ?? "delete";
-  const unticked = sets.filter((s) => s.completedAt == null);
-  const promoted = mode === "complete" ? unticked.filter(recordsSomething) : [];
-  // Empty rows are dropped even in "complete" mode — there is nothing to log.
-  const abandoned =
-    mode === "complete"
-      ? unticked.filter((s) => !recordsSomething(s))
-      : mode === "delete"
-        ? unticked
-        : [];
-
-  const completed = [
-    ...sets.filter((s) => s.completedAt != null),
-    ...promoted.map((s) => ({ ...s, completedAt: endedAt })),
-  ];
-  if (!completed.length) {
-    return { ok: false, error: "Log at least one set before finishing" };
-  }
-
-  // Warm-ups are excluded from volume — counting them inflates every stat.
-  // `sumSetTotals` owns that rule; quick-log writes the same counters.
-  const scoring = completed.filter((s) => s.setType !== "warmup");
-  const byWe = new Map(wes.map((r) => [r.id, r]));
-  // The exercise's tracking type is what decides whether a set's weight column
-  // is load or assistance, and a set only knows its `workout_exercise`.
-  const trackingOf = (workoutExerciseId: string) =>
-    byWe.get(workoutExerciseId)?.trackingType ?? "weight_reps";
-  const { totalVolumeKg, totalReps } = sumSetTotals(
-    completed.map((s) => ({ ...s, trackingType: trackingOf(s.workoutExerciseId) })),
-  );
   const prs: FinishSummary["prs"] = [];
   const photoUrl =
     opts.photoUrl && isBlobUrl(opts.photoUrl) ? opts.photoUrl : null;
 
-  await db.transaction(async (tx) => {
-    if (abandoned.length) {
-      await tx.delete(workoutSet).where(
-        inArray(
-          workoutSet.id,
-          abandoned.map((s) => s.id),
-        ),
-      );
-    }
-
-    // Handful of rows in practice, and each needs its own 1RM, so a loop beats
-    // building a CASE expression.
-    for (const s of promoted) {
-      // Same guard as `updateSet`: no load, no estimate. `estimate1RM` returns
-      // 0 for a non-positive input, and a stored 0 is exactly the value `0016`
-      // nulled out — "mark them done" on a bodyweight set used to write it.
-      const est =
-        !isAssistedTracking(trackingOf(s.workoutExerciseId)) &&
-        s.weightKg != null &&
-        s.reps != null &&
-        s.weightKg > 0 &&
-        s.reps > 0
-          ? (s.estimated1rm ?? estimate1RM(s.weightKg, s.reps))
-          : null;
-      await tx
-        .update(workoutSet)
-        .set({ completedAt: endedAt, estimated1rm: est })
-        .where(eq(workoutSet.id, s.id));
-    }
-
-    // Best candidate per exercise per record kind.
-    const best = new Map<
-      string,
-      Record<PrKind, { value: number; setId: string; weightKg: number | null; reps: number | null } | null>
-    >();
-
-    for (const s of scoring) {
-      const we = byWe.get(s.workoutExerciseId);
-      if (!we) continue;
-      const cur =
-        best.get(we.exerciseId) ??
-        ({ "1rm": null, weight: null, volume: null, reps: null } as Record<
-          PrKind,
-          { value: number; setId: string; weightKg: number | null; reps: number | null } | null
-        >);
-
-      // Assistance is not load, so it scores zero and the three weight-derived
-      // kinds fall out on `consider`'s own `<= 0` guard — without which the
-      // heaviest counterweight would be crowned as this exercise's best set.
-      // Reps still count: more reps at the same assistance is a real result,
-      // and it is the only record kind an assisted machine can set. Mirrors the
-      // `CASE` in `recalculatePersonalRecords`, which rebuilds these rows.
-      const load = scoringLoadKg(trackingOf(s.workoutExerciseId), s.weightKg);
-      const e1 = load > 0 ? (s.estimated1rm ?? estimate1RM(load, s.reps ?? 0)) : 0;
-      const vol = load * (s.reps ?? 0);
-
-      const consider = (kind: PrKind, value: number) => {
-        if (value <= 0) return;
-        if (!cur[kind] || value > cur[kind]!.value) {
-          // `weight_kg` on a record row is rendered as the load that set it, so
-          // an assisted set contributes none — same as the rebuild's `CASE`.
-          const weightKg = load > 0 ? s.weightKg : null;
-          cur[kind] = { value, setId: s.id, weightKg, reps: s.reps };
-        }
-      };
-      consider("1rm", e1);
-      consider("weight", load);
-      consider("volume", vol);
-      consider("reps", s.reps ?? 0);
-
-      best.set(we.exerciseId, cur);
-    }
-
-    for (const [exerciseId, kinds] of best) {
-      const existing = await tx
-        .select()
-        .from(personalRecord)
+  let totals: { totalVolumeKg: number; totalReps: number; totalSets: number };
+  try {
+    totals = await db.transaction(async (tx) => {
+      // Claim the session before reading a single set. Two finishes racing (a
+      // retry, a second device) both pass the `endedAt` check above; the row
+      // lock makes the loser wait here and then match nothing, so records,
+      // the post and achievements are written once. Reading the sets *after*
+      // the claim also means no set write can land between what is counted
+      // and what is stored — `updateSet` refuses once `ended_at` is set.
+      const [claimed] = await tx
+        .update(workout)
+        .set({ endedAt, durationSeconds })
         .where(
           and(
-            eq(personalRecord.userId, me.id),
-            eq(personalRecord.exerciseId, exerciseId),
+            eq(workout.id, workoutId),
+            eq(workout.userId, me.id),
+            isNull(workout.endedAt),
+          ),
+        )
+        .returning({ id: workout.id });
+      if (!claimed) throw new AlreadyFinished();
+
+      const wes = await tx
+        .select({
+          id: workoutExercise.id,
+          exerciseId: workoutExercise.exerciseId,
+          name: exercise.name,
+          trackingType: exercise.trackingType,
+        })
+        .from(workoutExercise)
+        .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
+        .where(eq(workoutExercise.workoutId, workoutId));
+
+      const weIds = wes.map((r) => r.id);
+      const sets = weIds.length
+        ? await tx
+            .select()
+            .from(workoutSet)
+            .where(inArray(workoutSet.workoutExerciseId, weIds))
+        : [];
+
+      // Settle the unticked sets before anything is counted, so totals, records
+      // and the celebration all agree on what was actually performed.
+      const mode: UnfinishedSetsMode = opts.unfinishedSets ?? "delete";
+      const unticked = sets.filter((s) => s.completedAt == null);
+      const promoted = mode === "complete" ? unticked.filter(recordsSomething) : [];
+      // Empty rows are dropped even in "complete" mode — there is nothing to log.
+      const abandoned =
+        mode === "complete"
+          ? unticked.filter((s) => !recordsSomething(s))
+          : mode === "delete"
+            ? unticked
+            : [];
+
+      const completed = [
+        ...sets.filter((s) => s.completedAt != null),
+        ...promoted.map((s) => ({ ...s, completedAt: endedAt })),
+      ];
+      // Throwing rolls the claim back with it: the session stays live.
+      if (!completed.length) throw new NothingLogged();
+
+      // Warm-ups are excluded from volume — counting them inflates every stat.
+      // `sumSetTotals` owns that rule; quick-log writes the same counters.
+      const scoring = completed.filter((s) => s.setType !== "warmup");
+      const byWe = new Map(wes.map((r) => [r.id, r]));
+      // The exercise's tracking type is what decides whether a set's weight column
+      // is load or assistance, and a set only knows its `workout_exercise`.
+      const trackingOf = (workoutExerciseId: string) =>
+        byWe.get(workoutExerciseId)?.trackingType ?? "weight_reps";
+      const { totalVolumeKg, totalReps } = sumSetTotals(
+        completed.map((s) => ({ ...s, trackingType: trackingOf(s.workoutExerciseId) })),
+      );
+
+      if (abandoned.length) {
+        await tx.delete(workoutSet).where(
+          inArray(
+            workoutSet.id,
+            abandoned.map((s) => s.id),
           ),
         );
-      const existingByKind = new Map(existing.map((r) => [r.kind, r]));
+      }
 
-      for (const kind of ["1rm", "weight", "volume", "reps"] as PrKind[]) {
-        const cand = kinds[kind];
-        if (!cand) continue;
-        const prev = existingByKind.get(kind);
-        if (prev && cand.value <= prev.value + 0.01) continue;
-
+      // Handful of rows in practice, and each needs its own 1RM, so a loop beats
+      // building a CASE expression.
+      for (const s of promoted) {
+        // Same guard as `updateSet`: no load, no estimate. `estimate1RM` returns
+        // 0 for a non-positive input, and a stored 0 is exactly the value `0016`
+        // nulled out — "mark them done" on a bodyweight set used to write it.
+        const est =
+          !isAssistedTracking(trackingOf(s.workoutExerciseId)) &&
+          s.weightKg != null &&
+          s.reps != null &&
+          s.weightKg > 0 &&
+          s.reps > 0
+            ? (s.estimated1rm ?? estimate1RM(s.weightKg, s.reps))
+            : null;
         await tx
-          .insert(personalRecord)
-          .values({
-            userId: me.id,
-            exerciseId,
-            kind,
-            value: cand.value,
-            weightKg: cand.weightKg,
-            reps: cand.reps,
-            workoutSetId: cand.setId,
-            workoutId,
-            achievedAt: endedAt,
-          })
-          .onConflictDoUpdate({
-            target: [
-              personalRecord.userId,
-              personalRecord.exerciseId,
-              personalRecord.kind,
-            ],
-            set: {
+          .update(workoutSet)
+          .set({ completedAt: endedAt, estimated1rm: est })
+          .where(eq(workoutSet.id, s.id));
+      }
+
+      // Best candidate per exercise per record kind.
+      const best = new Map<
+        string,
+        Record<PrKind, { value: number; setId: string; weightKg: number | null; reps: number | null } | null>
+      >();
+
+      for (const s of scoring) {
+        const we = byWe.get(s.workoutExerciseId);
+        if (!we) continue;
+        const cur =
+          best.get(we.exerciseId) ??
+          ({ "1rm": null, weight: null, volume: null, reps: null } as Record<
+            PrKind,
+            { value: number; setId: string; weightKg: number | null; reps: number | null } | null
+          >);
+
+        // Assistance is not load, so it scores zero and the three weight-derived
+        // kinds fall out on `consider`'s own `<= 0` guard — without which the
+        // heaviest counterweight would be crowned as this exercise's best set.
+        // Reps still count: more reps at the same assistance is a real result,
+        // and it is the only record kind an assisted machine can set. Mirrors the
+        // `CASE` in `recalculatePersonalRecords`, which rebuilds these rows.
+        const load = scoringLoadKg(trackingOf(s.workoutExerciseId), s.weightKg);
+        const e1 = load > 0 ? (s.estimated1rm ?? estimate1RM(load, s.reps ?? 0)) : 0;
+        const vol = load * (s.reps ?? 0);
+
+        const consider = (kind: PrKind, value: number) => {
+          if (value <= 0) return;
+          if (!cur[kind] || value > cur[kind]!.value) {
+            // `weight_kg` on a record row is rendered as the load that set it, so
+            // an assisted set contributes none — same as the rebuild's `CASE`.
+            const weightKg = load > 0 ? s.weightKg : null;
+            cur[kind] = { value, setId: s.id, weightKg, reps: s.reps };
+          }
+        };
+        consider("1rm", e1);
+        consider("weight", load);
+        consider("volume", vol);
+        consider("reps", s.reps ?? 0);
+
+        best.set(we.exerciseId, cur);
+      }
+
+      for (const [exerciseId, kinds] of best) {
+        const existing = await tx
+          .select()
+          .from(personalRecord)
+          .where(
+            and(
+              eq(personalRecord.userId, me.id),
+              eq(personalRecord.exerciseId, exerciseId),
+            ),
+          );
+        const existingByKind = new Map(existing.map((r) => [r.kind, r]));
+
+        for (const kind of ["1rm", "weight", "volume", "reps"] as PrKind[]) {
+          const cand = kinds[kind];
+          if (!cand) continue;
+          const prev = existingByKind.get(kind);
+          if (prev && cand.value <= prev.value + 0.01) continue;
+
+          await tx
+            .insert(personalRecord)
+            .values({
+              userId: me.id,
+              exerciseId,
+              kind,
               value: cand.value,
               weightKg: cand.weightKg,
               reps: cand.reps,
               workoutSetId: cand.setId,
               workoutId,
               achievedAt: endedAt,
-            },
-          });
+            })
+            .onConflictDoUpdate({
+              target: [
+                personalRecord.userId,
+                personalRecord.exerciseId,
+                personalRecord.kind,
+              ],
+              set: {
+                value: cand.value,
+                weightKg: cand.weightKg,
+                reps: cand.reps,
+                workoutSetId: cand.setId,
+                workoutId,
+                achievedAt: endedAt,
+              },
+            });
 
-        // Only 1RM records are loud enough to celebrate; the rest would spam.
-        if (kind === "1rm") {
-          const name =
-            wes.find((r) => r.exerciseId === exerciseId)?.name ?? "Exercise";
-          prs.push({
-            exerciseName: name,
-            kind,
-            value: cand.value,
-            reps: cand.reps,
-            weightKg: cand.weightKg,
-          });
+          // Only 1RM records are loud enough to celebrate; the rest would spam.
+          if (kind === "1rm") {
+            const name =
+              wes.find((r) => r.exerciseId === exerciseId)?.name ?? "Exercise";
+            prs.push({
+              exerciseName: name,
+              kind,
+              value: cand.value,
+              reps: cand.reps,
+              weightKg: cand.weightKg,
+            });
+          }
         }
       }
-    }
 
-    await tx
-      .update(workout)
-      .set({
-        endedAt,
-        durationSeconds,
-        totalVolumeKg,
-        totalSets: scoring.length,
-        totalReps,
-        prCount: prs.length,
-        // Caller-supplied, so only accepted if it really is our blob store.
-        ...(photoUrl ? { photoUrl } : {}),
-      })
-      .where(eq(workout.id, workoutId));
-
-    if (opts.shareToFeed !== false) {
       await tx
-        .insert(post)
-        .values({
-          userId: me.id,
-          workoutId,
-          caption: opts.caption?.trim() || null,
+        .update(workout)
+        .set({
+          totalVolumeKg,
+          totalSets: scoring.length,
+          totalReps,
+          prCount: prs.length,
+          // Caller-supplied, so only accepted if it really is our blob store.
+          ...(photoUrl ? { photoUrl } : {}),
         })
-        .onConflictDoNothing();
-    }
-  });
+        .where(eq(workout.id, workoutId));
 
+      if (opts.shareToFeed !== false) {
+        await tx
+          .insert(post)
+          .values({
+            userId: me.id,
+            workoutId,
+            caption: opts.caption?.trim() || null,
+          })
+          .onConflictDoNothing();
+      }
+
+      return { totalVolumeKg, totalReps, totalSets: scoring.length };
+    });
+  } catch (e) {
+    if (e instanceof NothingLogged) {
+      return { ok: false, error: "Log at least one set before finishing" };
+    }
+    if (e instanceof AlreadyFinished) {
+      // Lost the race to a concurrent finish, which has committed by now.
+      const [done] = await db
+        .select()
+        .from(workout)
+        .where(eq(workout.id, workoutId))
+        .limit(1);
+      return done?.endedAt
+        ? { ok: true, data: storedSummary(done) }
+        : { ok: false, error: "Workout not found" };
+    }
+    throw e;
+  }
+  const { totalVolumeKg, totalReps, totalSets } = totals;
+
+  // Everything below runs after the commit. The workout *is* saved by now, so
+  // a failure here must not surface as "Couldn't save": the lifter would try
+  // again, and a co-op room or a badge is not worth that.
+  //
   // If this was a co-op session, end it once everyone has finished. The room
   // otherwise shows a finished lifter with a forever-ticking clock.
-  if (w.coopSessionId) await endCoopSessionIfAllFinished(w.coopSessionId);
+  if (w.coopSessionId) {
+    try {
+      await endCoopSessionIfAllFinished(w.coopSessionId);
+    } catch (e) {
+      console.error("finishWorkout: ending the co-op session failed", e);
+    }
+  }
 
   const tz =
     typeof opts.tzOffsetMinutes === "number" &&
@@ -1345,14 +1444,19 @@ export async function finishWorkout(
     Math.abs(opts.tzOffsetMinutes) <= 840
       ? opts.tzOffsetMinutes
       : 0;
-  const unlocked = await grantAchievements(me.id, {
-    finishedWorkoutAt: endedAt,
-    tzOffsetMinutes: tz,
-    workoutVolumeKg: totalVolumeKg,
-    durationSeconds,
-    newPrCount: prs.length,
-    isCoop: w.coopSessionId != null,
-  });
+  let unlocked: FinishSummary["unlockedAchievements"] = [];
+  try {
+    unlocked = await grantAchievements(me.id, {
+      finishedWorkoutAt: endedAt,
+      tzOffsetMinutes: tz,
+      workoutVolumeKg: totalVolumeKg,
+      durationSeconds,
+      newPrCount: prs.length,
+      isCoop: w.coopSessionId != null,
+    });
+  } catch (e) {
+    console.error("finishWorkout: granting achievements failed", e);
+  }
 
   // Deliberately no revalidatePath here. Revalidating would re-render the
   // workout route, which now redirects (the workout has an endedAt), tearing
@@ -1365,11 +1469,31 @@ export async function finishWorkout(
       workoutId,
       durationSeconds,
       totalVolumeKg,
-      totalSets: scoring.length,
+      totalSets,
       totalReps,
       prs,
       unlockedAchievements: unlocked,
     },
+  };
+}
+
+class AlreadyFinished extends Error {}
+class NothingLogged extends Error {}
+
+/**
+ * A finished workout's summary from its stored counters — what a repeated
+ * finish answers with. No records and no achievements: the call that really
+ * finished it announced those, and announcing them twice would be a lie.
+ */
+function storedSummary(w: typeof workout.$inferSelect): FinishSummary {
+  return {
+    workoutId: w.id,
+    durationSeconds: w.durationSeconds,
+    totalVolumeKg: w.totalVolumeKg,
+    totalSets: w.totalSets,
+    totalReps: w.totalReps,
+    prs: [],
+    unlockedAchievements: [],
   };
 }
 

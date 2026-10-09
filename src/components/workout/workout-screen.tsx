@@ -58,6 +58,7 @@ import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useLongPress } from "@/hooks/use-long-press";
 import { useWorkoutActivity } from "@/hooks/use-workout-activity";
 import { endWorkoutActivity } from "@/lib/workout-activity";
+import { markWorkoutEnded } from "@/lib/ended-workouts";
 import { usePumpJam } from "./pump-jam";
 import { RestAlertPrompt } from "./rest-alert-prompt";
 import {
@@ -186,6 +187,12 @@ export function WorkoutScreen({
   const keyboardInset = useKeyboardInset();
   // Scoped to this workout so a stale timer from another session is ignored.
   const timer = useRestTimer(workout.id);
+  // The latest rest, for callbacks that settle after the render that made them
+  // (a failed write): `timer.state` in their closure is the rest before theirs.
+  const restNow = useRef(timer.state);
+  useEffect(() => {
+    restNow.current = timer.state;
+  }, [timer.state]);
 
   const [blocks, setBlocks] = useState<Block[]>(() =>
     workout.exercises.map(toBlock),
@@ -489,6 +496,11 @@ export function WorkoutScreen({
       // Any tick answers the previous cue, whatever it pointed at.
       clearSupersetCue();
 
+      // What this tick raised the session best from, so a refused write can
+      // put it back — or the real set that follows would no longer "beat" it.
+      let prevBest: number | undefined;
+      let raisedBest = false;
+
       // Completing a working set starts the rest clock — Strong's key behaviour.
       if (next && set.setType !== "warmup") {
         // Three levels: this set's override, then the exercise, then the
@@ -524,6 +536,8 @@ export function WorkoutScreen({
             : 0;
         const best = bestByExercise.current[block.exerciseId] ?? 0;
         if (est > best + 0.01) {
+          prevBest = bestByExercise.current[block.exerciseId];
+          raisedBest = true;
           bestByExercise.current[block.exerciseId] = est;
           flashPr(set.id);
           haptic.success();
@@ -538,7 +552,15 @@ export function WorkoutScreen({
 
       void watchAction(updateSet(set.id, { completed: next }), () => {
         // The tick was optimistic and the database never took it: untick,
-        // or the header counts a set that isn't there.
+        // or the header counts a set that isn't there. The rest it started and
+        // the best it raised were claims about that tick, so they go with it.
+        if (next) {
+          if (restNow.current?.setId === set.id) timer.stop();
+          if (raisedBest) {
+            if (prevBest === undefined) delete bestByExercise.current[block.exerciseId];
+            else bestByExercise.current[block.exerciseId] = prevBest;
+          }
+        }
         setBlocks((prev) =>
           prev.map((b) =>
             b.id !== block.id
@@ -1721,6 +1743,7 @@ export function WorkoutScreen({
                 // The notification and the badge are claims about a live
                 // session; only once the server agrees it is over do they go.
                 endWorkoutActivity();
+                markWorkoutEnded(workout.id);
                 router.replace("/feed");
               }}
             >
