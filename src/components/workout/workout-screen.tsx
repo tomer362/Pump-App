@@ -184,7 +184,9 @@ export function WorkoutScreen({
   uploadsEnabled: boolean;
 }) {
   const router = useRouter();
-  const keyboardInset = useKeyboardInset();
+  // Pan-invariant: typing re-reveals the caret, which pans the page, and a
+  // pan-aware inset collapsed this screen's padding on every keystroke.
+  const keyboardInset = useKeyboardInset({ panAware: false });
   // Scoped to this workout so a stale timer from another session is ignored.
   const timer = useRestTimer(workout.id);
   // The latest rest, for callbacks that settle after the render that made them

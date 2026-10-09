@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { keyboardCoverage } from "@/hooks/use-keyboard-inset";
+import { keyboardHeight } from "@/hooks/use-keyboard-inset";
 
 /* -------------------------------------------------------------------------- *
  * Puts the document back at zero whenever something scrolls it.
@@ -75,7 +75,7 @@ export function DocumentScrollGuard(): null {
       // weight input back under the keyboard and iOS would pan again — the
       // chase `use-keyboard-inset.ts` warns about. We heal when it closes,
       // which is what `settleUntil` keeps the door open for.
-      if (keyboardCoverage() > 0 && performance.now() > settleUntil) return;
+      if (keyboardHeight() > 0 && performance.now() > settleUntil) return;
       if (doc.scrollTop === 0 && doc.scrollLeft === 0) return;
 
       // A tug-of-war we would lose is one to walk away from: if something is
