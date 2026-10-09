@@ -9,6 +9,7 @@ import {
 } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isUuid } from "@/lib/uuid";
+import { keyboardHeightOf, keyboardOverlapOf } from "@/lib/keyboard";
 import {
   alignPrevious,
   sanitizeDecimalInput,
@@ -551,5 +552,28 @@ describe("alignPrevious", () => {
   it("is not thrown off by a session with no warm-up", () => {
     const sets = [{ setType: "normal" }, { setType: "normal" }];
     expect(alignPrevious(prev, sets).map((p) => p?.w ?? null)).toEqual([100, 100]);
+  });
+});
+
+describe("keyboard readings", () => {
+  // iPhone-ish: 844 px layout viewport, 336 px keyboard.
+  const up = (offsetTop: number) => ({ innerHeight: 844, vvHeight: 508, offsetTop });
+
+  it("keeps the keyboard's height when the page pans to reveal the caret", () => {
+    expect(keyboardHeightOf(up(0))).toBe(336);
+    expect(keyboardHeightOf(up(200))).toBe(336);
+    expect(keyboardHeightOf(up(336))).toBe(336);
+  });
+
+  it("the pan-aware overlap shrinks with the pan, and reads closed past it", () => {
+    expect(keyboardOverlapOf(up(0))).toBe(336);
+    expect(keyboardOverlapOf(up(100))).toBe(236);
+    expect(keyboardOverlapOf(up(250))).toBe(0);
+  });
+
+  it("ignores a collapsing URL bar", () => {
+    const bar = { innerHeight: 844, vvHeight: 790, offsetTop: 0 };
+    expect(keyboardHeightOf(bar)).toBe(0);
+    expect(keyboardOverlapOf(bar)).toBe(0);
   });
 });

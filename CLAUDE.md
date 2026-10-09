@@ -154,6 +154,7 @@ HTML overlay and could label no axis at all.
 - Inputs ≥16 px font-size — anything smaller triggers iOS zoom-on-focus.
 - `inputmode="decimal"|"numeric"` on every numeric field; select-all on focus.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
+- **The keyboard's height is `innerHeight − vv.height`; subtract `vv.offsetTop` only to place fixed chrome.** Typing re-reveals the caret, which pans the visual viewport, and the pan is not the keyboard. The workout screen padded itself by the pan-aware figure, so on every keystroke the "keyboard" shrank under the 120 px threshold and read closed: the padding collapsed and regrew, the jump pill flashed, and `DocumentScrollGuard` snapped the document back for the next key to pan again. `lib/keyboard.ts` holds both readings; padding inside the page uses `useKeyboardInset({ panAware: false })`, and the guard asks `keyboardHeight()`.
 - Tap targets ≥44 px (`tap` utility) — **and where the ink has to stay small,
   `hit-slop`**, which centres an invisible 44 px pseudo-element over the
   control instead of inflating its box. A 13 px "All" link, a 28 px glyph and
