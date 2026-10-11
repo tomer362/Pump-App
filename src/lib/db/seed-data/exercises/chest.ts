@@ -74,6 +74,10 @@ export const CHEST: SeedExercise[] = [
         slug: "bench-press-barbell",
         note: "Flat pressing biases the larger sternal head and lets you load much heavier, but leaves the clavicular fibres comparatively under-stimulated.",
       },
+      {
+        slug: "incline-bench-press-smith",
+        note: "The Smith machine's rails remove all balance, so the press can go to failure safely without a spotter.",
+      },
     ],
   },
   {
@@ -124,6 +128,10 @@ export const CHEST: SeedExercise[] = [
         slug: "bench-press-barbell",
         note: "Longer range and more anterior-deltoid involvement, spreading the work across the whole pec rather than concentrating it in the lower fibres.",
       },
+      {
+        slug: "decline-bench-press-dumbbell",
+        note: "Independent bells sink deeper than a bar allows and make each side carry its own load, though they are awkward to get into position.",
+      },
     ],
   },
   {
@@ -148,6 +156,10 @@ export const CHEST: SeedExercise[] = [
       {
         slug: "pec-deck",
         note: "Strips out elbow extension so the triceps stop contributing and the pec works alone — much better isolation, much less total load.",
+      },
+      {
+        slug: "chest-press-iso-lateral",
+        note: "Independent plate-loaded arms on a converging arc, so each side has to press its own load.",
       },
     ],
   },
@@ -321,6 +333,10 @@ export const CHEST: SeedExercise[] = [
       {
         slug: "high-to-low-cable-fly",
         note: "Dropping the line of pull downward shifts emphasis onto the lower sternal fibres instead of spreading it across the whole pec.",
+      },
+      {
+        slug: "incline-cable-fly",
+        note: "Lying on an incline under low pulleys shifts the work toward the upper chest.",
       },
     ],
   },
@@ -791,6 +807,183 @@ export const CHEST: SeedExercise[] = [
       {
         slug: "svend-press",
         note: "Takes the squeeze idea to its extreme with almost no external load — pure tension, no meaningful stretch or progression.",
+      },
+    ],
+  },
+
+  /* ---- Plate-loaded machines and press variants ---- */
+  {
+    slug: "chest-press-iso-lateral",
+    name: "Chest Press (Iso-Lateral Machine)",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "machine",
+    instructions:
+      "Sit with the handles at mid-chest height and the back flat on the pad.\nPress both handles forward, letting them converge slightly as the arms straighten.\nLower until the hands are level with the chest and the pecs are stretched.",
+    bodyEffect:
+      "A seated horizontal press on a plate-loaded machine whose two arms move independently along a converging arc, so each side presses its own load toward the midline.\n\nThe pectoralis major is the prime mover, bringing the upper arm forward and across, with the front delts and triceps assisting. The converging path adds a little of the inward squeeze a straight bar cannot give, and neither side can borrow strength from the other.\n\nIt is a stable, heavily loadable chest press that is easy to take close to failure safely, and the independent arms expose and correct imbalances. Like any machine it skips the shoulder-blade control a bench demands and depends on the seat fitting your body.",
+    alternatives: [
+      {
+        slug: "chest-press-machine",
+        note: "A selectorised press with joined handles \u2014 easier to adjust in small steps, but the stronger side can do more of the work.",
+      },
+      {
+        slug: "bench-press-dumbbell",
+        note: "Free weights with independent arms and full balance demand, at the cost of the machine's easy loading and safe failure.",
+      },
+      {
+        slug: "incline-chest-press-machine",
+        note: "The same machine idea at an incline, shifting the load toward the upper chest.",
+      },
+    ],
+  },
+  {
+    slug: "decline-chest-press-machine",
+    name: "Decline Chest Press (Machine)",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "machine",
+    instructions:
+      "Adjust the seat so the handles line up with the lower chest.\nPress down and forward until the arms are nearly straight.\nReturn slowly until the pecs are stretched, keeping the shoulders down.",
+    bodyEffect:
+      "A machine press along a downward-forward path, so the arms move from beside the lower chest toward the hips rather than straight out in front.\n\nThe sternal and lower fibres of the pectoralis major do most of the work, the triceps are strongly involved, and the front delts contribute least of any pressing angle. The fixed path and back pad remove all balance and arch demand.\n\nIt loads the lower chest and triceps heavily with very little shoulder stress, which makes it useful for anyone whose shoulders complain on flat or incline pressing. Its range is shorter than a flat press and it builds little that transfers to free-weight benching.",
+    alternatives: [
+      {
+        slug: "decline-bench-press-barbell",
+        note: "A free-bar decline adds the bar path and bracing a machine removes, with a similar lower-chest bias.",
+      },
+      {
+        slug: "dip-chest",
+        note: "A bodyweight press along the same downward angle with a deeper stretch and far more shoulder demand.",
+      },
+      {
+        slug: "chest-press-machine",
+        note: "A flat path spreads the work more evenly across the chest and front delts.",
+      },
+    ],
+  },
+  {
+    slug: "decline-bench-press-dumbbell",
+    name: "Decline Bench Press (Dumbbell)",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "dumbbell",
+    instructions:
+      "Lock the legs into a decline bench and bring the bells to the lower chest.\nPress up until the arms are straight over the shoulders.\nLower slowly to a deep stretch beside the chest.",
+    bodyEffect:
+      "A press from a head-down decline, so the arms drive along a line toward the hips rather than straight up from the chest.\n\nThe lower, sternal fibres of the pectoralis major lead, the triceps work hard, and the front delts contribute less than on a flat or incline press. Free dumbbells let each arm find its own path and sink below the line a bar would stop at, for a deeper stretch.\n\nIt builds the lower chest with low shoulder stress and a longer range than a barbell decline, and each side has to carry its own load. Getting heavy bells into position on a decline and back down again is awkward, which limits how heavy it can practically go.",
+    alternatives: [
+      {
+        slug: "decline-bench-press-barbell",
+        note: "One shared bar allows heavier loading and a spotter, at the cost of the deeper stretch and the independent arm path.",
+      },
+      {
+        slug: "bench-press-dumbbell",
+        note: "A flat bench shifts more of the work back onto the front delts and the middle of the chest.",
+      },
+      {
+        slug: "dip-chest",
+        note: "The same downward pressing angle with bodyweight and a deep stretch, and far more shoulder demand.",
+      },
+    ],
+  },
+  {
+    slug: "incline-bench-press-smith",
+    name: "Incline Bench Press (Smith Machine)",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["shoulders", "triceps"],
+    equipment: "smith",
+    instructions:
+      "Set an incline bench at about 30\u00b0 under the Smith bar so it lowers to the upper chest.\nUnrack and lower the bar under control to just below the collarbones.\nPress back up to straight arms, then rotate the hooks to rack.",
+    bodyEffect:
+      "An incline press along the fixed vertical track of a Smith machine, with the bench at about 30\u00b0 so the arms press up from the upper chest.\n\nThe clavicular head of the pectoralis major and the front delts carry the movement, with the triceps extending the elbows. The rails remove every balance demand, so the stabilising muscles a free bar needs have nothing to do.\n\nThat makes it a safe way to take an upper-chest press to failure without a spotter and to progress in small, reliable steps. The fixed path doesn't suit every shoulder, and the strength it builds transfers only partly to a free barbell.",
+    alternatives: [
+      {
+        slug: "incline-bench-press-barbell",
+        note: "The free-bar version demands bar-path control and stability, in return for better carry-over to free-weight strength.",
+      },
+      {
+        slug: "incline-bench-press-dumbbell",
+        note: "Independent bells at the same angle give a deeper stretch and a freer path, but are harder to load heavily.",
+      },
+      {
+        slug: "incline-chest-press-machine",
+        note: "A converging machine path at the same angle, with a seat that removes the setup altogether.",
+      },
+    ],
+  },
+  {
+    slug: "incline-cable-fly",
+    name: "Incline Cable Fly",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["shoulders"],
+    equipment: "cable",
+    instructions:
+      "Set an incline bench between two low pulleys and lie back with a handle in each hand.\nWith a soft bend in the elbows, bring the hands together over the upper chest.\nOpen the arms slowly until the chest is stretched.",
+    bodyEffect:
+      "Bringing the arms together over the upper chest while lying on an incline, against cables that pull from low at either side.\n\nThe clavicular fibres of the pectoralis major lead and the front delts assist. Unlike a dumbbell fly, the cables pull outward rather than straight down, so the resistance stays high at the top where the hands meet, instead of vanishing there.\n\nIt builds the upper chest through its full range with constant tension and very little elbow or triceps involvement. The loads are modest and the setup takes two pulleys and a bench, so it belongs at the end of a session after the heavy pressing.",
+    alternatives: [
+      {
+        slug: "low-to-high-cable-fly",
+        note: "A standing version of the same upward line, needing no bench but with more balance to manage.",
+      },
+      {
+        slug: "incline-fly-dumbbell",
+        note: "The free-weight version loads the stretch hard and the top barely at all.",
+      },
+      {
+        slug: "incline-bench-press-dumbbell",
+        note: "A press at the same angle adds the triceps and much more load, but less pure chest isolation.",
+      },
+    ],
+  },
+  {
+    slug: "larsen-press",
+    name: "Larsen Press",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "barbell",
+    instructions:
+      "Set up as for a normal bench press, then straighten the legs and hold the feet just off the floor.\nLower the bar to the chest under control.\nPress up without any leg drive, keeping the hips on the bench.",
+    bodyEffect:
+      "A barbell bench press with the legs taken out of the movement, so no leg drive and very little arch can help move the bar.\n\nThe pecs, front delts and triceps press exactly as in a normal bench, but the upper back and trunk must hold the body steady on the bench without the feet, and any unevenness between the arms shows up as the body tipping.\n\nIt is an accessory for building raw upper-body pressing strength and bar-path control, often used to fix a press that depends on leg drive. Expect noticeably less weight than your bench, and keep it away from heavy singles, where losing balance is dangerous.",
+    alternatives: [
+      {
+        slug: "bench-press-barbell",
+        note: "Full leg drive and arch allow the heaviest load, but let the lower body mask a weak press.",
+      },
+      {
+        slug: "spoto-press",
+        note: "Pauses just above the chest instead, building control at the bottom while keeping the normal setup.",
+      },
+      {
+        slug: "floor-press-barbell",
+        note: "Cuts the range at the floor and removes leg drive too, overloading the lockout instead.",
+      },
+    ],
+  },
+  {
+    slug: "spoto-press",
+    name: "Spoto Press",
+    primaryMuscle: "chest",
+    secondaryMuscles: ["triceps", "shoulders"],
+    equipment: "barbell",
+    instructions:
+      "Lower the bar as in a normal bench press.\nStop it about an inch above the chest and hold for a second without touching.\nPress back up from the pause without bouncing.",
+    bodyEffect:
+      "A bench press paused just above the chest rather than on it, so the bar never rests and the press restarts from a dead stop in mid-air.\n\nThe pecs, front delts and triceps do the work, but the pause removes the stretch reflex and the chest contact that normally help the bar out of the bottom. The upper back and lats have to hold the bar in place for the length of the pause.\n\nIt builds control and strength in the bottom range of the bench, and it is often used to fix a bar path that drifts or a press that relies on bouncing. It needs a lighter load than a touch-and-go bench and fits as a secondary pressing movement.",
+    alternatives: [
+      {
+        slug: "bench-press-barbell",
+        note: "Touch-and-go is the heaviest variant, with the chest and the stretch reflex helping the bar out of the bottom.",
+      },
+      {
+        slug: "larsen-press",
+        note: "Removes leg drive instead of the touch, testing the same raw pressing strength from a different angle.",
+      },
+      {
+        slug: "floor-press-barbell",
+        note: "Stops on the floor at a shorter range, overloading the lockout rather than the bottom.",
       },
     ],
   },

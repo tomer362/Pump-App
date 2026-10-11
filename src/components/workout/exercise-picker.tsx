@@ -289,6 +289,23 @@ export function ExercisePicker({
               : "Add exercises"
         }
         maxHeight="92dvh"
+        // The title row sits outside the scroller. At the foot of the list this
+        // button was below the auto-load sentinel, so every fling towards it
+        // fetched another batch and pushed it further away. Up here it is on
+        // screen at any depth.
+        titleAction={
+          creating ? undefined : (
+            <Button
+              size="sm"
+              variant="solid"
+              aria-label="Create custom exercise"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="size-4" />
+              New
+            </Button>
+          )
+        }
         footer={
           creating ? undefined : (
             <Button
@@ -465,8 +482,8 @@ export function ExercisePicker({
                   screen, so the reveal comes after every group. */}
                 {revealBlock}
 
-                {/* Sits above the create button so the next batch is already in
-                  flight while that button is still below the fold. */}
+                {/* Below the last row so the next batch is already in flight
+                  before the list runs out under a thumb. */}
                 {!exhausted && (
                   <div ref={sentinelRef} className="flex justify-center py-4">
                     {loadingMore && (
@@ -475,16 +492,6 @@ export function ExercisePicker({
                   </div>
                 )}
 
-                <div className="px-4 py-4">
-                  <Button
-                    block
-                    variant="ghost"
-                    onClick={() => setCreating(true)}
-                  >
-                    <Plus className="size-4" />
-                    Create custom exercise
-                  </Button>
-                </div>
               </>
             )}
           </div>

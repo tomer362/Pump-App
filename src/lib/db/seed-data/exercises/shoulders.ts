@@ -150,6 +150,10 @@ export const SHOULDERS: SeedExercise[] = [
         slug: "landmine-press-shoulder",
         note: "An angled arc rather than a strictly vertical one, which many irritable shoulders tolerate far better.",
       },
+      {
+        slug: "shoulder-press-plate-loaded",
+        note: "Independent plate-loaded arms, so the weaker side can't hand its share to the stronger one.",
+      },
     ],
   },
   {
@@ -174,6 +178,10 @@ export const SHOULDERS: SeedExercise[] = [
       {
         slug: "seated-overhead-press-barbell",
         note: "Sitting makes leg drive impossible by design, isolating the shoulders with no timing or coordination element at all.",
+      },
+      {
+        slug: "push-jerk",
+        note: "Re-bends the knees to drop under the bar instead of pressing it out, allowing heavier loads overhead.",
       },
     ],
   },
@@ -276,6 +284,10 @@ export const SHOULDERS: SeedExercise[] = [
       {
         slug: "leaning-lateral-raise",
         note: "Leaning away shifts the hardest part of the arc lower, loading the lateral delt through more of its stretched range.",
+      },
+      {
+        slug: "lu-raise",
+        note: "Continues the raise all the way overhead, adding the traps and serratus at the cost of much lighter weights.",
       },
     ],
   },
@@ -574,6 +586,10 @@ export const SHOULDERS: SeedExercise[] = [
         slug: "face-pull",
         note: "Same cable setup with external rotation added, which trains the cuff and lower traps as well as the rear delt.",
       },
+      {
+        slug: "reverse-cable-crossover",
+        note: "Both arms at once against crossed cables, loading the start of the movement where a dumbbell fly is weightless.",
+      },
     ],
   },
   {
@@ -723,6 +739,183 @@ export const SHOULDERS: SeedExercise[] = [
       {
         slug: "rear-delt-fly-dumbbell",
         note: "A similar prone position with the arms sweeping wide instead of overhead, targeting the rear delts rather than the lower traps.",
+      },
+    ],
+  },
+
+  /* ---- Machine presses and shoulder accessories ---- */
+  {
+    slug: "shoulder-press-smith",
+    name: "Shoulder Press (Smith Machine)",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["triceps"],
+    equipment: "smith",
+    instructions:
+      "Sit on an upright bench placed so the bar lowers in front of the face to the chin.\nUnrack and lower the bar under control to about chin height.\nPress straight up to lockout, then rotate the hooks to rack.",
+    bodyEffect:
+      "A seated overhead press on the fixed vertical track of a Smith machine, so the bar travels in a straight line with no balancing at all.\n\nThe front and side delts drive the arms overhead, the triceps extend the elbows and the upper traps rotate the shoulder blades upward. The rails remove the trunk and stabiliser demand a free bar brings.\n\nIt is a safe, loadable way to train the delts hard without a spotter, and progress is easy to measure. The straight track keeps the bar in front of the face rather than over the head, which suits some shoulders and not others, and the carry-over to free pressing is limited.",
+    alternatives: [
+      {
+        slug: "seated-overhead-press-barbell",
+        note: "A free bar from the same seat adds bar-path control and stabiliser work, for better carry-over.",
+      },
+      {
+        slug: "shoulder-press-machine",
+        note: "A converging machine path that follows the arc of the arms more naturally than a vertical rail.",
+      },
+      {
+        slug: "seated-overhead-press-dumbbell",
+        note: "Independent bells give a freer path and a deeper bottom position, at the cost of easy loading.",
+      },
+    ],
+  },
+  {
+    slug: "shoulder-press-plate-loaded",
+    name: "Shoulder Press (Plate-Loaded Machine)",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["triceps"],
+    equipment: "machine",
+    instructions:
+      "Set the seat so the handles start at about shoulder height.\nPress the handles up and slightly inward until the arms are straight.\nLower under control to the start without letting the plates rest.",
+    bodyEffect:
+      "A seated overhead press on a plate-loaded machine with independent arms that converge slightly as they rise, following the arc the arms take when pressing overhead.\n\nThe front and side delts lead, the triceps extend the elbows and the upper traps rotate the shoulder blades. Because each arm has its own lever, the weaker side cannot pass load to the stronger one.\n\nIt allows heavy, stable overhead pressing taken safely close to failure, with the independent arms keeping both sides even. The resistance follows the lever rather than staying constant, so where it feels hardest depends on the model, and none of the balance a free press builds is trained.",
+    alternatives: [
+      {
+        slug: "shoulder-press-machine",
+        note: "A selectorised press with linked handles: finer weight steps, but less side-to-side honesty.",
+      },
+      {
+        slug: "overhead-press-dumbbell",
+        note: "Free bells standing add balance and trunk demand, in return for lighter loading.",
+      },
+      {
+        slug: "shoulder-press-smith",
+        note: "A vertical rail instead of a converging arc \u2014 simple to load, but less kind to some shoulders.",
+      },
+    ],
+  },
+  {
+    slug: "z-press",
+    name: "Z Press",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["triceps", "abs"],
+    equipment: "barbell",
+    instructions:
+      "Sit on the floor with the legs straight out in front and the bar in the front rack.\nPress straight overhead, moving the head back and then through as the bar passes.\nLower under control to the collarbones without leaning back.",
+    bodyEffect:
+      "A barbell overhead press sitting on the floor with the legs straight, so neither the legs nor a backrest can help.\n\nThe front and side delts and the triceps press the bar while the upper traps rotate the shoulder blades. With nothing behind the back, the abs, obliques and spinal muscles must hold the torso vertical on their own, and tight hamstrings or hips make that much harder.\n\nIt builds strict pressing strength and exposes any reliance on leaning back, which is why it is used to clean up a standing press. It needs far less weight than a standing press and is uncomfortable for anyone without the hip mobility to sit upright.",
+    alternatives: [
+      {
+        slug: "overhead-press-barbell",
+        note: "The standing version, where the legs and a slight lean help, allowing heavier loads.",
+      },
+      {
+        slug: "seated-overhead-press-barbell",
+        note: "Seated with a back pad, which supports the torso and removes the trunk demand entirely.",
+      },
+      {
+        slug: "overhead-press-dumbbell",
+        note: "Free bells standing give independent arms but a stable base from the legs.",
+      },
+    ],
+  },
+  {
+    slug: "lu-raise",
+    name: "Lu Raise",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["traps"],
+    equipment: "dumbbell",
+    instructions:
+      "Stand with light dumbbells, thumbs up, arms by the sides.\nRaise the arms out to the sides and all the way overhead with straight elbows.\nLower slowly the same way.",
+    bodyEffect:
+      "A lateral raise continued past shoulder height all the way overhead, with the thumbs pointing up so the shoulder can rotate freely as it rises.\n\nThe side delts lift the arm to shoulder height; above that, the upper and lower traps and the serratus anterior rotate the shoulder blade upward so the arm can keep rising. The full arc trains the delts and the shoulder-blade muscles together.\n\nIt builds the side delts and upward rotation of the shoulder blade, which helps overhead lifters and healthy shoulder mechanics. Only very light weights are possible because of the long lever, so it complements a heavy press rather than replacing one.",
+    alternatives: [
+      {
+        slug: "lateral-raise-dumbbell",
+        note: "Stops at shoulder height, which keeps the load on the side delts and allows heavier weight.",
+      },
+      {
+        slug: "prone-y-raise",
+        note: "Lying face down with the arms in a Y focuses the work on the lower traps instead.",
+      },
+      {
+        slug: "cable-y-raise",
+        note: "A cable version of the overhead line, with tension that stays on at the top.",
+      },
+    ],
+  },
+  {
+    slug: "cable-y-raise",
+    name: "Y Raise (Cable)",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["traps"],
+    equipment: "cable",
+    instructions:
+      "Stand between two low pulleys, crossing the cables so each hand holds the opposite handle.\nRaise the arms up and out into a Y above the head, thumbs up.\nLower slowly under control.",
+    bodyEffect:
+      "A raise from low in front of the body up and out into a Y overhead, against cables crossing from the opposite side.\n\nThe side and front delts lift the arms, and the lower traps and serratus anterior rotate the shoulder blades upward as the arms rise past shoulder height. The crossing cables keep resistance on through the top, where a dumbbell's pull drops away.\n\nIt trains the side delts and lower-trap control in one movement, which makes it a good accessory for shoulder health and overhead strength. It is limited to light loads and needs two low pulleys.",
+    alternatives: [
+      {
+        slug: "lu-raise",
+        note: "The dumbbell version also passes overhead, but its resistance falls away at the top.",
+      },
+      {
+        slug: "prone-y-raise",
+        note: "Lying face down removes momentum and isolates the lower traps more than the delts.",
+      },
+      {
+        slug: "lateral-raise-cable",
+        note: "Stops at shoulder height and works one side at a time, keeping the load on the side delt.",
+      },
+    ],
+  },
+  {
+    slug: "reverse-cable-crossover",
+    name: "Reverse Cable Crossover",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["back"],
+    equipment: "cable",
+    instructions:
+      "Stand between two high pulleys, holding the left cable in the right hand and the right cable in the left.\nWith straight arms, pull the hands out and back until they are in line with the shoulders.\nReturn slowly to crossed arms in front of the body.",
+    bodyEffect:
+      "The arms pull apart and back at shoulder height against cables that cross in front of the body.\n\nThe rear delts are the prime movers, with the mid traps, rhomboids and infraspinatus assisting. The crossed cables load the very start of the movement, when the hands are crossed in front, which is exactly where a dumbbell reverse fly is almost weightless.\n\nIt isolates the rear delts with constant tension, which helps balance a pressing-heavy programme and supports posture. Loads are light, and the traps take the movement over easily if the shoulders shrug.",
+    alternatives: [
+      {
+        slug: "rear-delt-fly-machine",
+        note: "A chest-supported machine version, steadier and easier to load but with a fixed arc.",
+      },
+      {
+        slug: "rear-delt-fly-cable",
+        note: "One arm at a time across the body, allowing a longer range on each side.",
+      },
+      {
+        slug: "face-pull",
+        note: "A higher pull with a rope that adds external rotation and more trap involvement.",
+      },
+    ],
+  },
+  {
+    slug: "cuban-press",
+    name: "Cuban Press",
+    primaryMuscle: "shoulders",
+    secondaryMuscles: ["traps"],
+    equipment: "dumbbell",
+    instructions:
+      "Hold light dumbbells and raise the elbows out to shoulder height, forearms hanging down.\nRotate the forearms up until the hands are above the elbows.\nPress overhead, then reverse each step to return.",
+    bodyEffect:
+      "A three-part movement: an upright row to shoulder height, an external rotation of the shoulder, then an overhead press.\n\nThe side delts and upper traps lift the elbows, the infraspinatus and teres minor rotate the arm back, and the delts and triceps press it overhead. It trains the rotator cuff in and through the overhead position, which is where it most needs to work.\n\nIt is a shoulder-health and warm-up exercise that builds rotator-cuff strength in a functional pattern. Only very light weights are possible, and it is not a muscle-building movement for the delts.",
+    alternatives: [
+      {
+        slug: "cable-external-rotation",
+        note: "Isolates the external rotation alone at the side, with constant tension and adjustable load.",
+      },
+      {
+        slug: "face-pull",
+        note: "Combines a rear-delt pull with external rotation at higher loads.",
+      },
+      {
+        slug: "arnold-press",
+        note: "A rotating press that also moves through several positions, loaded much heavier.",
       },
     ],
   },

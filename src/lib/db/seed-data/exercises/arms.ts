@@ -219,6 +219,10 @@ export const ARMS: SeedExercise[] = [
         slug: "cable-curl",
         note: "Constant tension across the whole range rather than a sharp peak at one end, and no stress on a locked-out elbow.",
       },
+      {
+        slug: "preacher-curl-machine",
+        note: "A machine pivot lined up with the elbow keeps the resistance even, including at the top where a free weight goes slack.",
+      },
     ],
   },
   {
@@ -598,6 +602,10 @@ export const ARMS: SeedExercise[] = [
         slug: "close-grip-bench-press",
         note: "A compound press that loads the triceps far heavier with much less strain on the elbow joint.",
       },
+      {
+        slug: "overhead-tricep-extension-ez-bar",
+        note: "Arms overhead stretch the long head of the triceps far more, at the cost of a more awkward setup.",
+      },
     ],
   },
   {
@@ -670,6 +678,10 @@ export const ARMS: SeedExercise[] = [
       {
         slug: "close-grip-bench-press",
         note: "A compound press that loads the triceps many times heavier, and is the better use of the same training time.",
+      },
+      {
+        slug: "tricep-kickback-cable",
+        note: "A low cable keeps the resistance on through the whole arc instead of only near lockout.",
       },
     ],
   },
@@ -870,6 +882,255 @@ export const ARMS: SeedExercise[] = [
       {
         slug: "wrist-curl",
         note: "Builds the forearm flexors through a range of motion rather than holding a static pinch.",
+      },
+    ],
+  },
+
+  /* ---- Machine curls and more triceps variants ---- */
+  {
+    slug: "bicep-curl-machine",
+    name: "Bicep Curl (Machine)",
+    primaryMuscle: "biceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "machine",
+    instructions:
+      "Set the seat so the elbows line up with the machine's pivot and rest on the pad.\nCurl the handles up toward the shoulders.\nLower under control to full extension.",
+    bodyEffect:
+      "Elbow flexion on a machine with the upper arms on a pad and the elbow lined up with the machine's pivot, so the resistance follows the arc of the forearm exactly.\n\nThe biceps brachii and brachialis do the work, with the brachioradialis assisting. The pad stops the shoulders helping, and the cam keeps the resistance even across the whole range rather than peaking in the middle.\n\nIt is the easiest curl to take to failure strictly, with no swinging possible and small weight steps. It depends on the machine fitting your arm length, and it trains nothing in the way of stability.",
+    alternatives: [
+      {
+        slug: "preacher-curl",
+        note: "A free-weight version on a pad, with resistance that falls off near the top.",
+      },
+      {
+        slug: "cable-curl",
+        note: "Constant cable tension standing, with more freedom in the path and some room to swing.",
+      },
+      {
+        slug: "preacher-curl-machine",
+        note: "A similar machine with a steeper pad, emphasising the stretched bottom position.",
+      },
+    ],
+  },
+  {
+    slug: "preacher-curl-machine",
+    name: "Preacher Curl (Machine)",
+    primaryMuscle: "biceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "machine",
+    instructions:
+      "Sit with the upper arms flat on the angled pad and the elbows in line with the pivot.\nCurl the handles to the shoulders.\nLower slowly to almost full extension.",
+    bodyEffect:
+      "Elbow flexion with the upper arms on a steep preacher pad and the load moving on a pivot lined up with the elbow, so the resistance is highest where the arm is stretched.\n\nThe biceps brachii and brachialis work through their longest position, with the brachioradialis assisting. The angled pad puts the shoulder in front of the body, which slackens the long head of the biceps and biases the short head and the brachialis.\n\nIt loads the stretched range of the biceps strictly and safely, which is valuable for hypertrophy. The stretch strains the elbow tendons if the weight is dropped quickly, and the fit of the machine matters.",
+    alternatives: [
+      {
+        slug: "preacher-curl",
+        note: "The free-weight version on the same pad \u2014 available anywhere, but its resistance fades near the top.",
+      },
+      {
+        slug: "bicep-curl-machine",
+        note: "A flatter pad gives a more even load across the range.",
+      },
+      {
+        slug: "cable-preacher-curl",
+        note: "A cable on a preacher bench keeps tension at the top, where a free weight goes slack.",
+      },
+    ],
+  },
+  {
+    slug: "cable-preacher-curl",
+    name: "Preacher Curl (Cable)",
+    primaryMuscle: "biceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "cable",
+    instructions:
+      "Place a preacher bench in front of a low pulley and attach a bar or handle.\nWith the upper arms on the pad, curl the handle to the shoulders.\nLower until the arms are nearly straight.",
+    bodyEffect:
+      "Elbow flexion over a preacher pad against a low cable, so the upper arm is fixed in front of the body and the line of pull stays behind the hand.\n\nThe biceps brachii and brachialis are the prime movers, with the brachioradialis assisting. The cable keeps tension all the way up, where a dumbbell or bar on a preacher pad loses most of its resistance because the forearm is nearly vertical.\n\nIt combines the strictness of a preacher curl with constant tension, which suits high-rep hypertrophy work for the biceps. The setup needs a movable bench and a low pulley, and the loads are moderate.",
+    alternatives: [
+      {
+        slug: "preacher-curl",
+        note: "The free-weight version loads the bottom hard and the top barely at all.",
+      },
+      {
+        slug: "cable-curl",
+        note: "A standing cable curl with the upper arm at the side: a longer range but more room to swing.",
+      },
+      {
+        slug: "bayesian-curl",
+        note: "A cable from behind the body stretches the long head of the biceps rather than slackening it.",
+      },
+    ],
+  },
+  {
+    slug: "incline-hammer-curl",
+    name: "Incline Hammer Curl",
+    primaryMuscle: "biceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "dumbbell",
+    instructions:
+      "Sit back on a bench inclined to about 45\u00b0 with a dumbbell in each hand, palms facing in.\nCurl the bells up without moving the elbows forward.\nLower to a full stretch with the arms hanging behind the body.",
+    bodyEffect:
+      "Elbow flexion with a neutral grip while lying back on an incline, so the arms start hanging behind the torso.\n\nThe brachialis and brachioradialis take a large share of the work because of the neutral grip, and the long head of the biceps is stretched by the arm hanging behind the body. The bench stops the torso swinging to help the weight up.\n\nIt combines the arm-thickness work of a hammer curl with a stretched starting position, which is valuable for hypertrophy. It needs lighter weights than a standing hammer curl, and the stretch can strain the front of the shoulder.",
+    alternatives: [
+      {
+        slug: "hammer-curl-dumbbell",
+        note: "The standing version is heavier, but the arms stay at the sides and there is room to swing.",
+      },
+      {
+        slug: "incline-curl-dumbbell",
+        note: "A supinated grip at the same angle puts more of the load on the biceps.",
+      },
+      {
+        slug: "cross-body-hammer-curl",
+        note: "Curls across the body, biasing the brachialis further.",
+      },
+    ],
+  },
+  {
+    slug: "cross-body-hammer-curl",
+    name: "Cross-Body Hammer Curl",
+    primaryMuscle: "biceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "dumbbell",
+    instructions:
+      "Stand with a dumbbell in each hand, palms facing in.\nCurl one bell across the body toward the opposite shoulder.\nLower under control and alternate sides.",
+    bodyEffect:
+      "Elbow flexion with a neutral grip, curling the bell across the body toward the opposite shoulder.\n\nThe brachialis and brachioradialis do much of the work, with the biceps assisting less than in a supinated curl. Bringing the hand across the body draws the upper arm slightly across too, which shifts still more of the work onto the brachialis.\n\nIt builds the brachialis and forearm thickness that make the arm look wider from the front, and the neutral grip suits sore wrists and elbows. The loads are moderate, and alternating sides makes each set long.",
+    alternatives: [
+      {
+        slug: "hammer-curl-dumbbell",
+        note: "Straight up and down with both arms at once, allowing slightly more load.",
+      },
+      {
+        slug: "rope-hammer-curl",
+        note: "A cable version with constant tension and a rope handle.",
+      },
+      {
+        slug: "reverse-curl",
+        note: "An overhand grip shifts the work further onto the brachioradialis and forearm extensors.",
+      },
+    ],
+  },
+  {
+    slug: "overhead-tricep-extension-ez-bar",
+    name: "Overhead Tricep Extension (EZ Bar)",
+    primaryMuscle: "triceps",
+    equipment: "barbell",
+    instructions:
+      "Sit on a bench with back support and hold an EZ bar overhead with a narrow grip.\nLower the bar behind the head by bending only the elbows.\nExtend back up to straight arms without flaring the elbows.",
+    bodyEffect:
+      "Elbow extension with the arms overhead and both hands on an EZ bar, so the triceps work from a fully stretched position.\n\nAll three heads of the triceps extend the elbow, but raising the arms overhead stretches the long head, which crosses the shoulder, far more than any pushdown can. The angled grip keeps the wrists more comfortable than a straight bar would.\n\nIt is one of the best exercises for long-head growth, because it loads the muscle where it is longest. Getting the bar overhead is awkward with heavy weights, and the stretch can bother stiff elbows or shoulders.",
+    alternatives: [
+      {
+        slug: "overhead-tricep-extension-dumbbell",
+        note: "One dumbbell in both hands is easier to set up but harder to load heavily.",
+      },
+      {
+        slug: "overhead-tricep-extension-cable",
+        note: "A cable version with constant tension and easy weight changes.",
+      },
+      {
+        slug: "skull-crusher-barbell",
+        note: "Lying with the arms vertical gives less long-head stretch but allows heavier loads.",
+      },
+    ],
+  },
+  {
+    slug: "tricep-pushdown-single-arm",
+    name: "Single-Arm Tricep Pushdown (Cable)",
+    primaryMuscle: "triceps",
+    equipment: "cable",
+    instructions:
+      "Stand side-on to a high pulley with a single handle in one hand.\nPin the elbow at the side and push the handle down to a straight arm.\nLet it rise until the forearm is just above parallel.",
+    bodyEffect:
+      "Elbow extension one arm at a time against a high cable, with the upper arm pinned at the side.\n\nThe lateral and medial heads of the triceps do most of the work, and the long head contributes less because the arm hangs at the side rather than overhead. Working one arm lets the elbow follow its own path and makes it easy to turn the hand to whatever grip feels best.\n\nIt isolates each side to fix a lagging arm and is easy on the elbows. The loads are light, and doubling the sets takes extra time.",
+    alternatives: [
+      {
+        slug: "tricep-pushdown-cable",
+        note: "Both hands on a bar allow more load, but let one side do more of the work.",
+      },
+      {
+        slug: "tricep-pushdown-rope",
+        note: "Two hands on a rope let the wrists rotate and the hands spread apart at the bottom.",
+      },
+      {
+        slug: "tricep-kickback-cable",
+        note: "The arm held behind the torso works the triceps in its shortest position.",
+      },
+    ],
+  },
+  {
+    slug: "tricep-pushdown-reverse-grip",
+    name: "Reverse-Grip Pushdown (Cable)",
+    primaryMuscle: "triceps",
+    secondaryMuscles: ["forearms"],
+    equipment: "cable",
+    instructions:
+      "Take a straight bar or EZ bar on a high pulley with an underhand grip.\nPin the elbows at the sides and push the bar down until the arms are straight.\nLet it rise slowly to just above parallel.",
+    bodyEffect:
+      "Elbow extension against a high cable with the palms facing up, so the triceps straighten the elbow while the forearm stays supinated.\n\nThe triceps are still the prime movers, with the medial head taking a larger share than usual, and the wrist extensors work to hold the bar. The underhand grip also makes it harder to lean the body over the bar to help it down.\n\nIt varies the stimulus on the triceps and is kinder to some elbows than the standard pushdown. The weaker grip limits the load, so it suits lighter, higher-rep work.",
+    alternatives: [
+      {
+        slug: "tricep-pushdown-cable",
+        note: "An overhand grip allows more load and leans on the lateral head.",
+      },
+      {
+        slug: "tricep-pushdown-single-arm",
+        note: "One side at a time, with a free hand position.",
+      },
+      {
+        slug: "tricep-pushdown-rope",
+        note: "A neutral grip with spreading hands gives a stronger squeeze at the bottom.",
+      },
+    ],
+  },
+  {
+    slug: "tricep-kickback-cable",
+    name: "Tricep Kickback (Cable)",
+    primaryMuscle: "triceps",
+    equipment: "cable",
+    instructions:
+      "Hinge forward next to a low pulley with the handle in one hand.\nPin the upper arm along the side of the torso.\nExtend the elbow until the arm is straight back, then return slowly.",
+    bodyEffect:
+      "Elbow extension with the upper arm held back alongside the torso, against a low cable.\n\nThe triceps extend the elbow, the lateral and medial heads in particular, while the long head is shortened because the shoulder is extended. The cable keeps resistance on at the top of the movement, where a dumbbell kickback's pull falls to almost nothing.\n\nIt trains the triceps in their fully shortened position with constant tension, which makes it a good finisher for hypertrophy. It is strictly a light-load isolation movement and needs a steady hinge to keep the upper arm still.",
+    alternatives: [
+      {
+        slug: "tricep-kickback",
+        note: "The dumbbell version, where the load only means much near lockout.",
+      },
+      {
+        slug: "tricep-pushdown-single-arm",
+        note: "The arm at the side rather than behind allows more load.",
+      },
+      {
+        slug: "overhead-tricep-extension-cable",
+        note: "The arm overhead trains the long head in its stretched position instead.",
+      },
+    ],
+  },
+  {
+    slug: "tate-press",
+    name: "Tate Press",
+    primaryMuscle: "triceps",
+    secondaryMuscles: ["chest"],
+    equipment: "dumbbell",
+    instructions:
+      "Lie on a flat bench with the dumbbells pressed above the chest, palms facing your feet.\nBend the elbows out to the sides, lowering the bells inward to touch the chest.\nExtend the elbows back to straight arms.",
+    bodyEffect:
+      "Elbow extension lying on a bench with the elbows flared and the dumbbells lowered inward to the chest.\n\nThe triceps do the work, especially the lateral and medial heads, while the flared elbows keep the chest and delts from contributing much. The path puts the elbows in an unusual position that loads the triceps hardest near lockout.\n\nIt is a triceps accessory that builds lockout strength for pressing, and for some people it avoids the elbow stress of skull crushers. The loads are light and the flared position does not suit every elbow.",
+    alternatives: [
+      {
+        slug: "skull-crusher-dumbbell",
+        note: "Lowers toward the head with the elbows pointing up, giving a longer stretch.",
+      },
+      {
+        slug: "jm-press",
+        note: "A hybrid of a press and an extension, loaded heavier for pressing strength.",
+      },
+      {
+        slug: "close-grip-bench-press",
+        note: "A compound press that lets the chest share the load and allows far heavier weights.",
       },
     ],
   },

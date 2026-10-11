@@ -25,6 +25,10 @@ export const LEGS_QUADS: SeedExercise[] = [
         slug: "goblet-squat",
         note: "A far lighter front-loaded squat that teaches the same pattern with almost no spinal load or setup.",
       },
+      {
+        slug: "safety-bar-squat",
+        note: "A cambered, padded bar with handles in front spares stiff shoulders and elbows and works the upper back harder.",
+      },
     ],
   },
   {
@@ -125,6 +129,10 @@ export const LEGS_QUADS: SeedExercise[] = [
         slug: "front-squat-barbell",
         note: "A free-weight route to the same quad bias, adding a substantial upper-back and trunk demand.",
       },
+      {
+        slug: "v-squat-machine",
+        note: "A similar plate-loaded track with a different angle and lever, keeping the load firmly on the quads.",
+      },
     ],
   },
   {
@@ -149,6 +157,10 @@ export const LEGS_QUADS: SeedExercise[] = [
       {
         slug: "bulgarian-split-squat",
         note: "One leg at a time, which exposes imbalances and adds a stability demand the sled removes entirely.",
+      },
+      {
+        slug: "leg-press-single-leg",
+        note: "One leg at a time, so each side has to push its own share and a weaker leg can't hide.",
       },
     ],
   },
@@ -627,6 +639,234 @@ export const LEGS_QUADS: SeedExercise[] = [
       {
         slug: "bulgarian-split-squat",
         note: "Loads the adductors as stabilisers within a full leg exercise rather than isolating them.",
+      },
+    ],
+  },
+
+  /* ---- Squat variants, machines and lateral work ---- */
+  {
+    slug: "safety-bar-squat",
+    name: "Safety Bar Squat",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes", "back"],
+    equipment: "barbell",
+    instructions:
+      "Set the padded yoke on the upper back and hold the handles in front.\nSit down between the hips with the chest up, keeping the bar over the mid-foot.\nDrive up to standing without letting the bar tip you forward.",
+    bodyEffect:
+      "A back squat with a cambered, padded bar whose handles come forward over the shoulders, so the hands don't have to reach back and the load sits slightly in front of the spine.\n\nThe quads, glutes and adductors move the body, and the bar's tendency to tip forward makes the upper back and trunk work harder to stay upright. The shoulders and elbows are spared because the arms stay in front of the body.\n\nIt lets lifters with sore shoulders or elbows squat heavily, and it builds upper-back strength. The forward pull feels different from a straight bar, so loads are usually a little lower.",
+    alternatives: [
+      {
+        slug: "squat-barbell",
+        note: "A straight bar on the back is the heaviest option, but hard on stiff shoulders.",
+      },
+      {
+        slug: "front-squat-barbell",
+        note: "The bar on the front of the shoulders makes it even more upright and quad-focused.",
+      },
+      {
+        slug: "belt-squat",
+        note: "Load hung from the hips removes all spinal loading.",
+      },
+    ],
+  },
+  {
+    slug: "overhead-squat",
+    name: "Overhead Squat",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["shoulders", "abs"],
+    equipment: "barbell",
+    instructions:
+      "Hold the bar locked overhead with a wide snatch grip.\nSquat down with the bar over the mid-foot, keeping the arms straight.\nStand back up without letting the bar drift forward.",
+    bodyEffect:
+      "A full squat with the bar held at arm's length overhead in a wide grip, so it must stay balanced over the mid-foot throughout.\n\nThe quads, glutes and adductors move the body, while the shoulders, upper back and trunk work hard to keep the bar overhead. Ankle, hip and upper-back mobility all limit how deep the squat can go.\n\nIt builds the stability and mobility the snatch depends on and exposes weak links quickly. Loads are much lower than in any other squat, so it is a skill and stability exercise rather than a leg builder.",
+    alternatives: [
+      {
+        slug: "front-squat-barbell",
+        note: "The bar on the front of the shoulders is more upright and much heavier.",
+      },
+      {
+        slug: "snatch",
+        note: "The full Olympic lift, which finishes in an overhead squat.",
+      },
+      {
+        slug: "goblet-squat",
+        note: "A light front-loaded squat for learning the upright position.",
+      },
+    ],
+  },
+  {
+    slug: "landmine-squat",
+    name: "Landmine Squat",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes"],
+    equipment: "barbell",
+    instructions:
+      "Hold the end of a landmined bar at the chest with both hands.\nSquat down between the hips, keeping the chest tall.\nDrive up to standing, pushing the bar slightly forward.",
+    bodyEffect:
+      "A squat holding the free end of a landmined bar at the chest, so the bar leans back into the body along an arc.\n\nThe quads, glutes and adductors do the work, and the angle of the bar lets the lifter lean into it, which helps keep the torso upright and balanced. The upper back and arms hold the bar against the chest throughout.\n\nIt is easy to learn and kind to the back, and it suits beginners or anyone who has outgrown a goblet squat. It tops out at moderate loads because the bar has to be held at the chest.",
+    alternatives: [
+      {
+        slug: "goblet-squat",
+        note: "A dumbbell or kettlebell at the chest: a simpler setup with a straight vertical path.",
+      },
+      {
+        slug: "front-squat-barbell",
+        note: "The bar on the front of the shoulders allows much heavier loads.",
+      },
+      {
+        slug: "belt-squat",
+        note: "Load from the hips takes the upper body out of the lift.",
+      },
+    ],
+  },
+  {
+    slug: "v-squat-machine",
+    name: "V-Squat (Machine)",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes"],
+    equipment: "machine",
+    instructions:
+      "Stand on the platform with the shoulders under the pads and the back against the pad.\nSquat down until the thighs are at least parallel.\nPress back up through the whole foot.",
+    bodyEffect:
+      "A squat on a plate-loaded machine where the shoulders sit under pads and the body travels along a fixed track, similar to a hack squat but with a different angle and lever.\n\nThe quads do most of the work, with the glutes and adductors assisting. The machine removes balance and most of the lower-back demand, so the legs are the only thing that can end the set.\n\nIt allows heavy, controlled quad work taken close to failure safely, which suits hypertrophy. The fixed path does not suit every body, and nothing carries over to a free squat's balance.",
+    alternatives: [
+      {
+        slug: "hack-squat",
+        note: "A similar machine with the back against an angled pad, in a deep, quad-focused position.",
+      },
+      {
+        slug: "pendulum-squat",
+        note: "Swings on an arc, keeping tension on the quads deep in the hole.",
+      },
+      {
+        slug: "leg-press",
+        note: "Seated, pushing a sled with the feet \u2014 the easiest heavy option.",
+      },
+    ],
+  },
+  {
+    slug: "leg-press-single-leg",
+    name: "Single-Leg Leg Press",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes"],
+    equipment: "machine",
+    instructions:
+      "Sit in the leg press and place one foot in the middle of the platform.\nLower the platform until the knee is deeply bent without the hip rolling off the seat.\nPress back up without locking the knee.",
+    bodyEffect:
+      "A leg press performed with one leg, so each leg has to push the sled on its own.\n\nThe quads, glutes and adductors of the working leg do the work. The seat and back pad steady the torso, so balance is barely tested compared with lunges or split squats.\n\nIt lets each leg be trained heavily and evenly, which helps fix a weaker side with little balance or back demand. The hip can roll off the seat at the bottom, so the range has to stay controlled.",
+    alternatives: [
+      {
+        slug: "leg-press",
+        note: "Both legs together allow much more load.",
+      },
+      {
+        slug: "bulgarian-split-squat",
+        note: "A free-weight single-leg squat with more balance and glute work.",
+      },
+      {
+        slug: "split-squat-smith",
+        note: "A guided split squat that steadies the bar but keeps the standing stance.",
+      },
+    ],
+  },
+  {
+    slug: "split-squat-smith",
+    name: "Split Squat (Smith Machine)",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes"],
+    equipment: "smith",
+    instructions:
+      "Stand under the Smith bar in a split stance, one foot well ahead of the other.\nLower the back knee toward the floor, keeping the torso upright.\nDrive through the front foot to stand back up.",
+    bodyEffect:
+      "A split squat with the bar on a Smith machine's rails, so the lifter can concentrate on the legs without having to balance the load.\n\nThe front quads and glutes do most of the work, with the adductors assisting. The rails take away the balance a dumbbell or barbell split squat demands, which lets the front leg be pushed closer to failure.\n\nIt is a stable way to load each leg heavily, and a good choice for anyone who struggles with balance. The fixed path means the feet have to be placed carefully, and the trunk works less.",
+    alternatives: [
+      {
+        slug: "split-squat",
+        note: "The dumbbell version demands more balance and allows less load.",
+      },
+      {
+        slug: "bulgarian-split-squat",
+        note: "The back foot raised gives the front leg a deeper range.",
+      },
+      {
+        slug: "leg-press-single-leg",
+        note: "Seated, removing the balance and the spinal loading entirely.",
+      },
+    ],
+  },
+  {
+    slug: "cossack-squat",
+    name: "Cossack Squat",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes", "hamstrings"],
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Stand with the feet very wide, toes slightly out.\nShift your weight to one side and squat down over that leg while the other stays straight, toes up.\nPush back up and shift to the other side.",
+    bodyEffect:
+      "A side-to-side squat from a very wide stance, sinking deep over one leg while the other stays straight out to the side.\n\nThe quads and glutes of the bent leg do the work, while the adductors and hamstrings of the straight leg are stretched under load. Ankle and hip mobility decide how deep it can go.\n\nIt builds strength and mobility side to side, a direction most leg training ignores, and it suits warm-ups and athletes. A weight held at the chest can be added, but it remains mostly a mobility and control exercise.",
+    alternatives: [
+      {
+        slug: "lateral-lunge",
+        note: "Steps out into a side lunge, with a less extreme depth.",
+      },
+      {
+        slug: "goblet-squat",
+        note: "A loaded, symmetrical squat for leg strength.",
+      },
+      {
+        slug: "hip-adduction-machine",
+        note: "Isolates the adductors on a machine, without the squat.",
+      },
+    ],
+  },
+  {
+    slug: "lateral-lunge",
+    name: "Lateral Lunge",
+    primaryMuscle: "quads",
+    secondaryMuscles: ["glutes"],
+    equipment: "dumbbell",
+    instructions:
+      "Stand tall with a dumbbell in each hand or one held at the chest.\nStep wide to one side and sit back into that hip, keeping the other leg straight.\nPush off the stepping foot to return to standing.",
+    bodyEffect:
+      "A lunge stepping out to the side, sitting into one hip while the trailing leg stays straight.\n\nThe quads and glutes of the stepping leg do the work, and the adductors of both legs work hard \u2014 lengthening under load on the stepping side and steadying the body on the other.\n\nIt trains strength and control for side-to-side movement and is a useful addition to programmes that only lunge forward. The loads are moderate and the step needs space.",
+    alternatives: [
+      {
+        slug: "cossack-squat",
+        note: "Stays in a wide stance and goes deeper, with more mobility demand.",
+      },
+      {
+        slug: "lunge-dumbbell",
+        note: "Steps forward, putting more of the work on the quads.",
+      },
+      {
+        slug: "curtsy-lunge",
+        note: "Steps diagonally behind, emphasising the outer glute.",
+      },
+    ],
+  },
+  {
+    slug: "curtsy-lunge",
+    name: "Curtsy Lunge",
+    primaryMuscle: "glutes",
+    secondaryMuscles: ["quads"],
+    equipment: "dumbbell",
+    instructions:
+      "Stand tall with a dumbbell in each hand.\nStep one foot diagonally behind and across the other, lowering into a lunge.\nPush through the front foot to return to standing.",
+    bodyEffect:
+      "A lunge stepping one leg diagonally behind the other, so the front hip ends up bent and turned inward.\n\nThe gluteus maximus and medius of the front leg do much of the work, with the quads extending the knee. The crossed position puts the outer glute under stretch and makes the hip work to keep the knee in line over the foot.\n\nIt trains the glutes and hip stability in a pattern ordinary lunges miss, which suits glute-focused programmes. The loads are moderate and the knee position can bother some people.",
+    alternatives: [
+      {
+        slug: "reverse-lunge",
+        note: "Steps straight back, allowing more load.",
+      },
+      {
+        slug: "lateral-lunge",
+        note: "Steps out to the side, emphasising the adductors.",
+      },
+      {
+        slug: "bulgarian-split-squat",
+        note: "The rear foot raised gives a deeper range with more load.",
       },
     ],
   },
