@@ -332,4 +332,106 @@ export const OLYMPIC: SeedExercise[] = [
       },
     ],
   },
+
+  /* ---- Jerk, pulls and kettlebell ballistics ---- */
+  {
+    slug: "push-jerk",
+    name: "Push Jerk",
+    primaryMuscle: "full_body",
+    secondaryMuscles: ["shoulders", "quads", "triceps"],
+    equipment: "barbell",
+    instructions:
+      "Hold the bar in the front rack with the elbows slightly forward.\nDip a few inches and drive the bar upward with the legs.\nPush yourself under the bar into a partial squat with the arms locked, then stand.",
+    bodyEffect:
+      "An overhead lift driven by the legs: a short dip and drive launches the bar from the shoulders, then the lifter pushes down under it into a partial squat with locked arms.\n\nThe quads and glutes generate the drive, the shoulders and triceps finish and lock the bar overhead, and the trunk transfers the force from the legs to the bar.\n\nIt builds explosive leg drive and overhead stability and handles heavier loads than a push press. It is technically demanding and needs coaching and good shoulder mobility.",
+    alternatives: [
+      {
+        slug: "push-press",
+        note: "Drives the bar with the legs but finishes by pressing, with no rebend under the bar.",
+      },
+      {
+        slug: "clean-and-jerk",
+        note: "The full lift, including the clean from the floor.",
+      },
+      {
+        slug: "overhead-press-barbell",
+        note: "No leg drive at all \u2014 strict pressing strength only.",
+      },
+    ],
+  },
+  {
+    slug: "clean-pull",
+    name: "Clean Pull",
+    primaryMuscle: "full_body",
+    secondaryMuscles: ["traps", "hamstrings", "back"],
+    equipment: "barbell",
+    instructions:
+      "Set up as for a clean with the bar over the mid-foot.\nPull from the floor, extending the hips and knees explosively and shrugging at the top.\nLower the bar back down without catching it.",
+    bodyEffect:
+      "The pull of a clean without the catch: the bar is lifted from the floor and the hips and knees extend explosively, finishing in a shrug up onto the toes.\n\nThe quads, glutes and hamstrings drive the bar, the spinal erectors hold the back flat, and the traps finish the pull. With no catch to complete, heavier loads than the full clean can be used.\n\nIt builds pulling strength and power for the clean and overloads the positions the lift depends on. It needs good hinge technique and is a support exercise for weightlifting rather than a lift on its own.",
+    alternatives: [
+      {
+        slug: "power-clean",
+        note: "The full lift including the catch \u2014 lighter, and more technical.",
+      },
+      {
+        slug: "deadlift-barbell",
+        note: "A slow, heavy pull with no explosive finish.",
+      },
+      {
+        slug: "hang-clean",
+        note: "Starts from above the knee and includes the catch.",
+      },
+    ],
+  },
+  {
+    slug: "kettlebell-clean",
+    name: "Kettlebell Clean",
+    primaryMuscle: "full_body",
+    secondaryMuscles: ["glutes", "shoulders", "forearms"],
+    equipment: "kettlebell",
+    instructions:
+      "Hike the kettlebell back between the legs.\nDrive the hips forward and pull the bell up close to the body.\nRotate the hand around the handle to catch the bell in the rack at the shoulder.",
+    bodyEffect:
+      "A ballistic hip hinge that brings a kettlebell from between the legs up to the rack position at the shoulder.\n\nThe glutes and hamstrings drive the hips forward, the upper back and shoulder guide the bell close to the body, and the forearm rotates around the handle to receive it softly. The trunk braces against the bell's momentum on the way up and down.\n\nIt builds hip power and teaches the rack position used for kettlebell presses and squats. The loads are modest, and technique is needed to stop the bell banging into the forearm.",
+    alternatives: [
+      {
+        slug: "kettlebell-swing",
+        note: "The same hinge, but the bell floats forward rather than being caught.",
+      },
+      {
+        slug: "power-clean",
+        note: "The barbell version, much heavier and more technical.",
+      },
+      {
+        slug: "kettlebell-snatch",
+        note: "Takes the bell all the way overhead in one movement.",
+      },
+    ],
+  },
+  {
+    slug: "kettlebell-snatch",
+    name: "Kettlebell Snatch",
+    primaryMuscle: "full_body",
+    secondaryMuscles: ["glutes", "shoulders"],
+    equipment: "kettlebell",
+    instructions:
+      "Hike the kettlebell back between the legs.\nDrive the hips forward and pull the bell up close to the body.\nPunch the hand through to lock the bell overhead, then let it fall back between the legs.",
+    bodyEffect:
+      "A ballistic movement that takes a kettlebell from between the legs to overhead in one pull.\n\nThe glutes and hamstrings generate the drive, the upper back and shoulder guide the bell upward, and the shoulder and triceps lock it out overhead. The grip and the trunk are challenged throughout, especially as the bell drops back down.\n\nIt builds explosive power and conditioning, and it is a staple of kettlebell training for high-rep sets. It needs good shoulder mobility and coaching, or the bell will hit the forearm.",
+    alternatives: [
+      {
+        slug: "kettlebell-clean",
+        note: "Stops at the shoulder instead of going overhead.",
+      },
+      {
+        slug: "snatch",
+        note: "The barbell version from the floor, heavier and far more technical.",
+      },
+      {
+        slug: "kettlebell-swing",
+        note: "The same hinge without the overhead finish.",
+      },
+    ],
+  },
 ];

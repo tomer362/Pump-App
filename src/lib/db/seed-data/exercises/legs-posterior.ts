@@ -50,6 +50,10 @@ export const LEGS_POSTERIOR: SeedExercise[] = [
         slug: "good-morning",
         note: "Puts the load on the back instead of in the hands, removing grip as the limit but loading the spine considerably more.",
       },
+      {
+        slug: "b-stance-rdl",
+        note: "Puts most of the load on one leg with the other as a kickstand, training each side without the balance of a full single-leg RDL.",
+      },
     ],
   },
   {
@@ -299,6 +303,10 @@ export const LEGS_POSTERIOR: SeedExercise[] = [
         slug: "hip-thrust-barbell",
         note: "Loads hip extension at the shortened position far more heavily, with no spinal or conditioning demand.",
       },
+      {
+        slug: "kettlebell-clean",
+        note: "The same hip drive, but the bell is caught in the rack at the shoulder instead of floating forward.",
+      },
     ],
   },
   /* ---- Glutes ---- */
@@ -324,6 +332,10 @@ export const LEGS_POSTERIOR: SeedExercise[] = [
       {
         slug: "romanian-deadlift-barbell",
         note: "Loads the glutes hardest in their stretched position instead, which makes the two complementary.",
+      },
+      {
+        slug: "hip-thrust-machine",
+        note: "A dedicated machine with a belt instead of a bar: no padding, no rolling and a much quicker setup.",
       },
     ],
   },
@@ -548,6 +560,10 @@ export const LEGS_POSTERIOR: SeedExercise[] = [
         slug: "single-leg-calf-raise",
         note: "One leg at a time doubles the load per calf and exposes the side-to-side difference most people have.",
       },
+      {
+        slug: "donkey-calf-raise",
+        note: "Bending forward at the hip stretches the gastrocnemius further, for a longer range at the bottom.",
+      },
     ],
   },
   {
@@ -670,6 +686,206 @@ export const LEGS_POSTERIOR: SeedExercise[] = [
       {
         slug: "single-leg-calf-raise",
         note: "The plantarflexion counterpart under full bodyweight, which pairs naturally with dorsiflexion work.",
+      },
+    ],
+  },
+
+  /* ---- Deadlift, glute and calf variants ---- */
+  {
+    slug: "sumo-deadlift",
+    name: "Sumo Deadlift",
+    primaryMuscle: "glutes",
+    secondaryMuscles: ["quads", "hamstrings", "back"],
+    equipment: "barbell",
+    instructions:
+      "Stand with the feet wide and the toes turned out, and grip the bar inside the knees.\nPush the knees out, drop the hips and drive the floor away to stand up.\nLock out with the hips, then lower the bar along the same path.",
+    bodyEffect:
+      "A deadlift from a wide stance with the toes turned out and the hands inside the knees, so the torso stays far more upright and the bar travels a shorter distance than in a conventional pull.\n\nThe glutes, adductors and quads do more of the work, because the hips and knees start more bent and the thighs are spread, while the spinal erectors carry less load thanks to the upright back. The hamstrings and lats still hold the bar close to the body.\n\nIt allows very heavy pulling with less stress on the lower back, and some lifters' proportions make it their strongest deadlift. Hip mobility and adductor strength limit it, and the slow start off the floor is its hardest point.",
+    alternatives: [
+      {
+        slug: "deadlift-barbell",
+        note: "A narrow stance, a longer bar path and more forward lean load the hamstrings and lower back harder.",
+      },
+      {
+        slug: "trap-bar-deadlift",
+        note: "Handles at the sides allow an upright torso from a narrow stance, without the hip mobility sumo needs.",
+      },
+      {
+        slug: "hip-thrust-barbell",
+        note: "Isolates hip extension for the glutes with no spinal loading, but none of the heavy pull from the floor.",
+      },
+    ],
+  },
+  {
+    slug: "hip-thrust-machine",
+    name: "Hip Thrust (Machine)",
+    primaryMuscle: "glutes",
+    secondaryMuscles: ["hamstrings"],
+    equipment: "machine",
+    instructions:
+      "Sit in the machine with the upper back on the pad and the belt across the hips.\nDrive through the heels to lift the hips until the body is level.\nPause briefly at the top, then lower under control.",
+    bodyEffect:
+      "Hip extension from a seated, back-supported position with a padded belt across the hips, so the load is applied right at the joint that moves it.\n\nThe gluteus maximus is the prime mover, and the hamstrings help less than in a deadlift because the knees stay bent. The machine guides the path and removes the setup, padding and balance a barbell hip thrust needs.\n\nIt is the easiest way to load the glutes heavily and consistently, with a quick setup and small weight steps. The path is fixed and depends on fitting the machine, and it builds no hip-extension strength in a free position.",
+    alternatives: [
+      {
+        slug: "hip-thrust-barbell",
+        note: "The free-bar version takes more setup and padding but adjusts to any body.",
+      },
+      {
+        slug: "hip-thrust-smith",
+        note: "A Smith machine version, with a guided bar but a free bench and foot position.",
+      },
+      {
+        slug: "glute-bridge",
+        note: "A floor-based bridge with a shorter range and a simpler setup.",
+      },
+    ],
+  },
+  {
+    slug: "hip-thrust-smith",
+    name: "Hip Thrust (Smith Machine)",
+    primaryMuscle: "glutes",
+    secondaryMuscles: ["hamstrings"],
+    equipment: "smith",
+    instructions:
+      "Set a bench beside the Smith machine and sit with the upper back against it, bar padded across the hips.\nDrive the hips up until the body is level, chin tucked.\nLower under control without letting the plates rest.",
+    bodyEffect:
+      "A hip thrust with the bar running in a Smith machine's fixed track, so it cannot roll or tip and unracking takes a turn of the wrists.\n\nThe gluteus maximus does most of the work extending the hips, with the hamstrings and quads assisting. The guided bar removes the balancing that a loaded free bar across the hips demands, leaving the lifter free to concentrate on the glutes.\n\nIt makes heavy hip thrusting quicker to set up and easier to control than a free bar, which suits hypertrophy work. The fixed path can feel unnatural if the bench isn't placed carefully, and it needs a Smith machine with room for a bench.",
+    alternatives: [
+      {
+        slug: "hip-thrust-barbell",
+        note: "A free bar takes more setup and stabilisation, but has no fixed path.",
+      },
+      {
+        slug: "hip-thrust-machine",
+        note: "A dedicated machine with a belt instead of a bar, the quickest setup of all.",
+      },
+      {
+        slug: "glute-bridge",
+        note: "From the floor, with a shorter range and much less load.",
+      },
+    ],
+  },
+  {
+    slug: "glute-kickback-machine",
+    name: "Glute Kickback (Machine)",
+    primaryMuscle: "glutes",
+    secondaryMuscles: ["hamstrings"],
+    equipment: "machine",
+    instructions:
+      "Brace on the machine's pads and place one foot on the platform.\nPush the leg back until the hip is fully extended, without arching the lower back.\nReturn slowly until the hip is bent again.",
+    bodyEffect:
+      "Hip extension one leg at a time against a machine lever, pushing the leg back from a bent hip to a straight one.\n\nThe gluteus maximus does most of the work, with the hamstrings assisting. Support from the chest or forearm pads takes the lower back out of the movement, provided it does not arch at the top to squeeze out the last few degrees.\n\nIt isolates the glutes on each side and is an easy way to add glute volume without loading the spine. The loads are modest, and arching the back to finish the rep moves the work away from the glutes.",
+    alternatives: [
+      {
+        slug: "cable-kickback",
+        note: "The cable version keeps constant tension but offers less stability.",
+      },
+      {
+        slug: "hip-thrust-machine",
+        note: "Both legs at once, loaded far heavier, with the glutes working hardest at the top.",
+      },
+      {
+        slug: "single-leg-hip-thrust",
+        note: "A bodyweight or loaded one-leg thrust, with more balance demand.",
+      },
+    ],
+  },
+  {
+    slug: "b-stance-rdl",
+    name: "B-Stance Romanian Deadlift",
+    primaryMuscle: "hamstrings",
+    secondaryMuscles: ["glutes", "back"],
+    equipment: "dumbbell",
+    instructions:
+      "Stand with one foot slightly behind, its heel lifted and toes touching the floor for balance.\nHinge at the hips, lowering the dumbbells along the front leg with a flat back.\nStand back up by driving the front hip forward.",
+    bodyEffect:
+      "A Romanian deadlift with most of the weight on the front leg and the back foot touching only for balance, so one hip does most of the hinging.\n\nThe hamstrings and glutes of the front leg do most of the work extending the hip, while the spinal erectors hold the back flat. The kickstand foot removes most of the balance challenge of a true single-leg RDL, so the load can be much heavier.\n\nIt lets each side be trained heavily with far less wobble than a single-leg RDL, which makes it a good bridge between the two. It still means setting up each side in turn, and it limits load compared with a two-legged RDL.",
+    alternatives: [
+      {
+        slug: "single-leg-romanian-deadlift",
+        note: "The full single-leg version, with more balance and hip-stability demand and less load.",
+      },
+      {
+        slug: "romanian-deadlift-dumbbell",
+        note: "Both legs share the load evenly, allowing more weight and less balance demand.",
+      },
+      {
+        slug: "romanian-deadlift-barbell",
+        note: "A barbell on both legs, the heaviest option.",
+      },
+    ],
+  },
+  {
+    slug: "kettlebell-rdl",
+    name: "Romanian Deadlift (Kettlebell)",
+    primaryMuscle: "hamstrings",
+    secondaryMuscles: ["glutes", "back"],
+    equipment: "kettlebell",
+    instructions:
+      "Stand holding a kettlebell by the handle in both hands in front of the hips.\nPush the hips back and lower the bell along the legs, keeping the back flat.\nDrive the hips forward to stand tall.",
+    bodyEffect:
+      "A hip hinge holding one kettlebell in both hands, lowering it along the front of the legs with soft knees.\n\nThe hamstrings and glutes extend the hip while the spinal erectors hold the back flat. The bell hangs between the legs, which keeps the load close to the body and makes the hinge easy to learn.\n\nIt is a beginner-friendly way to learn and train the hinge, and it suits home workouts with one bell. The single kettlebell limits the load, so stronger lifters will outgrow it quickly.",
+    alternatives: [
+      {
+        slug: "romanian-deadlift-dumbbell",
+        note: "Two dumbbells by the thighs are easier to load heavier.",
+      },
+      {
+        slug: "kettlebell-swing",
+        note: "A ballistic hinge that trains explosive hip extension instead.",
+      },
+      {
+        slug: "b-stance-rdl",
+        note: "Loads one leg more than the other, adding unilateral work.",
+      },
+    ],
+  },
+  {
+    slug: "donkey-calf-raise",
+    name: "Donkey Calf Raise",
+    primaryMuscle: "calves",
+    equipment: "machine",
+    instructions:
+      "Set the balls of the feet on the platform and lean forward with the hips under the pad.\nRise as high as possible onto the toes.\nLower slowly to a deep stretch at the bottom.",
+    bodyEffect:
+      "Plantar flexion with the hips bent forward, so the load sits on the hips and the calves work from a long, stretched position.\n\nThe gastrocnemius is the prime mover, and bending at the hip with straight knees stretches it further than a standing raise does. The soleus assists, as in every straight-knee calf raise.\n\nIt loads the calves through a long range with a strong stretch, which suits hypertrophy. The machines are uncommon; without one it needs a partner on the back or a belt to load.",
+    alternatives: [
+      {
+        slug: "calf-raise-standing",
+        note: "Upright, the most common option, with a shorter stretch.",
+      },
+      {
+        slug: "calf-raise-seated",
+        note: "Bent knees shift the work onto the soleus.",
+      },
+      {
+        slug: "calf-press-leg-press",
+        note: "On a leg press: easy to load, and a similar hip position.",
+      },
+    ],
+  },
+  {
+    slug: "calf-raise-smith",
+    name: "Calf Raise (Smith Machine)",
+    primaryMuscle: "calves",
+    equipment: "smith",
+    instructions:
+      "Stand on a block under the Smith bar with the bar across the upper back.\nRise as high as possible onto the toes.\nLower slowly until the heels drop below the block.",
+    bodyEffect:
+      "A standing calf raise with the load on a Smith bar, so the rails take care of balance and the calves can work alone.\n\nThe gastrocnemius and soleus lift the heels, and the straight knees put most of the load on the gastrocnemius. The block under the toes lets the heels drop below the forefoot for a full stretch at the bottom.\n\nIt is a practical way to load a standing calf raise heavily when no calf machine is free. Placing the block in the right spot matters, and the bar across the back becomes uncomfortable at high loads.",
+    alternatives: [
+      {
+        slug: "calf-raise-standing",
+        note: "A dedicated machine with shoulder pads, the most comfortable heavy option.",
+      },
+      {
+        slug: "single-leg-calf-raise",
+        note: "One leg at a time with bodyweight or a dumbbell, with more balance demand.",
+      },
+      {
+        slug: "calf-press-leg-press",
+        note: "Seated in a leg press, with no load on the spine.",
       },
     ],
   },

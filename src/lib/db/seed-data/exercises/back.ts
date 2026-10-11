@@ -219,6 +219,10 @@ export const BACK: SeedExercise[] = [
         slug: "straight-arm-pulldown",
         note: "Keeping the elbow locked removes the biceps entirely, isolating the lat's shoulder-extension role without any arm involvement.",
       },
+      {
+        slug: "lat-pulldown-machine",
+        note: "A plate-loaded machine with independent converging arms \u2014 heavier and steadier, and neither side can cover for the other.",
+      },
     ],
   },
   {
@@ -394,6 +398,10 @@ export const BACK: SeedExercise[] = [
         slug: "seated-row-cable",
         note: "Same horizontal pull with the torso supported and upright, trading the bracing demand for consistent tension and easier progression.",
       },
+      {
+        slug: "yates-row",
+        note: "An underhand grip and a more upright torso allow more load and bias the lats, at the cost of shoulder-blade range.",
+      },
     ],
   },
   {
@@ -519,6 +527,10 @@ export const BACK: SeedExercise[] = [
         slug: "seated-row-cable",
         note: "Upright and cable-driven, which keeps tension even and allows a longer reach forward at the start of each rep.",
       },
+      {
+        slug: "seated-row-diverging",
+        note: "Independent arms that diverge as they come back, so each side carries its own load and the elbows follow a more natural arc.",
+      },
     ],
   },
   {
@@ -618,6 +630,10 @@ export const BACK: SeedExercise[] = [
       {
         slug: "chest-supported-row-machine",
         note: "A pad removes the temptation to rock and makes the load fall purely on the mid back.",
+      },
+      {
+        slug: "seated-row-diverging",
+        note: "A plate-loaded machine with independent arms that swing apart on the way back, taking out the lower back and letting neither side cover for the other.",
       },
     ],
   },
@@ -776,6 +792,10 @@ export const BACK: SeedExercise[] = [
         slug: "rack-pull",
         note: "Starting from pins skips the hardest part off the floor, letting you overload the lockout and the upper back without the full systemic cost.",
       },
+      {
+        slug: "sumo-deadlift",
+        note: "A wide stance and upright torso shorten the pull and shift work from the lower back onto the glutes, quads and adductors.",
+      },
     ],
   },
   {
@@ -800,6 +820,10 @@ export const BACK: SeedExercise[] = [
       {
         slug: "goblet-squat",
         note: "Similar front-loaded, quad-biased pattern with a far lighter load and no floor pick-up at all.",
+      },
+      {
+        slug: "sumo-deadlift",
+        note: "Also upright, but from a wide stance with a straight bar, loading the adductors and glutes harder and needing more hip mobility.",
       },
     ],
   },
@@ -1057,6 +1081,10 @@ export const BACK: SeedExercise[] = [
         slug: "bent-over-row-barbell",
         note: "Adds a substantial isometric hinge and much heavier loading, building bracing strength the machine removes.",
       },
+      {
+        slug: "seated-row-diverging",
+        note: "Independent plate-loaded arms that swing apart as they return, so a weaker side can't hide behind a shared handle.",
+      },
     ],
   },
   {
@@ -1082,6 +1110,333 @@ export const BACK: SeedExercise[] = [
       {
         slug: "plank",
         note: "Keeps the trunk demand and drops the row, isolating the anti-extension component with no back involvement.",
+      },
+    ],
+  },
+
+  /* ---- Plate-loaded machines and row and deadlift variants ---- */
+  {
+    slug: "seated-row-diverging",
+    name: "Seated Row (Diverging Machine)",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps"],
+    equipment: "machine",
+    instructions:
+      "Sit with the chest against the pad and take a handle in each hand.\nRow the handles back, letting them travel apart as the elbows pass the ribs.\nReturn until the arms are long and the shoulder blades spread.",
+    bodyEffect:
+      "A seated horizontal row on a plate-loaded machine whose two arms move independently and swing outward on an arc, so the hands travel apart as they come back instead of along two parallel rails.\n\nThe rhomboids, mid traps and rear delts retract the shoulder blades, the lats and teres major extend the shoulder and the biceps flex the elbow. Because each arm is its own lever, the weaker side cannot hand work to the stronger one, and the diverging path follows the natural arc of the elbow travelling behind the body.\n\nThe chest pad takes the lower back out of the set, the independent arms expose and correct imbalances, and plate loading makes small jumps easy, so it is an excellent heavy builder of back thickness. The fixed arc suits most shoulders but not all, and nothing about it carries over to bracing a free-weight row.",
+    alternatives: [
+      {
+        slug: "seated-row-cable",
+        note: "Constant cable tension and a free handle path, but both hands share one attachment, so a stronger side can quietly do more of the work.",
+      },
+      {
+        slug: "chest-supported-row-machine",
+        note: "The same supported torso with handles on a parallel path, which loads the mid back similarly but stops the hands drifting naturally apart.",
+      },
+      {
+        slug: "single-arm-row-machine",
+        note: "One side at a time, which allows a longer reach and a fuller squeeze, at the cost of doubling the time each set takes.",
+      },
+    ],
+  },
+  {
+    slug: "high-row-machine",
+    name: "High Row (Machine)",
+    primaryMuscle: "lats",
+    secondaryMuscles: ["back", "biceps"],
+    equipment: "machine",
+    instructions:
+      "Sit with the thighs under the pad and take the high handles with the arms reaching up and forward.\nDrive the elbows down and back toward the hips.\nLet the handles rise until the lats are stretched, without shrugging the shoulders.",
+    bodyEffect:
+      "A plate-loaded pull from high in front of the body down and back toward the hips, part way between a pulldown and a row, with each arm on its own lever.\n\nThe lats and teres major do most of the work extending the shoulder from overhead, the lower traps and rhomboids draw the shoulder blades down and back, and the biceps flex the elbow. The angled path lets the elbows finish behind the torso, which a vertical pulldown cannot do.\n\nIt builds lat width and lower-trap control with the stability of a machine and the side-to-side honesty of independent arms, which makes it a strong main pull for hypertrophy. It covers a narrower range than a full pull-up and does nothing for the strength to move your own bodyweight on a bar.",
+    alternatives: [
+      {
+        slug: "lat-pulldown-cable",
+        note: "A vertical path with both hands on one bar \u2014 a longer overhead stretch, but the elbows can never finish behind the body.",
+      },
+      {
+        slug: "low-row-machine",
+        note: "Pulls from low and in front instead, shifting the work from the upper lats toward the mid back and lower lats.",
+      },
+      {
+        slug: "single-arm-lat-pulldown",
+        note: "A one-sided cable pull with a freer path and constant tension, though far less load than a plate-loaded lever.",
+      },
+    ],
+  },
+  {
+    slug: "low-row-machine",
+    name: "Low Row (Machine)",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps"],
+    equipment: "machine",
+    instructions:
+      "Sit with the chest on the pad and take the low handles with the arms reaching forward and slightly down.\nRow the handles up and back toward the lower ribs, elbows close to the body.\nReturn slowly until the shoulder blades spread.",
+    bodyEffect:
+      "A plate-loaded row from low in front of the body up toward the lower ribs, with independent arms and the chest braced against a pad.\n\nThe angle puts the lats and teres major to work extending the shoulder from in front of the body, while the rhomboids and mid traps retract the shoulder blades and the biceps and brachialis flex the elbow. Keeping the elbows tucked biases the lower lats more than a wide, flared row does.\n\nIt is a heavy, stable way to train back thickness and the lower lats without the hinge of a barbell row, and the independent arms keep both sides honest. The fixed arc leaves little room to adjust the path, so how well the machine fits you decides how well it works.",
+    alternatives: [
+      {
+        slug: "high-row-machine",
+        note: "Pulls from overhead instead, moving the emphasis to the upper lats and lower traps.",
+      },
+      {
+        slug: "seated-row-diverging",
+        note: "Arms that swing outward on the way back, shifting the work toward the upper back and rear delts.",
+      },
+      {
+        slug: "seated-row-cable",
+        note: "A free-path cable version with constant tension, but nothing supports the chest, so the lower back has to hold the torso upright.",
+      },
+    ],
+  },
+  {
+    slug: "lat-pulldown-machine",
+    name: "Lat Pulldown (Plate-Loaded Machine)",
+    primaryMuscle: "lats",
+    secondaryMuscles: ["biceps", "back"],
+    equipment: "machine",
+    instructions:
+      "Sit with the thighs locked under the pad and take a handle in each hand overhead.\nPull the elbows down toward the sides until the hands reach the shoulders.\nLet the handles rise until the arms are straight and the lats fully stretched.",
+    bodyEffect:
+      "A vertical pull on a plate-loaded machine with independent, converging arms, so each hand follows its own arc from overhead down to the shoulder.\n\nThe lats and teres major adduct and extend the shoulder, the lower traps pull the shoulder blades down, and the biceps and brachialis flex the elbow. The converging path brings the hands slightly inward as they descend, which follows the line of the lat fibres closely.\n\nIt does the job of a cable pulldown with a heavier, steadier load and a guaranteed full stretch at the top, and the independent arms stop one side doing the other's work. The resistance follows the machine's lever rather than staying constant like a cable, so where it feels hardest depends on the model.",
+    alternatives: [
+      {
+        slug: "lat-pulldown-cable",
+        note: "Both hands on one bar with constant cable tension \u2014 easier to find and to change grip on, but one side can quietly dominate.",
+      },
+      {
+        slug: "pull-up",
+        note: "Moves your own body instead of a lever, adding trunk control and a genuine bodyweight strength test, at the cost of a fixed load.",
+      },
+      {
+        slug: "high-row-machine",
+        note: "A more forward-angled pull that lets the elbows finish behind the torso, shifting some work into the mid back.",
+      },
+    ],
+  },
+  {
+    slug: "single-arm-row-machine",
+    name: "Single-Arm Row (Machine)",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps"],
+    equipment: "machine",
+    instructions:
+      "Set the chest pad so the handle sits at full reach, and brace the free hand on the frame.\nRow the elbow back past the ribs without turning the chest off the pad.\nReturn slowly to a full stretch with the shoulder blade drawn forward.",
+    bodyEffect:
+      "A one-arm horizontal row on a machine with the chest supported and the other hand free to brace, so the working side moves its load alone along a guided path.\n\nThe rhomboids, mid traps and rear delt retract the working shoulder blade, the lat and teres major extend the shoulder and the biceps flex the elbow. Working one side lets the shoulder blade reach further forward at the start and squeeze further back at the end than a two-handed machine allows.\n\nIt combines the stability of a machine with the range and evenness of unilateral work, which makes it ideal for building mid-back thickness and bringing up a lagging side. It takes twice as long as a two-arm row for the same work, and the free hand makes it easy to cheat by pulling on the frame.",
+    alternatives: [
+      {
+        slug: "single-arm-row-dumbbell",
+        note: "A free-weight version braced on a bench: a less fixed path and more trunk demand, with the load limited by what the stance can hold.",
+      },
+      {
+        slug: "seated-row-diverging",
+        note: "Both arms at once on independent levers, halving the time but shortening the reach each side can take.",
+      },
+      {
+        slug: "single-arm-cable-row",
+        note: "Constant cable tension and a free handle path, with more of the trunk working to stay square.",
+      },
+    ],
+  },
+  {
+    slug: "pullover-machine",
+    name: "Pullover (Machine)",
+    primaryMuscle: "lats",
+    secondaryMuscles: ["chest", "triceps"],
+    equipment: "machine",
+    instructions:
+      "Sit with the back against the pad and the elbows on the arm pads, hands resting lightly on the bar.\nDrive the elbows down in an arc until the bar reaches the stomach.\nLet the arms rise back overhead to a full stretch under control.",
+    bodyEffect:
+      "Shoulder extension from overhead down to the hips with the elbows pushing on pads, so the arm swings around the shoulder joint with no bend at the elbow at all.\n\nThe lats and teres major do almost all of the work, with the long head of the triceps and the lower chest assisting. Because the load sits on the upper arm rather than in the hands, the biceps and the grip are removed from the movement completely.\n\nThat makes it one of the very few true lat isolation exercises, ideal when the biceps or forearms give out before the back in rows and pulldowns. The machines are uncommon, and the deep overhead stretch is uncomfortable for stiff or injured shoulders.",
+    alternatives: [
+      {
+        slug: "straight-arm-pulldown",
+        note: "A cable version of the same arc with straight arms \u2014 available anywhere, but the grip and forearms are back in the movement.",
+      },
+      {
+        slug: "dumbbell-pullover",
+        note: "A free-weight pullover lying across a bench, with more chest involvement and a stretch that grows risky as the load climbs.",
+      },
+      {
+        slug: "cable-pullover",
+        note: "Constant tension through the arc and an easy setup, though the hands hold the load rather than the elbows.",
+      },
+    ],
+  },
+  {
+    slug: "yates-row",
+    name: "Yates Row",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps"],
+    equipment: "barbell",
+    instructions:
+      "Take an underhand grip at shoulder width and hinge to about 30\u201345\u00b0 from vertical.\nRow the bar to the lower stomach, driving the elbows back close to the body.\nLower under control until the arms are straight without losing the hinge.",
+    bodyEffect:
+      "An underhand barbell row from a fairly upright hinge, pulling the bar toward the lower stomach rather than the chest.\n\nThe supinated grip keeps the elbows tucked, which shifts the work toward the lats and lower traps and gives the biceps a larger share than an overhand row does. The erectors, glutes and hamstrings hold the hinge, though the upright torso makes that demand far lighter than a row with the back parallel to the floor.\n\nThe upright position allows very heavy loads, so it is a strong overload row for lat thickness and a way to keep rowing when a flat-back hinge bothers the lower back. The cost is a shorter range for the shoulder blades, and a strain on the biceps tendon if the weight is pulled with the arms.",
+    alternatives: [
+      {
+        slug: "bent-over-row-barbell",
+        note: "Overhand and closer to parallel, which loads the upper back over a longer range but costs load and lower-back endurance.",
+      },
+      {
+        slug: "pendlay-row",
+        note: "A dead stop on the floor every rep with a flat torso, trading load for strict range and explosive pulling.",
+      },
+      {
+        slug: "t-bar-row",
+        note: "A landmine-style lever with a neutral grip: similar load with less shoulder-blade travel and easier bracing.",
+      },
+    ],
+  },
+  {
+    slug: "landmine-row",
+    name: "Landmine Row",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps"],
+    equipment: "barbell",
+    instructions:
+      "Stand beside a landmined bar, hinge forward and grip the bar just behind the sleeve with one hand.\nRow the bar to the hip, keeping the chest square to the floor.\nLower until the arm is long and the shoulder blade drawn forward.",
+    bodyEffect:
+      "A one-armed hinged row on a barbell anchored at one end, so the bar travels on an arc and the hand stays in a neutral grip.\n\nThe lat, teres major and rear delt extend the shoulder, the rhomboids and mid traps retract the shoulder blade, and the biceps flex the elbow. The obliques and the opposite hip work to stop the torso turning toward the bar.\n\nThe arc follows the elbow's natural path toward the hip, the thick bar tests the grip, and plate loading allows heavy work from a simple setup. It needs a landmine or a corner and some bracing to stay square, and it trains only one side at a time.",
+    alternatives: [
+      {
+        slug: "meadows-row",
+        note: "The same landmine taken from the end with an overhand grip on the sleeve, flaring the elbow to bias the upper back and rear delt.",
+      },
+      {
+        slug: "single-arm-row-dumbbell",
+        note: "Braced on a bench with a free-moving bell, which removes the anti-rotation demand and the need for a landmine.",
+      },
+      {
+        slug: "t-bar-row",
+        note: "Both hands on the landmine at once, roughly doubling the load but losing the one-sided range.",
+      },
+    ],
+  },
+  {
+    slug: "kroc-row",
+    name: "Kroc Row",
+    primaryMuscle: "back",
+    secondaryMuscles: ["lats", "biceps", "forearms"],
+    equipment: "dumbbell",
+    instructions:
+      "Brace one hand on a rack or bench with a slight hinge and take a heavy dumbbell.\nRow explosively to the hip, letting the torso move a little to finish the pull.\nLower under control to a full stretch and go straight into the next rep.",
+    bodyEffect:
+      "A heavy, high-rep single-arm dumbbell row with a looser torso, deliberately using some body movement to row far more load than a strict row allows.\n\nThe lats, mid traps, rhomboids and rear delt do the pulling and the biceps flex the elbow, while the grip works extremely hard to hold a heavy bell for fifteen to thirty reps. The hips and trunk add momentum at the start of each rep and control the bell on the way down.\n\nIt is an overload and work-capacity tool that builds grip, back size and the tolerance to grind out long, heavy sets. The body English that makes it possible also moves load off the back, so it complements a strict row rather than replacing one.",
+    alternatives: [
+      {
+        slug: "single-arm-row-dumbbell",
+        note: "The strict, lighter version with a still torso, so all of the load stays on the back muscles.",
+      },
+      {
+        slug: "single-arm-row-machine",
+        note: "Machine support removes both the momentum and the grip limit, letting the back alone decide when the set ends.",
+      },
+      {
+        slug: "farmers-walk",
+        note: "Builds the same heavy grip endurance with no pulling at all, and loads the whole trunk while walking.",
+      },
+    ],
+  },
+  {
+    slug: "seated-row-wide-grip-cable",
+    name: "Wide-Grip Seated Row (Cable)",
+    primaryMuscle: "back",
+    secondaryMuscles: ["shoulders", "biceps"],
+    equipment: "cable",
+    instructions:
+      "Sit at a cable row with a long straight bar, hands well outside the shoulders.\nRow to the lower chest with the elbows flared at about 60\u201375\u00b0 from the torso.\nReturn until the arms are long and the shoulder blades spread, torso still.",
+    bodyEffect:
+      "A seated horizontal cable row with a wide overhand grip, so the elbows travel back out to the sides rather than close to the ribs.\n\nWith the upper arm held away from the body, the rear delts, rhomboids and mid traps do most of the work drawing the shoulder blades together, and the lats contribute much less than in a close-grip row. The biceps still flex the elbow, but the overhand grip lightens their share.\n\nIt targets the upper back and rear delts that close-grip rows leave under-trained, which helps posture and shoulder balance. The flared elbows limit the load, and the torso has to stay upright or the lower back takes over the pull.",
+    alternatives: [
+      {
+        slug: "seated-row-cable",
+        note: "A close neutral grip keeps the elbows tucked and moves the work toward the lats and lower-back thickness.",
+      },
+      {
+        slug: "face-pull",
+        note: "A higher, lighter pull that ends in external rotation, focusing almost entirely on the rear delts and rotator cuff.",
+      },
+      {
+        slug: "seated-row-diverging",
+        note: "A machine whose arms flare as they come back, giving a similar upper-back bias with the chest supported.",
+      },
+    ],
+  },
+  {
+    slug: "shrug-machine",
+    name: "Shrug (Machine)",
+    primaryMuscle: "traps",
+    secondaryMuscles: ["forearms"],
+    equipment: "machine",
+    instructions:
+      "Stand or sit in the shrug machine with the pads on your shoulders or the handles at your sides.\nLift the shoulders straight up toward the ears without rolling them.\nHold briefly at the top, then lower to a full stretch.",
+    bodyEffect:
+      "Shoulder-blade elevation against a guided lever, so the load travels a fixed vertical path with no balancing and no bar dragging against the thighs.\n\nThe upper trapezius and levator scapulae lift the shoulder blades, with the mid traps and rhomboids steadying them. On models loaded through shoulder pads the grip is removed entirely; on handle models the forearms still work.\n\nThe fixed path and easy loading make it simple to train the traps hard for high reps, and the shoulder-pad version keeps going after the grip would have failed on a barbell. It offers nothing for the grip or the trunk and depends on the machine fitting your frame.",
+    alternatives: [
+      {
+        slug: "shrug-barbell",
+        note: "A free bar in front of the body adds grip and trunk demand and allows very heavy loads.",
+      },
+      {
+        slug: "shrug-dumbbell",
+        note: "Bells at the sides let the shoulders move freely and each side work alone, limited by the grip.",
+      },
+      {
+        slug: "cable-shrug",
+        note: "Constant cable tension, especially at the top where free weights get lighter.",
+      },
+    ],
+  },
+  {
+    slug: "deficit-deadlift",
+    name: "Deficit Deadlift",
+    primaryMuscle: "back",
+    secondaryMuscles: ["hamstrings", "glutes", "quads"],
+    equipment: "barbell",
+    instructions:
+      "Stand on a plate or low platform 2\u201310 cm high with the bar over the mid-foot.\nHinge and bend the knees further than usual to take the bar.\nPull as in a normal deadlift, then lower it back to the floor.",
+    bodyEffect:
+      "A conventional deadlift performed standing on a low platform, which lengthens the bar's path and forces a deeper starting position.\n\nThe quads, glutes, hamstrings and spinal erectors work as in a regular deadlift, but the deeper start makes the quads and hips work harder to break the bar from the floor, and keeps the erectors under load for longer.\n\nIt builds strength off the floor, which helps lifters whose deadlift stalls at the very start. Expect to use less weight than a normal pull, and keep the deficit modest, or the lower back will round to reach the bar.",
+    alternatives: [
+      {
+        slug: "deadlift-barbell",
+        note: "Standard height: the heaviest version, with a shorter range off the floor.",
+      },
+      {
+        slug: "rack-pull",
+        note: "Starts above the knee instead, overloading the lockout rather than the start.",
+      },
+      {
+        slug: "snatch-grip-deadlift",
+        note: "Lengthens the pull with a wide grip instead of a platform, adding a great deal of upper-back work.",
+      },
+    ],
+  },
+  {
+    slug: "snatch-grip-deadlift",
+    name: "Snatch-Grip Deadlift",
+    primaryMuscle: "back",
+    secondaryMuscles: ["traps", "hamstrings", "glutes"],
+    equipment: "barbell",
+    instructions:
+      "Grip the bar very wide, close to the collars, and set the hips lower than in a normal deadlift.\nPull from the floor with the chest up and the shoulders over the bar.\nLock out the hips, then lower the bar under control.",
+    bodyEffect:
+      "A deadlift with the hands out near the collars, which lowers the hips at the start and lengthens the distance the bar has to travel.\n\nThe glutes, hamstrings and quads extend the hips and knees, while the wide grip makes the upper back, traps and rear delts work much harder to keep the shoulders over the bar. The grip is heavily challenged too, because the wide hands hold the bar less securely.\n\nIt builds upper-back strength and pulling from the floor, which is why weightlifters use it as a support lift. It needs considerably less weight than a normal deadlift, and the wide grip is hard on the wrists.",
+    alternatives: [
+      {
+        slug: "deadlift-barbell",
+        note: "A normal grip and a shorter pull allow far more weight, with less upper-back work.",
+      },
+      {
+        slug: "deficit-deadlift",
+        note: "Lengthens the pull with a platform instead, without changing the grip.",
+      },
+      {
+        slug: "rack-pull",
+        note: "A short-range pull from above the knee that also hammers the upper back, but allows far more load.",
       },
     ],
   },

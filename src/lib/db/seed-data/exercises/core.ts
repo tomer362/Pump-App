@@ -183,6 +183,10 @@ export const CORE: SeedExercise[] = [
         slug: "hanging-leg-raise-weighted",
         note: "A dumbbell between the feet loads the far end of a long lever, which is how this stays hard past fifteen clean reps.",
       },
+      {
+        slug: "hanging-knee-raise",
+        note: "Bent knees shorten the lever, making it the easier entry point to hanging core work.",
+      },
     ],
   },
   {
@@ -744,6 +748,136 @@ export const CORE: SeedExercise[] = [
       {
         slug: "captains-chair-leg-raise",
         note: "Supports the back and elbows, making a similar leg-raise demand far more accessible.",
+      },
+    ],
+  },
+
+  /* ---- More flexion and anti-extension ---- */
+  {
+    slug: "hanging-knee-raise",
+    name: "Hanging Knee Raise",
+    primaryMuscle: "abs",
+    secondaryMuscles: ["forearms"],
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Hang from a bar with straight arms and the shoulders active.\nBend the knees and lift them toward the chest, curling the pelvis up.\nLower slowly without swinging.",
+    bodyEffect:
+      "Hip and spinal flexion from a dead hang, lifting the bent knees toward the chest.\n\nThe hip flexors raise the thighs and the abs curl the pelvis up at the top. The grip, lats and shoulders hold the body still on the bar, so the legs can rise without the whole body swinging.\n\nIt is the entry point to hanging core work, much easier than a straight-leg raise, and it builds the abs and grip together. Swinging takes the work away from the abs, and the grip can fail before the core does.",
+    alternatives: [
+      {
+        slug: "hanging-leg-raise",
+        note: "Straight legs make a much longer, harder lever for the abs and hip flexors.",
+      },
+      {
+        slug: "captains-chair-leg-raise",
+        note: "Supported on the forearms and back, removing grip and swing.",
+      },
+      {
+        slug: "reverse-crunch",
+        note: "On the floor, removing the grip and allowing slower reps.",
+      },
+    ],
+  },
+  {
+    slug: "v-up",
+    name: "V-Up",
+    primaryMuscle: "abs",
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Lie flat with the arms overhead and the legs straight.\nLift the arms and legs together, reaching the hands toward the feet.\nLower both back to the floor under control.",
+    bodyEffect:
+      "Simultaneous hip and spinal flexion from flat on the back, bringing the arms and straight legs together at the top.\n\nThe abs curl the spine while the hip flexors lift the legs and torso. The long levers of the arms and straight legs make it far harder than a crunch, and lowering under control is as hard as the lift.\n\nIt builds strength and coordination in the abs and hip flexors with no equipment. It is hard on a sensitive lower back, and the hip flexors take over if the spine stays flat instead of curling.",
+    alternatives: [
+      {
+        slug: "crunch",
+        note: "Spinal flexion alone, with short levers and no hip flexion.",
+      },
+      {
+        slug: "hollow-body-hold",
+        note: "Holds the same position isometrically instead of moving through it.",
+      },
+      {
+        slug: "reverse-crunch",
+        note: "Lifts the pelvis instead of the torso, lighter on the hip flexors.",
+      },
+    ],
+  },
+  {
+    slug: "bicycle-crunch",
+    name: "Bicycle Crunch",
+    primaryMuscle: "obliques",
+    secondaryMuscles: ["abs"],
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Lie on the back with the hands behind the head and the knees lifted.\nBring one elbow toward the opposite knee while straightening the other leg.\nAlternate sides smoothly without pulling on the neck.",
+    bodyEffect:
+      "A crunch combined with rotation and alternating leg extension, bringing each elbow toward the opposite knee.\n\nThe obliques rotate the torso, the abs curl the spine and the hip flexors move the legs. The alternating movement keeps the core working continuously, with no rest at the bottom of each rep.\n\nIt builds rotational and flexion endurance with no equipment and works well in circuits. It is easy to rush, and pulling on the neck to reach the knee is a common fault.",
+    alternatives: [
+      {
+        slug: "crunch",
+        note: "Straight spinal flexion with no rotation, putting the abs ahead of the obliques.",
+      },
+      {
+        slug: "russian-twist",
+        note: "Seated rotation, with more load on the obliques.",
+      },
+      {
+        slug: "woodchopper-cable",
+        note: "Standing rotation, trained against heavier resistance.",
+      },
+    ],
+  },
+  {
+    slug: "dragon-flag",
+    name: "Dragon Flag",
+    primaryMuscle: "abs",
+    secondaryMuscles: ["obliques"],
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Lie on a bench and grip it behind the head.\nLift the body until only the upper back touches, holding it in a straight line.\nLower slowly toward the bench without bending at the hips.",
+    bodyEffect:
+      "Anti-extension of the whole body: a straight body lowered from vertical toward horizontal with only the upper back resting on a bench.\n\nThe abs and obliques resist the spine arching, the hip flexors and glutes keep the body straight, and the lats and arms anchor it to the bench. The lever is the full length of the body, which is what makes it so hard.\n\nIt is one of the hardest bodyweight core exercises and builds extreme anti-extension strength. It needs a progression from easier variations, and done poorly it stresses the neck and lower back.",
+    alternatives: [
+      {
+        slug: "ab-wheel-rollout",
+        note: "Anti-extension from the knees, a more accessible progression.",
+      },
+      {
+        slug: "hanging-leg-raise",
+        note: "Flexion from a hang, far easier to scale from bent knees to straight legs.",
+      },
+      {
+        slug: "long-lever-plank",
+        note: "An isometric anti-extension hold that is much easier to scale.",
+      },
+    ],
+  },
+  {
+    slug: "decline-crunch",
+    name: "Decline Crunch",
+    primaryMuscle: "abs",
+    equipment: "bodyweight",
+    trackingType: "reps",
+    instructions:
+      "Lock the feet into a decline bench and lie back.\nCurl the shoulders up toward the hips, rounding the spine.\nLower slowly until the shoulder blades touch the bench.",
+    bodyEffect:
+      "Spinal flexion lying head-down on a decline bench, curling the shoulders toward the hips.\n\nThe abs flex the spine, and the decline means the torso works against gravity over a longer range than a flat crunch. Keeping the movement short, with the lower back staying on the bench, stops the hip flexors taking over.\n\nIt makes the crunch harder without needing weight, and it progresses easily with a steeper decline. Turning it into a sit-up moves the work from the abs to the hip flexors.",
+    alternatives: [
+      {
+        slug: "crunch",
+        note: "The flat crunch is easier, with a shorter range.",
+      },
+      {
+        slug: "decline-sit-up",
+        note: "A full sit-up on the same bench, with more hip-flexor work.",
+      },
+      {
+        slug: "cable-crunch",
+        note: "A kneeling loaded crunch, easier to progress with weight.",
       },
     ],
   },
