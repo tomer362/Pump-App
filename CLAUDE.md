@@ -155,6 +155,7 @@ HTML overlay and could label no axis at all.
 - `inputmode="decimal"|"numeric"` on every numeric field; select-all on focus.
 - `useKeyboardInset()` for anything docked near the bottom of a form. iOS does not resize the layout viewport for the keyboard.
 - **The keyboard's height is `innerHeight − vv.height`; subtract `vv.offsetTop` only to place fixed chrome.** Typing re-reveals the caret, which pans the visual viewport, and the pan is not the keyboard. The workout screen padded itself by the pan-aware figure, so on every keystroke the "keyboard" shrank under the 120 px threshold and read closed: the padding collapsed and regrew, the jump pill flashed, and `DocumentScrollGuard` snapped the document back for the next key to pan again. `lib/keyboard.ts` holds both readings; padding inside the page uses `useKeyboardInset({ panAware: false })`, and the guard asks `keyboardHeight()`.
+- **And `innerHeight` is not a fixed reference: subtract from the height seen before editing.** An installed iOS 26 PWA shrinks `innerHeight` (and `100dvh`) *with* `vv.height` when the keyboard opens, so `innerHeight − vv.height` read 0 with the keyboard up. On a set row low on the screen that was a bounce per digit: iOS scrolls the document a few px on every keystroke to keep the caret clear of the keyboard, `DocumentScrollGuard` — told the keyboard was closed — put it back to zero, and the next key scrolled it again. `layoutHeightOf` substitutes the height last read with no field focused (same width only, so a rotation doesn't reuse it), and the guard also stands down whenever `editingText()` is true: focus is a fact, the viewport arithmetic is a guess. `scripts/keyboard-sim.mjs` is the regression test — it models the keyboard in Chromium along every axis iOS has varied on (which height shrinks, and whether the reveal pans, scrolls `#app-scroll` or scrolls the document) and fails if a field moves while you type in it.
 - Tap targets ≥44 px (`tap` utility) — **and where the ink has to stay small,
   `hit-slop`**, which centres an invisible 44 px pseudo-element over the
   control instead of inflating its box. A 13 px "All" link, a 28 px glyph and
@@ -907,6 +908,7 @@ node scripts/walkthrough.mjs   # iPhone-viewport walkthrough of the core loop, s
 node scripts/smoke.mjs         # every route + two-user social/co-op flow + mid-workout paths
 node scripts/check-authz.mjs   # sign in as B, call actions against A's ids, assert refusal
 node scripts/ux-audit.mjs      # touch-target/ergonomics audit of every route at an iPhone viewport
+node scripts/keyboard-sim.mjs  # type into set rows under a simulated iOS keyboard; fails if the page moves
 node scripts/generate-icons.mjs # regenerate PWA PNGs from public/icon.svg
 node scripts/generate-sounds.mjs # regenerate public/sounds (rest chime + keep-alive loop)
 ```
