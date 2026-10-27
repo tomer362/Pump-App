@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { keyboardHeight } from "@/hooks/use-keyboard-inset";
+import { editingText, keyboardHeight } from "@/hooks/use-keyboard-inset";
 
 /* -------------------------------------------------------------------------- *
  * Puts the document back at zero whenever something scrolls it.
@@ -75,7 +75,17 @@ export function DocumentScrollGuard(): null {
       // weight input back under the keyboard and iOS would pan again — the
       // chase `use-keyboard-inset.ts` warns about. We heal when it closes,
       // which is what `settleUntil` keeps the door open for.
-      if (keyboardHeight() > 0 && performance.now() > settleUntil) return;
+      //
+      // A focused text field counts as "up" on its own. The height reading is
+      // arithmetic over viewport numbers iOS keeps changing the meaning of —
+      // an installed iOS 26 PWA shrinks `innerHeight` with the keyboard, so it
+      // read 0, and on a low row this guard undid iOS's reveal on every
+      // keystroke: the whole page bounced once per digit. Focus is a fact.
+      if (
+        (editingText() || keyboardHeight() > 0) &&
+        performance.now() > settleUntil
+      )
+        return;
       if (doc.scrollTop === 0 && doc.scrollLeft === 0) return;
 
       // A tug-of-war we would lose is one to walk away from: if something is

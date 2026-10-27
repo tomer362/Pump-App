@@ -9,7 +9,11 @@ import {
 } from "@/lib/utils";
 import { streaks } from "@/lib/streaks";
 import { isUuid } from "@/lib/uuid";
-import { keyboardHeightOf, keyboardOverlapOf } from "@/lib/keyboard";
+import {
+  keyboardHeightOf,
+  keyboardOverlapOf,
+  layoutHeightOf,
+} from "@/lib/keyboard";
 import {
   alignPrevious,
   sanitizeDecimalInput,
@@ -575,5 +579,35 @@ describe("keyboard readings", () => {
     const bar = { innerHeight: 844, vvHeight: 790, offsetTop: 0 };
     expect(keyboardHeightOf(bar)).toBe(0);
     expect(keyboardOverlapOf(bar)).toBe(0);
+  });
+
+  // An installed iOS 26 PWA shrinks innerHeight with the keyboard, so the
+  // live reading is 508 too and the keyboard read closed while typing.
+  describe("layout height while a field is being edited", () => {
+    const baseline = { height: 844, width: 390 };
+    const live = { innerHeight: 508, innerWidth: 390 };
+
+    it("keeps the height seen before editing when innerHeight shrinks", () => {
+      const h = layoutHeightOf({ ...live, editing: true, baseline });
+      expect(h).toBe(844);
+      expect(keyboardHeightOf({ innerHeight: h, vvHeight: 508, offsetTop: 0 })).toBe(336);
+    });
+
+    it("reads the live height when nothing is being edited", () => {
+      expect(layoutHeightOf({ ...live, editing: false, baseline })).toBe(508);
+    });
+
+    it("drops a baseline taken at another width (a rotation)", () => {
+      expect(
+        layoutHeightOf({ innerHeight: 300, innerWidth: 844, editing: true, baseline }),
+      ).toBe(300);
+    });
+
+    it("never reports less than the live height", () => {
+      expect(
+        layoutHeightOf({ innerHeight: 900, innerWidth: 390, editing: true, baseline }),
+      ).toBe(900);
+      expect(layoutHeightOf({ ...live, editing: true, baseline: null })).toBe(508);
+    });
   });
 });

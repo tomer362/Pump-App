@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { keyboardHeightOf, keyboardOverlapOf } from "@/lib/keyboard";
+import {
+  keyboardHeightOf,
+  keyboardOverlapOf,
+  layoutHeightOf,
+  type LayoutBaseline,
+} from "@/lib/keyboard";
 
 /*
  * iOS Safari does not resize the layout viewport when the keyboard opens, so a
@@ -10,11 +15,37 @@ import { keyboardHeightOf, keyboardOverlapOf } from "@/lib/keyboard";
  * unsupported — and they answer different questions; see `lib/keyboard.ts`.
  */
 
+/** A field that raises the on-screen keyboard while it has focus. */
+export function editingText(): boolean {
+  const el = document.activeElement;
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly;
+  if (el instanceof HTMLInputElement) {
+    return (
+      !el.readOnly &&
+      !/^(button|checkbox|color|file|hidden|image|radio|range|reset|submit)$/.test(
+        el.type,
+      )
+    );
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+/* The layout height last read with no field focused — see `layoutHeightOf`. */
+let baseline: LayoutBaseline | null = null;
+
 function reading() {
   const vv = window.visualViewport;
   if (!vv) return null;
+  const editing = editingText();
+  if (!editing)
+    baseline = { height: window.innerHeight, width: window.innerWidth };
   return {
-    innerHeight: window.innerHeight,
+    innerHeight: layoutHeightOf({
+      innerHeight: window.innerHeight,
+      innerWidth: window.innerWidth,
+      editing,
+      baseline,
+    }),
     vvHeight: vv.height,
     offsetTop: vv.offsetTop,
   };
