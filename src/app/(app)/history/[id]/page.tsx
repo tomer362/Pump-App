@@ -5,7 +5,7 @@ import { Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/nav-bar";
 import { Badge, Card, Stat } from "@/components/ui/primitives";
 import { WorkoutDetailActions } from "./workout-detail-actions";
-import { SetRpeRow } from "./set-rpe-row";
+import { AddSetRow, SetEditRow } from "./set-edit-sheet";
 import { requireUser } from "@/lib/session";
 import { getFullWorkout, getPersonalRecords } from "@/lib/queries/workout";
 import { isWorkoutShared } from "@/lib/queries/social";
@@ -40,6 +40,9 @@ export default async function WorkoutDetailPage(
   // In-progress sessions belong on the live workout screen.
   if (!workout.endedAt) redirect(`/workout/${workout.id}`);
   const prs = isMine ? await getPersonalRecords(me.id) : [];
+  // The workout's only set can't be deleted from its row: that is deleting the
+  // workout, which has its own control and its own confirmation.
+  const setCount = workout.exercises.reduce((n, e) => n + e.sets.length, 0);
   // Records *set in this session*: achieved inside its window. `>= startedAt`
   // alone matched every record set in any later session too, so a March
   // workout wore a trophy for every lift PR'd since.
@@ -109,6 +112,11 @@ export default async function WorkoutDetailPage(
               workoutId={workout.id}
               workoutName={workout.name}
             />
+            {/* A tap on a row is advertised by nothing on the row itself, and
+                a glyph on every set would be noise — so it is said once. */}
+            <p className="text-text-3 mt-3 text-[12px]">
+              Tap a set to correct it, or add one you forgot to log.
+            </p>
           </div>
         )}
 
@@ -219,30 +227,72 @@ export default async function WorkoutDetailPage(
                       </>
                     );
 
-                    // Your own performed sets stay rateable after the fact —
-                    // see `SetRpeRow`. A skipped set is deliberately excluded:
-                    // an effort rating on something you didn't do is a
-                    // contradiction, not a gap. Someone else's workout is read
-                    // only, so it keeps the plain row.
-                    if (isMine && done) {
+                    const typeName =
+                      s.setType === "normal"
+                        ? `Set ${workingIndex}`
+                        : s.setType === "warmup"
+                          ? "Warm-up"
+                          : s.setType === "drop"
+                            ? "Drop set"
+                            : "Set to failure";
+
+                    // Skipped, or the effort — prescribed against rated, in the
+                    // order the session happened. On your own performed sets an
+                    // unrated `@–` stays, because it says the rating is still
+                    // open.
+                    const trailing = !done ? (
+                      <span className="text-text-3 ml-auto text-[11px] font-semibold tracking-[0.06em] uppercase">
+                        Skipped
+                      </span>
+                    ) : isMine || s.rpe != null || s.targetRpe != null ? (
+                      <span className="num ml-auto flex shrink-0 items-baseline gap-1.5 text-[12px]">
+                        {s.targetRpe != null && (
+                          <span className="text-text-3/55">
+                            {prescribedToken(s.targetRpe)}
+                          </span>
+                        )}
+                        {(isMine || s.rpe != null) && (
+                          <span
+                            className={
+                              s.rpe != null ? "text-text-3" : "text-text-3/55"
+                            }
+                          >
+                            {ratedWord(s.rpe)}
+                          </span>
+                        )}
+                      </span>
+                    ) : null;
+
+                    // Your own sets are correctable after the fact — values,
+                    // type, rating, whether you did it at all. See
+                    // `lib/actions/history-edit.ts` for what a save re-derives.
+                    // Someone else's workout is read only.
+                    if (isMine) {
                       return (
-                        <SetRpeRow
+                        <SetEditRow
                           key={s.id}
                           setId={s.id}
-                          initialRpe={s.rpe}
-                          targetRpe={s.targetRpe}
-                          title={`${e.name} · ${
-                            s.setType === "normal"
-                              ? `Set ${workingIndex}`
-                              : s.setType === "warmup"
-                                ? "Warm-up"
-                                : s.setType === "drop"
-                                  ? "Drop set"
-                                  : "Set to failure"
+                          trackingType={e.trackingType}
+                          unit={me.unit}
+                          canDelete={setCount > 1}
+                          title={`${e.name} · ${done ? typeName : "Skipped set"}`}
+                          label={`${done ? typeName : "Skipped set"}, ${
+                            parts.length ? parts.join(" × ") : "nothing recorded"
                           }`}
+                          set={{
+                            weightKg: s.weightKg,
+                            reps: s.reps,
+                            seconds: s.seconds,
+                            distanceM: s.distanceM,
+                            rpe: s.rpe,
+                            targetRpe: s.targetRpe,
+                            setType: s.setType,
+                            done,
+                          }}
                         >
                           {values}
-                        </SetRpeRow>
+                          {trailing}
+                        </SetEditRow>
                       );
                     }
 
@@ -252,26 +302,35 @@ export default async function WorkoutDetailPage(
                         className="flex items-center gap-3 px-3 py-2 text-[13px]"
                       >
                         {values}
-                        {!done && (
-                          <span className="text-text-3 ml-auto text-[11px] font-semibold tracking-[0.06em] uppercase">
-                            Skipped
-                          </span>
-                        )}
-                        {/* Someone else's workout, so read only — but it still
-                            shows both facts when it has them. */}
-                        {done && (s.rpe != null || s.targetRpe != null) && (
-                          <span className="num text-text-3 ml-auto flex items-baseline gap-1.5 text-[12px]">
-                            {s.targetRpe != null && (
-                              <span className="text-text-3/55">
-                                {prescribedToken(s.targetRpe)}
-                              </span>
-                            )}
-                            {s.rpe != null && <span>{ratedWord(s.rpe)}</span>}
-                          </span>
-                        )}
+                        {trailing}
                       </div>
                     );
                   })}
+                  {isMine && (
+                    <AddSetRow
+                      workoutExerciseId={e.id}
+                      trackingType={e.trackingType}
+                      unit={me.unit}
+                      title={`${e.name} · New set`}
+                      template={(() => {
+                        const last = e.sets.findLast(
+                          (s) => s.completedAt != null && s.setType !== "warmup",
+                        );
+                        return last
+                          ? {
+                              weightKg: last.weightKg,
+                              reps: last.reps,
+                              seconds: last.seconds,
+                              distanceM: last.distanceM,
+                              rpe: null,
+                              targetRpe: null,
+                              setType: last.setType,
+                              done: true,
+                            }
+                          : null;
+                      })()}
+                    />
+                  )}
                 </Card>
               </div>
             );

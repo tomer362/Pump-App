@@ -15,7 +15,8 @@ import { getCurrentUser } from "@/lib/session";
 import { getLastLoggedSet, type LastLoggedSet } from "@/lib/queries/exercise";
 import { getActiveWorkoutSummary } from "@/lib/queries/workout";
 import { recalculatePersonalRecords } from "@/lib/records";
-import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
+import { recordsSomething } from "@/lib/workout-totals";
+import { rollUpWorkout } from "@/lib/workout-rollup";
 import { dayKeyBounds, dayKeyToNoonUtc, isDayKey, shiftDay } from "@/lib/day";
 import { estimate1RM } from "@/lib/utils";
 import { rpeValue } from "@/lib/rpe";
@@ -455,31 +456,4 @@ export async function undoQuickLogSet(setId: string): Promise<ActionResult> {
 
   revalidatePath("/", "layout");
   return { ok: true };
-}
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/** Rewrite a workout's denormalised counters from the sets it currently has. */
-async function rollUpWorkout(tx: Tx, workoutId: string) {
-  const sets = await tx
-    .select({
-      setType: workoutSet.setType,
-      weightKg: workoutSet.weightKg,
-      reps: workoutSet.reps,
-      completedAt: workoutSet.completedAt,
-      // Volume has to know which weight columns are assistance rather than load.
-      trackingType: exercise.trackingType,
-    })
-    .from(workoutSet)
-    .innerJoin(
-      workoutExercise,
-      eq(workoutExercise.id, workoutSet.workoutExerciseId),
-    )
-    .innerJoin(exercise, eq(exercise.id, workoutExercise.exerciseId))
-    .where(eq(workoutExercise.workoutId, workoutId));
-
-  await tx
-    .update(workout)
-    .set(sumSetTotals(sets))
-    .where(eq(workout.id, workoutId));
 }

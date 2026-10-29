@@ -761,11 +761,12 @@ const setPatchSchema = z.object({
  * Whether a set patch changes anything a finished workout's counters were
  * computed from. `finishWorkout` writes `total_volume_kg`, `total_sets`,
  * `total_reps`, `pr_count` and the personal records from the rows it has at
- * that moment, so after it only the effort rating may move — `SetRpeRow` on
- * `/history/[id]` is that edit, and RPE feeds none of those figures. A weight,
- * a rep count or a tick landing later (a fire-and-forget write still in flight
- * when Finish was tapped, a second tab) would leave every one of them
- * describing rows that no longer exist.
+ * that moment, so through this path only the effort rating may move after it —
+ * RPE feeds none of those figures. A weight, a rep count or a tick landing
+ * later (a fire-and-forget write still in flight when Finish was tapped, a
+ * second tab) would leave every one of them describing rows that no longer
+ * exist. Deliberate corrections from `/history/[id]` go through
+ * `lib/actions/history-edit.ts`, which re-derives them in the same transaction.
  */
 function changesScoredValues(p: Record<string, unknown>): boolean {
   return Object.entries(p).some(([k, v]) => k !== "rpe" && v !== undefined);
