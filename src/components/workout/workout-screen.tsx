@@ -737,6 +737,14 @@ export function WorkoutScreen({
       const res = await watchAction(addExercisesToWorkout(workout.id, ids));
       if (!res.ok || !res.data) return;
 
+      // The page seeded these from its own render, which never saw the
+      // exercises being added now.
+      for (const a of res.data.added) {
+        if (a.best1rm != null && bestByExercise.current[a.exerciseId] == null) {
+          bestByExercise.current[a.exerciseId] = a.best1rm;
+        }
+      }
+
       // Append from the action's return value rather than refreshing. A
       // refresh would update the server payload while this component's local
       // state — the set values being typed, and the running rest timer —
@@ -755,7 +763,7 @@ export function WorkoutScreen({
           supersetGroup: null,
           intervalWorkSeconds: null,
           intervalRestSeconds: null,
-          previous: [],
+          previous: a.previous,
           sets: [
             {
               id: a.setId,

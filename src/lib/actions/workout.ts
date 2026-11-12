@@ -21,6 +21,7 @@ import {
 import { getCurrentUser } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 import { getPreviousSets, type PreviousSet } from "@/lib/queries/workout";
+import { getCurrent1rmRecords } from "@/lib/queries/exercise";
 import { isBlobUrl } from "@/lib/blob";
 import { recalculatePersonalRecords } from "@/lib/records";
 import { recordsSomething, sumSetTotals } from "@/lib/workout-totals";
@@ -290,6 +291,14 @@ export type AddedExercise = {
   trackingType: string;
   restSeconds: number | null;
   setId: string;
+  /**
+   * Last session's sets — the "Previous" column. The page's server render is
+   * the only other place these come from, and an added block never goes
+   * through it, so without them the column read "—" until a remount.
+   */
+  previous: PreviousSet[];
+  /** Current e1RM record, so the first set isn't a PR against a best of zero. */
+  best1rm: number | null;
 };
 
 /**
@@ -387,9 +396,21 @@ export async function addExercisesToWorkout(
     });
   });
 
+  // Two reads for the whole batch, after the commit — same as the page does.
+  const ids = added.map((a) => a.exerciseId);
+  const [previous, best] = await Promise.all([
+    getPreviousSets(guard.me.id, workoutId, ids),
+    getCurrent1rmRecords(guard.me.id, ids),
+  ]);
+  const withHistory: AddedExercise[] = added.map((a) => ({
+    ...a,
+    previous: previous.get(a.exerciseId) ?? [],
+    best1rm: best[a.exerciseId] ?? null,
+  }));
+
   // Deliberately no revalidatePath: the client appends these directly, and a
   // refresh here would only risk clobbering in-progress local state.
-  return { ok: true, data: { added } };
+  return { ok: true, data: { added: withHistory } };
 }
 
 export async function removeWorkoutExercise(
