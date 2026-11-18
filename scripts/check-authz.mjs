@@ -728,6 +728,35 @@ try {
     );
   }
 
+  // History export returns every logged set as one string. Whose sets come
+  // from the session alone, so the only id it takes is an exercise — and a
+  // stranger's custom one must answer "not found", not a file named after it.
+  await b.page.goto(`${BASE}/settings`, { waitUntil: "networkidle" });
+  const exportAction = actionIdsFromManifest(
+    "src/lib/actions/history-export.ts",
+    ["exportHistory"],
+  );
+  requireFixture(
+    exportAction.size === 1,
+    `expected the exportHistory action id in the dev manifest, found ${exportAction.size}`,
+  );
+  {
+    const res = await postAction(
+      b.page,
+      `${BASE}/settings`,
+      exportAction.get("exportHistory"),
+      [{ format: "json", exerciseId: customId }],
+    );
+    const ran = !/Failed to find Server Action/i.test(res.body);
+    check(
+      "exportHistory refuses another user's custom exercise",
+      ran &&
+        /Exercise not found/.test(res.body) &&
+        !res.body.includes(customName),
+      ran ? "" : "INCONCLUSIVE: action did not run",
+    );
+  }
+
   // The routine builder can't navigate to the exercise page without discarding
   // an unsaved draft, so it reads the About panel through an action instead.
   // That makes the 404 above reachable a second way, over POST — and
