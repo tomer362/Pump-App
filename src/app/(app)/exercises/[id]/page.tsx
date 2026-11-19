@@ -6,6 +6,7 @@ import { ExerciseDetailTabs } from "@/components/exercise/exercise-detail-tabs";
 import type { ExerciseDetailData } from "@/components/exercise/exercise-detail-tabs";
 import { QuickLogDock } from "@/components/exercise/quick-log-dock";
 import { ManageExercise } from "./manage-exercise";
+import { ExportExerciseButton } from "@/components/history/export-history";
 import { ExerciseStateStrips } from "@/components/exercise/exercise-state-strips";
 import { requireUser } from "@/lib/session";
 import {
@@ -48,22 +49,30 @@ export default async function ExerciseDetailPage(
         // every scroll position rather than below a tab panel that can be
         // thirty history rows tall. Absent for a built-in: the seeded library
         // is read-only by construction.
+        // Export sits beside them for every exercise, built-in included: it
+        // reads only your own sets of it.
         right={
-          mine ? (
-            <ManageExercise
+          <>
+            <ExportExerciseButton
               exerciseId={exercise.id}
               name={exercise.name}
-              archived={archived}
-              initial={{
-                name: exercise.name,
-                primaryMuscle: exercise.primaryMuscle,
-                secondaryMuscles: exercise.secondaryMuscles,
-                equipment: exercise.equipment,
-                trackingType: exercise.trackingType,
-                instructions: exercise.instructions ?? "",
-              }}
             />
-          ) : null
+            {mine ? (
+              <ManageExercise
+                exerciseId={exercise.id}
+                name={exercise.name}
+                archived={archived}
+                initial={{
+                  name: exercise.name,
+                  primaryMuscle: exercise.primaryMuscle,
+                  secondaryMuscles: exercise.secondaryMuscles,
+                  equipment: exercise.equipment,
+                  trackingType: exercise.trackingType,
+                  instructions: exercise.instructions ?? "",
+                }}
+              />
+            ) : null}
+          </>
         }
       />
 
@@ -93,7 +102,6 @@ export default async function ExerciseDetailPage(
             }}
           />
         </Suspense>
-
       </div>
 
       {/* No dock on an archived exercise — it is hidden from every picker, so

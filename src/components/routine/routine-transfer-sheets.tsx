@@ -36,48 +36,16 @@ import {
   parseAnyRoutineDocument,
 } from "@/lib/routine-transfer";
 import { cn, haptic, labelize } from "@/lib/utils";
+import { deliverFile, type Delivery } from "@/lib/file-delivery";
 
 /**
- * Client half of routine export and import.
- *
- * The delivery path matters more than it looks. `<a download>` on a blob URL is
- * unreliable in an installed iOS PWA — a blob navigation in standalone display
- * mode either renders the JSON as text in a new context or does nothing, and it
- * can bounce the user out of the app entirely. Since this app is meant to live
- * on a home screen, the native share sheet leads and the anchor is the
- * desktop/Android fallback, with the clipboard behind both.
+ * Client half of routine export and import. Delivery (share sheet → download →
+ * clipboard, and why in that order) lives in `lib/file-delivery.ts`, shared
+ * with the history export.
  */
 
-type Delivery = "shared" | "downloaded" | "copied";
-
-async function deliver(filename: string, json: string): Promise<Delivery> {
-  const file = new File([json], filename, { type: "application/json" });
-
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return "shared";
-    } catch {
-      /* Dismissed, or the sheet refused the file — fall through. */
-    }
-  }
-
-  try {
-    const url = URL.createObjectURL(file);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Revoking synchronously races the download in some browsers.
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    return "downloaded";
-  } catch {
-    await navigator.clipboard.writeText(json);
-    return "copied";
-  }
-}
+const deliver = (filename: string, json: string) =>
+  deliverFile(filename, json, "application/json");
 
 export function ShareRoutineSheet({
   open,
@@ -530,8 +498,8 @@ export function ImportRoutineButton({
               ) : (
                 <p className="text-text-3 pt-1 text-[13px] leading-relaxed">
                   Planned a week with ChatGPT or Claude? Copy AI prompt turns
-                  that plan into one JSON block per day — paste them back one
-                  at a time.
+                  that plan into one JSON block per day — paste them back one at
+                  a time.
                   {routines.length > 0 &&
                     " To change routines you already have, Update routines with AI hands the chat your routines and brings the edits back onto the same ones, with no duplicates."}
                 </p>

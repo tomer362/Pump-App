@@ -40,6 +40,7 @@ Translated from the original Hebrew note; all of it is implemented.
 | 16 | Co-op session | `/coop`, `lib/actions/coop.ts` |
 | 17 | Weekly per-muscle volume | `getMuscleVolume`, `components/stats/muscle-volume-chart.tsx` |
 | 18 | Quick-log a set outside a workout | `lib/actions/quick-log.ts`, `components/exercise/quick-log-{dock,sheet}.tsx` |
+| 19 | Export your history (CSV/JSON) | `/settings` (everything), `/exercises/[id]` download icon (one lift); `lib/history-export.ts` |
 
 Exercises is the fourth tab; **Stats** is a button in its nav bar, plus a row on
 the profile. The library and the per-exercise page (charts, rep maxes, records)
@@ -863,6 +864,18 @@ iOS Safari doesn't implement it, so never make a haptic the sole feedback.
   `resolveExercisesForUser` now binds a slug-less exercise to a built-in by
   exact case-insensitive name (after your own customs), which is what stops
   both prompts minting twins of the library.
+- **The history export reads only finished workouts and only the caller's own,
+  and takes no `userId`.** `exportHistory` (`lib/actions/history-export.ts`)
+  derives whose sets from the session; the one id it accepts is an exercise,
+  checked for the same visibility as `/exercises/[id]` so a stranger's custom
+  id answers "not found" rather than an empty file named after it. The format
+  (`lib/history-export.ts`, pure) follows the routine export: no uuids, weights
+  in kg with a `weight_lb` column added for a pound user, never instead. An
+  assisted weight is written as stored with `weight_is_assistance`, not
+  negated: a spreadsheet's SUM over a negated column claims something. The CSV
+  carries a BOM (Excel reads it as UTF-8 only with one) and apostrophe-prefixes
+  any text cell starting `= + - @`, because exercise names and notes are free
+  text and a spreadsheet would otherwise run them as formulas.
 - **`<a download>` is not the primary export path.** Blob-URL downloads are
   unreliable in an installed iOS PWA and can bounce the user out of the app, so
   `navigator.share({files})` leads, the anchor is the desktop/Android fallback,

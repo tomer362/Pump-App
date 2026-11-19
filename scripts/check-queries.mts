@@ -21,6 +21,7 @@ import * as exerciseQ from "../src/lib/queries/exercise.ts";
 import * as routineQ from "../src/lib/queries/routine.ts";
 import * as socialQ from "../src/lib/queries/social.ts";
 import * as statsQ from "../src/lib/queries/stats.ts";
+import * as exportQ from "../src/lib/queries/history-export.ts";
 
 /**
  * Prefer a user who has actually finished a workout, deterministically —
@@ -212,6 +213,9 @@ const cases: [string, () => Promise<unknown>][] = [
   ["stats.getTrainingCalendar", () => statsQ.getTrainingCalendar(uid, 200)],
   ["stats.getRecentRecords", () => statsQ.getRecentRecords(uid, 6)],
   ["stats.getAchievements", () => statsQ.getAchievements(uid)],
+  ["export.getHistoryExportRows", () => exportQ.getHistoryExportRows(uid)],
+  ["export.getHistoryExportRows (one exercise)", () => exportQ.getHistoryExportRows(uid, eid)],
+  ["export.getHistoryExportRecords", () => exportQ.getHistoryExportRecords(uid, eid)],
 ];
 
 let failed = 0;
