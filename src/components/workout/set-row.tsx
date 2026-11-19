@@ -678,10 +678,12 @@ function previousLabel(
         case "distance":
           return previous.distanceM != null ? `${previous.distanceM}m` : null;
       }
-    })
-    .filter((p): p is string => p != null);
+    });
 
-  return parts.length ? parts.join("×") : "—";
+  // Every column keeps its slot. Dropping an empty one turned "no weight × 10"
+  // into a bare "10", which sits under PREVIOUS reading as 10 kg.
+  if (parts.every((p) => p == null)) return "—";
+  return parts.map((p) => p ?? "–").join("×");
 }
 
 function ValueCell({
