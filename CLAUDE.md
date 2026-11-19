@@ -24,7 +24,7 @@ Translated from the original Hebrew note; all of it is implemented.
 |---|---------|-------|
 | 1 | Build a routine (template) | `/routines/new`, `components/routine/routine-builder.tsx` |
 | 2 | Log a workout | `/workout/[id]`, `components/workout/workout-screen.tsx` |
-| 3 | Workout history | `/history`, `/history/[id]` — every set correctable after the fact (`lib/actions/history-edit.ts`) |
+| 3 | Workout history | `/history`, `/history/[id]` — every set, exercise (add/replace/reorder/remove) and the name/date/duration correctable after the fact (`lib/actions/history-edit.ts`) |
 | 4 | Add/remove sets mid-workout | `set-row.tsx`, `addSet`/`removeSet` |
 | 5 | Custom exercises | `createCustomExercise`, exercise picker |
 | 6 | Rest timer auto-starts on set completion | `components/workout/rest-timer.tsx` |

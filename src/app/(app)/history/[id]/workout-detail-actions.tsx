@@ -12,9 +12,12 @@ import { watchAction } from "@/components/ui/toast";
 export function WorkoutDetailActions({
   workoutId,
   workoutName,
+  edit,
 }: {
   workoutId: string;
   workoutName: string;
+  /** The details editor's trigger, sitting between save and delete. */
+  edit?: React.ReactNode;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -43,6 +46,7 @@ export function WorkoutDetailActions({
           <ListPlus className="size-4" />
           Save as routine
         </Button>
+        {edit}
         <Button
           variant="ghost"
           className="text-danger"

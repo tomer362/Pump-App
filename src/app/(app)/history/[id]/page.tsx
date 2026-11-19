@@ -6,6 +6,11 @@ import { NavBar } from "@/components/ui/nav-bar";
 import { Badge, Card, Stat } from "@/components/ui/primitives";
 import { WorkoutDetailActions } from "./workout-detail-actions";
 import { AddSetRow, SetEditRow } from "./set-edit-sheet";
+import {
+  AddExerciseRow,
+  EditWorkoutDetails,
+  ExerciseOptions,
+} from "./workout-edit";
 import { requireUser } from "@/lib/session";
 import { getFullWorkout, getPersonalRecords } from "@/lib/queries/workout";
 import { isWorkoutShared } from "@/lib/queries/social";
@@ -111,17 +116,28 @@ export default async function WorkoutDetailPage(
             <WorkoutDetailActions
               workoutId={workout.id}
               workoutName={workout.name}
+              edit={
+                <EditWorkoutDetails
+                  workoutId={workout.id}
+                  name={workout.name}
+                  note={workout.note}
+                  startedAt={new Date(workout.startedAt).toISOString()}
+                  durationSeconds={workout.durationSeconds}
+                />
+              }
             />
             {/* A tap on a row is advertised by nothing on the row itself, and
                 a glyph on every set would be noise — so it is said once. */}
             <p className="text-text-3 mt-3 text-[12px]">
-              Tap a set to correct it, or add one you forgot to log.
+              Tap a set to correct it, or add one you forgot to log. The pencil
+              edits the name, date and duration; an exercise&apos;s ··· moves,
+              replaces or removes it.
             </p>
           </div>
         )}
 
         <div className="mt-6 space-y-5">
-          {workout.exercises.map((e) => {
+          {workout.exercises.map((e, blockIndex) => {
             // A finished workout can still carry sets that were planned and
             // never performed — the lifter chose to record the session as
             // unfinished. They're shown, but they count for nothing.
@@ -158,6 +174,17 @@ export default async function WorkoutDetailPage(
                       <Trophy className="size-3" strokeWidth={2.6} />
                       PR
                     </Badge>
+                  )}
+                  {isMine && (
+                    <ExerciseOptions
+                      workoutExerciseId={e.id}
+                      exerciseId={e.exerciseId}
+                      name={e.name}
+                      trackingType={e.trackingType}
+                      isFirst={blockIndex === 0}
+                      isLast={blockIndex === workout.exercises.length - 1}
+                      canRemove={workout.exercises.length > 1}
+                    />
                   )}
                 </div>
 
@@ -335,6 +362,16 @@ export default async function WorkoutDetailPage(
               </div>
             );
           })}
+          {isMine && (
+            <AddExerciseRow
+              workoutId={workout.id}
+              unit={me.unit}
+              alreadyIn={workout.exercises.reduce<Record<string, number>>(
+                (m, e) => ({ ...m, [e.exerciseId]: (m[e.exerciseId] ?? 0) + 1 }),
+                {},
+              )}
+            />
+          )}
         </div>
       </div>
     </div>

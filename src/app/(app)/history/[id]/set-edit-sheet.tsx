@@ -17,6 +17,7 @@ import {
 } from "@/components/exercise/set-value-field";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import {
+  addLoggedExercise,
   addLoggedSet,
   deleteLoggedSet,
   editLoggedSet,
@@ -183,7 +184,7 @@ const TYPES: { value: SetType; label: string }[] = [
  * Delete is the title row's trash icon, like every options sheet in the app,
  * and confirms in place: it is the one control here with no undo.
  */
-function SetEditSheet({
+export function SetEditSheet({
   open,
   mode,
   initial,
@@ -195,7 +196,9 @@ function SetEditSheet({
   open: boolean;
   mode:
     | { kind: "edit"; setId: string; canDelete: boolean }
-    | { kind: "add"; workoutExerciseId: string };
+    | { kind: "add"; workoutExerciseId: string }
+    /** A forgotten exercise, created along with its first set. */
+    | { kind: "new-exercise"; workoutId: string; exerciseId: string };
   initial: LoggedSet;
   onClose: () => void;
 }) {
@@ -246,7 +249,7 @@ function SetEditSheet({
   // Compared in the display unit, so a lb reader's untouched 225 never reads
   // as changed by a round trip through kilograms.
   const dirty =
-    mode.kind === "add" ||
+    mode.kind !== "edit" ||
     (hasWeight &&
       weight !==
         (initial.weightKg != null
@@ -288,7 +291,9 @@ function SetEditSheet({
       const res =
         mode.kind === "edit"
           ? await editLoggedSet(mode.setId, { ...payload, done })
-          : await addLoggedSet(mode.workoutExerciseId, payload);
+          : mode.kind === "add"
+            ? await addLoggedSet(mode.workoutExerciseId, payload)
+            : await addLoggedExercise(mode.workoutId, mode.exerciseId, payload);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -331,7 +336,11 @@ function SetEditSheet({
         disabled={!dirty || (done && !records)}
         onClick={save}
       >
-        {mode.kind === "add" ? "Add set" : "Save changes"}
+        {mode.kind === "edit"
+          ? "Save changes"
+          : mode.kind === "add"
+            ? "Add set"
+            : "Add exercise"}
       </Button>
     </div>
   );
